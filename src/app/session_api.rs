@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use launch_code::model::{SessionRecord, SessionStatus, unix_timestamp_secs};
 use launch_code::process::{
-    is_process_alive, resume_process, run_shell_task, stop_process, suspend_process,
+    is_process_alive, resume_process, run_shell_task, stop_process, stop_process_with_options,
+    suspend_process,
 };
 use launch_code::runtime::build_command;
 use launch_code::state::StateStore;
@@ -127,17 +129,20 @@ pub(crate) fn api_stop_session(
     Ok(session_clone)
 }
 
-pub(crate) fn api_restart_session(
+pub(crate) fn api_restart_session_with_options(
     store: &StateStore,
     session_id: &str,
+    force: bool,
+    grace_timeout_ms: u64,
 ) -> Result<SessionRecord, AppError> {
     let session_id = session_id.to_string();
+    let grace_timeout = Duration::from_millis(grace_timeout_ms);
     store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, &session_id)?;
         if let Some(pid) = session.pid {
             if is_process_alive(pid) {
-                stop_process(pid)?;
+                stop_process_with_options(pid, force, grace_timeout)?;
             }
         }
 

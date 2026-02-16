@@ -11,12 +11,12 @@ use serde_json::json;
 
 use crate::app::{
     api_debug_session, api_get_session, api_inspect_session, api_list_sessions,
-    api_restart_session, api_resume_session, api_stop_session, api_suspend_session,
+    api_restart_session_with_options, api_resume_session, api_stop_session, api_suspend_session,
 };
 use crate::dap::DapRegistry;
 use crate::http_utils::{
-    http_is_authorized, http_json, http_json_error, http_path_segments, http_query_usize,
-    http_split_url,
+    http_is_authorized, http_json, http_json_body_error, http_json_error, http_path_segments,
+    http_query_usize, http_read_json_body, http_split_url,
 };
 
 static HTTP_SERVER_STARTED_AT: OnceLock<Instant> = OnceLock::new();
@@ -225,7 +225,35 @@ fn response_for_request_inner(
             }
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "restart"]) => {
-            match api_restart_session(store, session_id) {
+            let payload = match http_read_json_body(request) {
+                Ok(value) => value,
+                Err(err) => return http_json_body_error(err),
+            };
+            let force = match payload.get("force") {
+                None => true,
+                Some(value) => match value.as_bool() {
+                    Some(value) => value,
+                    None => {
+                        return http_json(
+                            tiny_http::StatusCode(400),
+                            json!({"ok": false, "error": "bad_request", "message": "force must be a boolean"}),
+                        );
+                    }
+                },
+            };
+            let grace_timeout_ms = match payload.get("grace_timeout_ms") {
+                None => 150u64,
+                Some(value) => match value.as_u64() {
+                    Some(value) => value.min(60_000),
+                    None => {
+                        return http_json(
+                            tiny_http::StatusCode(400),
+                            json!({"ok": false, "error": "bad_request", "message": "grace_timeout_ms must be a non-negative integer"}),
+                        );
+                    }
+                },
+            };
+            match api_restart_session_with_options(store, session_id, force, grace_timeout_ms) {
                 Ok(session) => http_json(
                     tiny_http::StatusCode(200),
                     json!({"ok": true, "session": session}),
