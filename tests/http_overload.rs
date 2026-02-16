@@ -152,6 +152,15 @@ fn serve_returns_503_when_request_queue_is_saturated() {
         overloaded_res.status(),
         ureq::http::StatusCode::SERVICE_UNAVAILABLE
     );
+    let retry_after = overloaded_res
+        .headers()
+        .get("Retry-After")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(
+        retry_after, "1",
+        "overloaded response should include Retry-After header"
+    );
     let overloaded_body = overloaded_res
         .body_mut()
         .read_to_string()
@@ -185,9 +194,16 @@ fn serve_returns_503_when_request_queue_is_saturated() {
     let responses_5xx = metrics_json["metrics"]["responses"]["5xx"]
         .as_u64()
         .expect("5xx should be numeric");
+    let responses_503 = metrics_json["metrics"]["responses"]["503"]
+        .as_u64()
+        .expect("503 should be numeric");
     assert!(
         responses_5xx >= 1,
         "metrics should include overloaded response"
+    );
+    assert!(
+        responses_503 >= 1,
+        "metrics should include overloaded response in 503 bucket"
     );
 
     let _ = child.kill();

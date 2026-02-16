@@ -128,6 +128,10 @@ fn handle_serve(store: &StateStore, args: &ServeArgs) -> Result<(), AppError> {
                         "message": "request queue is full",
                     }),
                 );
+                let response = match tiny_http::Header::from_bytes("Retry-After", "1") {
+                    Ok(header) => response.with_header(header),
+                    Err(_) => response,
+                };
                 let _ = request.respond(response);
                 crate::http_api::observe_response(&method, &url, 503, Duration::from_millis(0));
             }
