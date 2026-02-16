@@ -282,7 +282,7 @@ pub struct ServeArgs {
     #[arg(
         long,
         default_value_t = 256,
-        help = "Maximum queued HTTP requests waiting for workers."
+        help = "Maximum queued HTTP requests waiting for workers. Set to 0 for direct handoff (no queue); overload returns HTTP 503 with Retry-After."
     )]
     pub queue_capacity: usize,
     #[arg(

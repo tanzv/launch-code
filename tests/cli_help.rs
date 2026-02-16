@@ -190,6 +190,18 @@ fn serve_help_exposes_worker_and_queue_options() {
         stdout.contains("--max-body-bytes"),
         "serve help should expose --max-body-bytes"
     );
+    assert!(
+        stdout.contains("Set to 0 for direct handoff"),
+        "serve help should explain queue-capacity=0 semantics"
+    );
+    assert!(
+        stdout.contains("503"),
+        "serve help should mention overload response behavior"
+    );
+    assert!(
+        stdout.contains("Retry-After"),
+        "serve help should mention retry hint header"
+    );
 }
 
 #[test]
