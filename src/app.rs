@@ -572,7 +572,7 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
         spec.env.clear();
     }
 
-    if let Some(env_file) = &args.env_file {
+    for env_file in &args.env_file {
         let env_map = parse_env_file_map(env_file)?;
         spec.env.extend(env_map);
     }

@@ -59,6 +59,7 @@ launch-code config validate --all
 launch-code config run --name "Python Profile"
 launch-code config run --name "Python Profile" --arg "--feature" --env API_URL=http://127.0.0.1:9000
 launch-code config run --name "Python Profile" --clear-args --clear-env --env-file ./run.env
+launch-code config run --name "Python Profile" --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
 launch-code config export --file ./.launch-code/profiles.json
 launch-code config import --file ./.launch-code/profiles.json
 launch-code config delete --name "Python Profile"
@@ -116,6 +117,12 @@ Debug output includes endpoint metadata:
 - `--exclude-regex` applies a regular expression exclude condition.
 - `--ignore-case` applies case-insensitive matching for `--contains`, `--exclude`, `--regex`, and `--exclude-regex`.
 - Filtering applies to both `--tail` output and `--follow` stream output.
+
+`config run` env override order:
+
+- Saved profile env values are loaded first.
+- `--env-file` values are applied in declaration order (`--env-file a --env-file b`, so `b` overrides `a`).
+- `--env KEY=VALUE` values are applied last and override both saved env and env-file values.
 
 ### Structured CLI Output
 

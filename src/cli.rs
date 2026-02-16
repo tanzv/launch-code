@@ -195,9 +195,9 @@ pub struct ConfigRunArgs {
     pub clear_env: bool,
     #[arg(
         long,
-        help = "Optional env file loaded for this run (KEY=VALUE per line)."
+        help = "Env file loaded for this run (KEY=VALUE per line). Repeatable; later files override earlier ones."
     )]
-    pub env_file: Option<PathBuf>,
+    pub env_file: Vec<PathBuf>,
     #[arg(
         long = "arg",
         help = "Additional runtime argument for this run. Repeatable."

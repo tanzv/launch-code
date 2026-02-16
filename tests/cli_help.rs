@@ -203,4 +203,8 @@ fn config_run_help_exposes_runtime_override_flags() {
         stdout.contains("--env-file"),
         "config run help should expose --env-file"
     );
+    assert!(
+        stdout.contains("Repeatable"),
+        "config run help should describe repeatable env files"
+    );
 }
