@@ -364,6 +364,7 @@ fn handle_restart(store: &StateStore, args: &RestartArgs) -> Result<(), AppError
         let pid = spawn_session_worker(store, &session.id, &session.spec, Some(log_path.clone()))?;
         session.pid = Some(pid);
         session.status = SessionStatus::Running;
+        session.restart_count = session.restart_count.saturating_add(1);
         session.updated_at = now;
         session.debug_meta = debug_meta;
         let mut output = format!(

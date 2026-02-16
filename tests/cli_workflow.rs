@@ -127,3 +127,64 @@ fn cli_start_supports_env_file_and_cli_env_overrides() {
         .assert()
         .success();
 }
+
+#[test]
+fn cli_manual_restart_increments_restart_count() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("app_restart.py");
+    fs::write(&script_path, "import time\ntime.sleep(30)\n").expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("restart-count-session")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let start_stdout = String::from_utf8(start_output.stdout).expect("stdout should be utf8");
+    let session_id = parse_session_id(&start_stdout).expect("session id should be present");
+
+    let mut restart_cmd = cargo_bin_cmd!("launch-code");
+    restart_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("restart")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .arg("true")
+        .assert()
+        .success()
+        .stdout(contains("restart_count=1"));
+
+    let mut status_cmd = cargo_bin_cmd!("launch-code");
+    status_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("status")
+        .arg("--id")
+        .arg(&session_id)
+        .assert()
+        .success()
+        .stdout(contains("restart_count=1"));
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .assert()
+        .success();
+}
