@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::envfile::{EnvFileError, parse_env_file_map};
 use crate::model::{DebugConfig, LaunchMode, LaunchSpec, RuntimeKind};
 
 const VSCODE_LAUNCH_FILE: &str = ".vscode/launch.json";
@@ -255,36 +256,8 @@ fn expand_env_tokens(raw: &str) -> String {
 }
 
 fn parse_env_file(path: &Path) -> Result<BTreeMap<String, String>, ConfigError> {
-    let payload = fs::read_to_string(path)?;
-    let mut env_map = BTreeMap::new();
-
-    for line in payload.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        let trimmed = trimmed.strip_prefix("export ").unwrap_or(trimmed);
-        let (key, value) = trimmed
-            .split_once('=')
-            .ok_or_else(|| ConfigError::InvalidEnvFileLine(trimmed.to_string()))?;
-        let key = key.trim();
-        let value = value.trim();
-        if key.is_empty() {
-            continue;
-        }
-
-        let value = value
-            .strip_prefix('"')
-            .and_then(|inner| inner.strip_suffix('"'))
-            .or_else(|| {
-                value
-                    .strip_prefix('\'')
-                    .and_then(|inner| inner.strip_suffix('\''))
-            })
-            .unwrap_or(value);
-        env_map.insert(key.to_string(), value.to_string());
-    }
-
-    Ok(env_map)
+    parse_env_file_map(path).map_err(|err| match err {
+        EnvFileError::InvalidLine(line) => ConfigError::InvalidEnvFileLine(line),
+        EnvFileError::Io(io) => ConfigError::Io(io),
+    })
 }
