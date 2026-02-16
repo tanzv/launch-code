@@ -1,5 +1,8 @@
+mod codec;
+mod subprocess;
+
 use std::collections::{HashMap, VecDeque};
-use std::io::{BufRead, BufReader, Write};
+use std::io::BufReader;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -8,9 +11,6 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use launch_code::model::{
-    DebugConfig, DebugSessionMeta, SessionRecord, SessionStatus, unix_timestamp_secs,
-};
 use launch_code::state::StateStore;
 
 use crate::error::AppError;
@@ -28,15 +28,6 @@ pub(crate) struct AdoptSubprocessResult {
     pub process_id: Option<u32>,
     pub source_event: serde_json::Value,
     pub bootstrap_responses: Vec<serde_json::Value>,
-}
-
-#[derive(Debug, Clone)]
-struct DebugpyAttachTarget {
-    host: String,
-    port: u16,
-    process_id: Option<u32>,
-    attach_arguments: serde_json::Value,
-    source_event: serde_json::Value,
 }
 
 pub(crate) fn send_request_with_retry(
@@ -112,38 +103,9 @@ pub(crate) fn adopt_debugpy_subprocess(
     let proxy = proxy_for_session(store, registry, parent_session_id)?;
     let events = proxy.pop_events(max_events.max(1), event_timeout);
 
-    let mut malformed_attach_error: Option<String> = None;
-    let mut target: Option<DebugpyAttachTarget> = None;
-    for event in events.iter().rev() {
-        if event.get("event").and_then(|value| value.as_str()) != Some("debugpyAttach") {
-            continue;
-        }
-        match parse_debugpy_attach_target(event) {
-            Ok(value) => {
-                target = Some(value);
-                break;
-            }
-            Err(err) => {
-                malformed_attach_error = Some(err.to_string());
-            }
-        }
-    }
+    let target = subprocess::latest_debugpy_attach_target(&events)?;
 
-    let target = match target {
-        Some(value) => value,
-        None => {
-            if let Some(message) = malformed_attach_error {
-                return Err(AppError::Dap(format!(
-                    "invalid debugpyAttach event: {message}"
-                )));
-            }
-            return Err(AppError::Dap(
-                "no debugpyAttach event available; poll events and retry".to_string(),
-            ));
-        }
-    };
-
-    let child_session_id = register_subprocess_session(
+    let child_session_id = subprocess::register_subprocess_session(
         store,
         parent_session_id,
         &target,
@@ -235,179 +197,6 @@ fn drop_session(registry: &Arc<Mutex<DapRegistry>>, session_id: &str) {
     if let Ok(mut guard) = registry.lock() {
         guard.proxies.remove(session_id);
     }
-}
-
-fn register_subprocess_session(
-    store: &StateStore,
-    parent_session_id: &str,
-    target: &DebugpyAttachTarget,
-    requested_child_session_id: Option<&str>,
-) -> Result<String, AppError> {
-    let parent_session_id = parent_session_id.to_string();
-    let requested_child_session_id = requested_child_session_id.map(str::to_string);
-    let target = target.clone();
-
-    store.update::<_, _, AppError>(|state| {
-        let parent = state
-            .sessions
-            .get(&parent_session_id)
-            .cloned()
-            .ok_or_else(|| AppError::SessionNotFound(parent_session_id.clone()))?;
-
-        let mut child_spec = parent.spec.clone();
-        if let Some(debug) = child_spec.debug.as_mut() {
-            debug.host = target.host.clone();
-            debug.port = target.port;
-            debug.wait_for_client = false;
-        } else {
-            child_spec.debug = Some(DebugConfig {
-                host: target.host.clone(),
-                port: target.port,
-                wait_for_client: false,
-                subprocess: true,
-            });
-        }
-
-        let base = match &requested_child_session_id {
-            Some(value) => value.clone(),
-            None => match target.process_id {
-                Some(pid) => format!("{parent_session_id}-subprocess-{pid}"),
-                None => format!("{parent_session_id}-subprocess-{}", target.port),
-            },
-        };
-        let child_session_id =
-            unique_session_id(state, &base, requested_child_session_id.is_none())
-                .ok_or_else(|| AppError::Dap(format!("session id already exists: {base}")))?;
-        let now = unix_timestamp_secs();
-
-        state.sessions.insert(
-            child_session_id.clone(),
-            SessionRecord {
-                id: child_session_id.clone(),
-                spec: child_spec,
-                status: SessionStatus::Running,
-                pid: target.process_id,
-                supervisor_pid: parent.pid.or(parent.supervisor_pid),
-                log_path: parent.log_path.clone(),
-                debug_meta: Some(DebugSessionMeta {
-                    host: target.host.clone(),
-                    requested_port: target.port,
-                    active_port: target.port,
-                    fallback_applied: false,
-                    reconnect_policy: "auto-retry".to_string(),
-                }),
-                created_at: now,
-                updated_at: now,
-                last_exit_code: None,
-                restart_count: 0,
-            },
-        );
-
-        Ok(child_session_id)
-    })
-}
-
-fn unique_session_id(
-    state: &launch_code::model::AppState,
-    base: &str,
-    allow_suffix: bool,
-) -> Option<String> {
-    if !state.sessions.contains_key(base) {
-        return Some(base.to_string());
-    }
-    if !allow_suffix {
-        return None;
-    }
-
-    let mut suffix = 1usize;
-    loop {
-        let candidate = format!("{base}-{suffix}");
-        if !state.sessions.contains_key(&candidate) {
-            return Some(candidate);
-        }
-        suffix += 1;
-    }
-}
-
-fn parse_debugpy_attach_target(event: &serde_json::Value) -> Result<DebugpyAttachTarget, AppError> {
-    if event.get("type").and_then(|value| value.as_str()) != Some("event") {
-        return Err(AppError::Dap(
-            "event payload type must be `event`".to_string(),
-        ));
-    }
-    if event.get("event").and_then(|value| value.as_str()) != Some("debugpyAttach") {
-        return Err(AppError::Dap(
-            "event name must be `debugpyAttach`".to_string(),
-        ));
-    }
-
-    let body = event
-        .get("body")
-        .and_then(|value| value.as_object())
-        .ok_or_else(|| AppError::Dap("debugpyAttach event requires object body".to_string()))?;
-    let (host, port) = parse_attach_host_port(body)?;
-    let process_id = body
-        .get("subProcessId")
-        .or_else(|| body.get("processId"))
-        .and_then(parse_optional_u32);
-
-    let mut attach_arguments = body.clone();
-    for key in [
-        "name", "type", "request", "connect", "host", "port", "listen",
-    ] {
-        attach_arguments.remove(key);
-    }
-    if attach_arguments.is_empty() {
-        attach_arguments.insert("justMyCode".to_string(), json!(false));
-    }
-
-    Ok(DebugpyAttachTarget {
-        host,
-        port,
-        process_id,
-        attach_arguments: serde_json::Value::Object(attach_arguments),
-        source_event: event.clone(),
-    })
-}
-
-fn parse_attach_host_port(
-    body: &serde_json::Map<String, serde_json::Value>,
-) -> Result<(String, u16), AppError> {
-    if let Some(connect) = body.get("connect").and_then(|value| value.as_object()) {
-        let host = connect
-            .get("host")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| AppError::Dap("connect.host is required".to_string()))?;
-        let port = connect
-            .get("port")
-            .and_then(parse_optional_u16)
-            .ok_or_else(|| AppError::Dap("connect.port is required".to_string()))?;
-        return Ok((host.to_string(), port));
-    }
-
-    let host = body
-        .get("host")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| AppError::Dap("host is required when connect is missing".to_string()))?;
-    let port = body
-        .get("port")
-        .and_then(parse_optional_u16)
-        .ok_or_else(|| AppError::Dap("port is required when connect is missing".to_string()))?;
-    Ok((host.to_string(), port))
-}
-
-fn parse_optional_u16(value: &serde_json::Value) -> Option<u16> {
-    if let Some(num) = value.as_u64() {
-        return u16::try_from(num).ok();
-    }
-    value.as_str().and_then(|text| text.parse::<u16>().ok())
-}
-
-fn parse_optional_u32(value: &serde_json::Value) -> Option<u32> {
-    if let Some(num) = value.as_u64() {
-        return u32::try_from(num).ok();
-    }
-    value.as_str().and_then(|text| text.parse::<u32>().ok())
 }
 
 #[allow(dead_code)]
@@ -604,7 +393,7 @@ impl TcpDapProxy {
             .writer
             .lock()
             .map_err(|_| AppError::Dap("dap writer lock poisoned".to_string()))?;
-        dap_write_message(&mut *writer, msg)
+        codec::write_message(&mut *writer, msg)
     }
 
     fn start_request(
@@ -654,7 +443,7 @@ impl TcpDapProxy {
 fn dap_tcp_reader_loop(proxy: Arc<TcpDapProxy>, stream: TcpStream) {
     let mut reader = BufReader::new(stream);
     loop {
-        let msg = match dap_read_message(&mut reader) {
+        let msg = match codec::read_message(&mut reader) {
             Ok(value) => value,
             Err(_) => {
                 let mut guard = proxy
@@ -844,7 +633,7 @@ impl PythonAdapterDapProxy {
             .writer
             .lock()
             .map_err(|_| AppError::Dap("dap writer lock poisoned".to_string()))?;
-        dap_write_message(&mut *writer, msg)
+        codec::write_message(&mut *writer, msg)
     }
 
     fn start_request(
@@ -940,7 +729,7 @@ impl DapWaiter for PythonAdapterDapProxy {
 fn dap_stdio_reader_loop(proxy: Arc<PythonAdapterDapProxy>, stdout: std::process::ChildStdout) {
     let mut reader = BufReader::new(stdout);
     loop {
-        let msg = match dap_read_message(&mut reader) {
+        let msg = match codec::read_message(&mut reader) {
             Ok(value) => value,
             Err(_) => {
                 let mut guard = proxy
@@ -1005,54 +794,4 @@ fn dap_stdio_reader_loop(proxy: Arc<PythonAdapterDapProxy>, stdout: std::process
             _ => {}
         }
     }
-}
-
-fn dap_write_message<W: Write>(writer: &mut W, msg: &serde_json::Value) -> Result<(), AppError> {
-    let payload = serde_json::to_vec(msg).map_err(|err| AppError::Dap(err.to_string()))?;
-    let header = format!("Content-Length: {}\r\n\r\n", payload.len());
-    writer
-        .write_all(header.as_bytes())
-        .map_err(|err| AppError::Dap(err.to_string()))?;
-    writer
-        .write_all(&payload)
-        .map_err(|err| AppError::Dap(err.to_string()))?;
-    writer
-        .flush()
-        .map_err(|err| AppError::Dap(err.to_string()))?;
-    Ok(())
-}
-
-fn dap_read_message<R: BufRead>(reader: &mut R) -> Result<serde_json::Value, AppError> {
-    let mut content_len: Option<usize> = None;
-    loop {
-        let mut line = String::new();
-        let bytes = reader
-            .read_line(&mut line)
-            .map_err(|err| AppError::Dap(err.to_string()))?;
-        if bytes == 0 {
-            return Err(AppError::Dap(
-                "unexpected eof while reading headers".to_string(),
-            ));
-        }
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            break;
-        }
-        let lower = trimmed.to_ascii_lowercase();
-        if let Some(rest) = lower.strip_prefix("content-length:") {
-            let parsed = rest
-                .trim()
-                .parse::<usize>()
-                .map_err(|err| AppError::Dap(err.to_string()))?;
-            content_len = Some(parsed);
-        }
-    }
-
-    let len =
-        content_len.ok_or_else(|| AppError::Dap("missing content-length header".to_string()))?;
-    let mut buf = vec![0u8; len];
-    reader
-        .read_exact(&mut buf)
-        .map_err(|err| AppError::Dap(err.to_string()))?;
-    serde_json::from_slice(&buf).map_err(|err| AppError::Dap(err.to_string()))
 }
