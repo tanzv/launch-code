@@ -105,7 +105,7 @@ pub fn is_process_alive(pid: u32) -> bool {
 pub fn suspend_process(pid: u32) -> Result<(), ProcessError> {
     #[cfg(unix)]
     {
-        send_signal(pid, libc::SIGSTOP)
+        send_signal_group(pid, libc::SIGSTOP)
     }
     #[cfg(not(unix))]
     {
@@ -117,7 +117,7 @@ pub fn suspend_process(pid: u32) -> Result<(), ProcessError> {
 pub fn resume_process(pid: u32) -> Result<(), ProcessError> {
     #[cfg(unix)]
     {
-        send_signal(pid, libc::SIGCONT)
+        send_signal_group(pid, libc::SIGCONT)
     }
     #[cfg(not(unix))]
     {
