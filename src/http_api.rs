@@ -83,10 +83,15 @@ pub(crate) fn response_for_request(
     let response = response_for_request_inner(store, token, serve_state, request);
     let status = response.status_code().0;
     let elapsed = started.elapsed();
-    record_http_metrics(status, elapsed);
-    log_http_access(&method, path, status, elapsed);
+    observe_response(&method, path, status, elapsed);
 
     response
+}
+
+pub(crate) fn observe_response(method: &str, path_or_url: &str, status: u16, elapsed: Duration) {
+    let (path, _) = http_split_url(path_or_url);
+    record_http_metrics(status, elapsed);
+    log_http_access(method, path, status, elapsed);
 }
 
 fn response_for_request_inner(

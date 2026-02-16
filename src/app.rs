@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::mpsc;
+use std::sync::mpsc::TrySendError;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -77,7 +78,7 @@ fn handle_serve(store: &StateStore, args: &ServeArgs) -> Result<(), AppError> {
     std::io::stdout().flush()?;
 
     let worker_count = args.workers.clamp(1, 256);
-    let queue_capacity = args.queue_capacity.clamp(1, 4096);
+    let queue_capacity = args.queue_capacity.min(4096);
     let serve_state = Arc::new(Mutex::new(DapRegistry::default()));
     let (sender, receiver) = mpsc::sync_channel::<tiny_http::Request>(queue_capacity);
     let receiver = Arc::new(Mutex::new(receiver));
@@ -114,8 +115,25 @@ fn handle_serve(store: &StateStore, args: &ServeArgs) -> Result<(), AppError> {
     }
 
     for request in server.incoming_requests() {
-        if sender.send(request).is_err() {
-            break;
+        match sender.try_send(request) {
+            Ok(()) => {}
+            Err(TrySendError::Full(request)) => {
+                let method = request.method().as_str().to_string();
+                let url = request.url().to_string();
+                let response = crate::http_utils::http_json(
+                    tiny_http::StatusCode(503),
+                    json!({
+                        "ok": false,
+                        "error": "server_overloaded",
+                        "message": "request queue is full",
+                    }),
+                );
+                let _ = request.respond(response);
+                crate::http_api::observe_response(&method, &url, 503, Duration::from_millis(0));
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                break;
+            }
         }
     }
 
