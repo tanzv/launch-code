@@ -2,8 +2,8 @@ mod config_ops;
 mod dap_cli;
 mod log_ops;
 mod session_api;
+mod spec_ops;
 
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -13,7 +13,6 @@ use std::time::Duration;
 
 use launch_code::config::{LaunchRequest, load_launch_spec};
 use launch_code::debug::resolve_debug_config;
-use launch_code::envfile::{EnvFileError, parse_env_file_map as parse_shared_env_file_map};
 use launch_code::model::{
     AppState, DebugConfig, DebugSessionMeta, LaunchMode, LaunchSpec, RuntimeKind, SessionRecord,
     SessionStatus, unix_timestamp_secs,
@@ -29,8 +28,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::cli::{
-    Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, LaunchModeArg, LogsArgs, RuntimeArg,
-    ServeArgs, SessionIdArgs, StartArgs, StopArgs,
+    Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, LogsArgs, ServeArgs, SessionIdArgs,
+    StopArgs,
 };
 use crate::dap::DapRegistry;
 use crate::error::AppError;
@@ -44,7 +43,7 @@ pub(crate) use session_api::{
 pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppError> {
     match command {
         Commands::Start(args) => {
-            let spec = build_launch_spec(&args, LaunchMode::Run, None)?;
+            let spec = spec_ops::build_launch_spec(&args, LaunchMode::Run, None)?;
             handle_start_spec(store, spec)
         }
         Commands::Debug(args) => handle_debug(store, &args),
@@ -95,14 +94,14 @@ fn handle_debug(store: &StateStore, args: &DebugArgs) -> Result<(), AppError> {
         wait_for_client: args.wait_for_client,
         subprocess: args.subprocess,
     };
-    let spec = build_launch_spec(&args.start, LaunchMode::Debug, Some(debug))?;
+    let spec = spec_ops::build_launch_spec(&args.start, LaunchMode::Debug, Some(debug))?;
     handle_start_spec(store, spec)
 }
 
 fn handle_launch(store: &StateStore, args: &LaunchArgs) -> Result<(), AppError> {
     let request = LaunchRequest {
         name: args.name.clone(),
-        mode: to_launch_mode(&args.mode),
+        mode: spec_ops::to_launch_mode(&args.mode),
         managed_override: args.managed.then_some(true),
         launch_file: args.launch_file.clone(),
     };
@@ -388,7 +387,7 @@ fn handle_list(store: &StateStore) -> Result<(), AppError> {
                 "{}\t{}\t{}\t{}\trestarts={}",
                 id,
                 status_label(&session.status),
-                runtime_label(&session.spec.runtime),
+                spec_ops::runtime_label(&session.spec.runtime),
                 session.spec.entry,
                 session.restart_count
             ));
@@ -570,85 +569,6 @@ fn find_session_mut<'a>(
         .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))
 }
 
-fn build_launch_spec(
-    args: &StartArgs,
-    mode: LaunchMode,
-    debug: Option<DebugConfig>,
-) -> Result<LaunchSpec, AppError> {
-    let runtime = to_runtime_kind(&args.runtime);
-    let mut env = BTreeMap::new();
-    for env_file in &args.env_file {
-        env.extend(parse_env_file_map(env_file)?);
-    }
-    env.extend(parse_env_map(&args.env)?);
-    let name = args
-        .name
-        .clone()
-        .unwrap_or_else(|| format!("{}-{}", runtime_label(&runtime), args.entry));
-
-    Ok(LaunchSpec {
-        name,
-        runtime,
-        entry: args.entry.clone(),
-        args: args.args.clone(),
-        cwd: args.cwd.clone(),
-        env,
-        managed: args.managed,
-        mode,
-        debug,
-        prelaunch_task: None,
-        poststop_task: None,
-    })
-}
-
-pub(super) fn parse_env_map(items: &[String]) -> Result<BTreeMap<String, String>, AppError> {
-    let mut env_map = BTreeMap::new();
-    for item in items {
-        let (key, value) = item
-            .split_once('=')
-            .ok_or_else(|| AppError::InvalidEnvPair(item.clone()))?;
-        env_map.insert(key.to_string(), value.to_string());
-    }
-    Ok(env_map)
-}
-
-pub(super) fn parse_env_file_map(path: &Path) -> Result<BTreeMap<String, String>, AppError> {
-    parse_shared_env_file_map(path).map_err(|err| match err {
-        EnvFileError::InvalidLine(line) => AppError::InvalidEnvFileLine(line),
-        EnvFileError::Io(io) => AppError::Io(io),
-    })
-}
-
-pub(super) fn to_runtime_kind(runtime: &RuntimeArg) -> RuntimeKind {
-    match runtime {
-        RuntimeArg::Python => RuntimeKind::Python,
-        RuntimeArg::Node => RuntimeKind::Node,
-        RuntimeArg::Rust => RuntimeKind::Rust,
-    }
-}
-
-pub(super) fn to_launch_mode(mode: &LaunchModeArg) -> LaunchMode {
-    match mode {
-        LaunchModeArg::Run => LaunchMode::Run,
-        LaunchModeArg::Debug => LaunchMode::Debug,
-    }
-}
-
-pub(super) fn runtime_label(runtime: &RuntimeKind) -> &'static str {
-    match runtime {
-        RuntimeKind::Python => "python",
-        RuntimeKind::Node => "node",
-        RuntimeKind::Rust => "rust",
-    }
-}
-
-pub(super) fn mode_label(mode: &LaunchMode) -> &'static str {
-    match mode {
-        LaunchMode::Run => "run",
-        LaunchMode::Debug => "debug",
-    }
-}
-
 fn status_label(status: &SessionStatus) -> &'static str {
     match status {
         SessionStatus::Running => "running",
@@ -662,7 +582,7 @@ fn build_debug_session_doc(session: &SessionRecord, meta: &DebugSessionMeta) -> 
     let mut doc = json!({
         "ok": true,
         "session_id": session.id,
-        "runtime": runtime_label(&session.spec.runtime),
+        "runtime": spec_ops::runtime_label(&session.spec.runtime),
         "debug_meta": meta,
         "endpoint": format!("{}:{}", meta.host, meta.active_port),
     });

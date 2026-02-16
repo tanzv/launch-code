@@ -46,8 +46,8 @@ fn handle_config_list(store: &StateStore) -> Result<(), AppError> {
             .map(|(name, spec)| {
                 json!({
                     "name": name,
-                    "runtime": super::runtime_label(&spec.runtime),
-                    "mode": super::mode_label(&spec.mode),
+                    "runtime": super::spec_ops::runtime_label(&spec.runtime),
+                    "mode": super::spec_ops::mode_label(&spec.mode),
                     "entry": spec.entry,
                     "managed": spec.managed,
                 })
@@ -72,8 +72,8 @@ fn handle_config_list(store: &StateStore) -> Result<(), AppError> {
             format!(
                 "{}\t{}\t{}\t{}\tmanaged={}",
                 name,
-                super::runtime_label(&spec.runtime),
-                super::mode_label(&spec.mode),
+                super::spec_ops::runtime_label(&spec.runtime),
+                super::spec_ops::mode_label(&spec.mode),
                 spec.entry,
                 spec.managed
             )
@@ -125,7 +125,7 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
         .ok_or_else(|| AppError::ProfileNotFound(args.name.clone()))?;
 
     if let Some(mode) = &args.mode {
-        spec.mode = super::to_launch_mode(mode);
+        spec.mode = super::spec_ops::to_launch_mode(mode);
         if matches!(spec.mode, LaunchMode::Debug) {
             if spec.debug.is_none() {
                 spec.debug = Some(DebugConfig::default());
@@ -152,12 +152,12 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
     }
 
     for env_file in &args.env_file {
-        let env_map = super::parse_env_file_map(env_file)?;
+        let env_map = super::spec_ops::parse_env_file_map(env_file)?;
         spec.env.extend(env_map);
     }
 
     if !args.env.is_empty() {
-        let overrides = super::parse_env_map(&args.env)?;
+        let overrides = super::spec_ops::parse_env_map(&args.env)?;
         spec.env.extend(overrides);
     }
 
@@ -282,8 +282,8 @@ fn handle_config_import(store: &StateStore, args: &ConfigImportArgs) -> Result<(
 }
 
 fn build_profile_spec(args: &ConfigSaveArgs) -> Result<LaunchSpec, AppError> {
-    let runtime = super::to_runtime_kind(&args.runtime);
-    let mode = super::to_launch_mode(&args.mode);
+    let runtime = super::spec_ops::to_runtime_kind(&args.runtime);
+    let mode = super::spec_ops::to_launch_mode(&args.mode);
     let debug = if matches!(mode, LaunchMode::Debug) {
         Some(DebugConfig {
             host: args.host.clone(),
@@ -301,7 +301,7 @@ fn build_profile_spec(args: &ConfigSaveArgs) -> Result<LaunchSpec, AppError> {
         entry: args.entry.clone(),
         args: args.args.clone(),
         cwd: args.cwd.clone(),
-        env: super::parse_env_map(&args.env)?,
+        env: super::spec_ops::parse_env_map(&args.env)?,
         managed: args.managed,
         mode,
         debug,
