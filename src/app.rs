@@ -40,7 +40,8 @@ use crate::output;
 
 pub(crate) use session_api::{
     api_debug_session, api_get_session, api_inspect_session, api_list_sessions,
-    api_restart_session_with_options, api_resume_session, api_stop_session, api_suspend_session,
+    api_restart_session_with_options, api_resume_session, api_stop_session,
+    api_stop_session_with_options, api_suspend_session,
 };
 
 pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppError> {

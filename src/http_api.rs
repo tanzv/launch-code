@@ -11,7 +11,8 @@ use serde_json::json;
 
 use crate::app::{
     api_debug_session, api_get_session, api_inspect_session, api_list_sessions,
-    api_restart_session_with_options, api_resume_session, api_stop_session, api_suspend_session,
+    api_restart_session_with_options, api_resume_session, api_stop_session,
+    api_stop_session_with_options, api_suspend_session,
 };
 use crate::dap::DapRegistry;
 use crate::http_utils::{
@@ -216,7 +217,42 @@ fn response_for_request_inner(
             dap_routes::handle_dap_request(store, serve_state, session_id, request)
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "stop"]) => {
-            match api_stop_session(store, session_id) {
+            let payload = match http_read_json_body(request) {
+                Ok(value) => value,
+                Err(err) => return http_json_body_error(err),
+            };
+            let force_field = payload.get("force");
+            let force = match force_field {
+                None => true,
+                Some(value) => match value.as_bool() {
+                    Some(value) => value,
+                    None => {
+                        return http_json(
+                            tiny_http::StatusCode(400),
+                            json!({"ok": false, "error": "bad_request", "message": "force must be a boolean"}),
+                        );
+                    }
+                },
+            };
+            let grace_field = payload.get("grace_timeout_ms");
+            let grace_timeout_ms = match grace_field {
+                None => 150u64,
+                Some(value) => match value.as_u64() {
+                    Some(value) => value.min(60_000),
+                    None => {
+                        return http_json(
+                            tiny_http::StatusCode(400),
+                            json!({"ok": false, "error": "bad_request", "message": "grace_timeout_ms must be a non-negative integer"}),
+                        );
+                    }
+                },
+            };
+            let result = if force_field.is_none() && grace_field.is_none() {
+                api_stop_session(store, session_id)
+            } else {
+                api_stop_session_with_options(store, session_id, force, grace_timeout_ms)
+            };
+            match result {
                 Ok(session) => http_json(
                     tiny_http::StatusCode(200),
                     json!({"ok": true, "session": session}),
