@@ -89,6 +89,10 @@ fn http_status_for_error(err: &AppError) -> (tiny_http::StatusCode, &'static str
         AppError::SessionMissingDebugMeta(_) => (tiny_http::StatusCode(409), "missing_debug_meta"),
         AppError::SessionMissingLogPath(_) => (tiny_http::StatusCode(409), "missing_log_path"),
         AppError::ProfileNotFound(_) => (tiny_http::StatusCode(404), "profile_not_found"),
+        AppError::ProfileBundleVersionUnsupported(_) => (
+            tiny_http::StatusCode(422),
+            "profile_bundle_version_unsupported",
+        ),
         AppError::ProfileValidationFailed(_) => {
             (tiny_http::StatusCode(422), "profile_validation_failed")
         }

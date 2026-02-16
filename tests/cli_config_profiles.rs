@@ -435,6 +435,38 @@ fn config_export_and_import_support_merge_and_replace() {
 }
 
 #[test]
+fn config_import_rejects_unsupported_bundle_version() {
+    let target = tempdir().expect("target dir should exist");
+    let bundle_dir = tempdir().expect("bundle dir should exist");
+    let bundle_path = bundle_dir.path().join("profiles-unsupported.json");
+
+    fs::write(
+        &bundle_path,
+        "{\n  \"version\": 999,\n  \"profiles\": {}\n}\n",
+    )
+    .expect("bundle should be written");
+
+    let mut import_cmd = cargo_bin_cmd!("launch-code");
+    let import_output = import_cmd
+        .env("LAUNCH_CODE_HOME", target.path())
+        .arg("config")
+        .arg("import")
+        .arg("--file")
+        .arg(bundle_path.to_string_lossy().to_string())
+        .output()
+        .expect("config import should run");
+    assert!(
+        !import_output.status.success(),
+        "config import should fail for unsupported bundle version"
+    );
+    let stderr = String::from_utf8(import_output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("unsupported profile bundle version"),
+        "error should explain unsupported bundle version"
+    );
+}
+
+#[test]
 fn config_validate_checks_profile_entry_and_cwd() {
     let tmp = tempdir().expect("temp dir should exist");
     let valid_entry = tmp.path().join("valid.py");

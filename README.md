@@ -147,6 +147,7 @@ Representative error codes:
 - `session_missing_debug_meta`
 - `session_missing_log_path`
 - `profile_not_found`
+- `profile_bundle_version_unsupported`
 - `profile_validation_failed`
 - `invalid_env_pair`
 - `invalid_env_file_line`

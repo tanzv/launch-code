@@ -160,6 +160,35 @@ fn json_config_run_missing_profile_has_stable_error_code() {
 }
 
 #[test]
+fn json_config_import_unsupported_bundle_version_has_stable_error_code() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let bundle = tmp.path().join("profiles-unsupported.json");
+    std::fs::write(&bundle, "{\n  \"version\": 999,\n  \"profiles\": {}\n}\n")
+        .expect("bundle should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("config")
+        .arg("import")
+        .arg("--file")
+        .arg(bundle.to_string_lossy().to_string())
+        .output()
+        .expect("config import should run");
+
+    assert!(
+        !output.status.success(),
+        "config import with unsupported version should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "profile_bundle_version_unsupported");
+    assert!(doc["message"].as_str().is_some());
+}
+
+#[test]
 fn json_config_validate_invalid_profile_has_stable_error_code() {
     let tmp = tempdir().expect("temp dir should exist");
 

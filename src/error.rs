@@ -30,6 +30,8 @@ pub enum AppError {
     SessionMissingLogPath(String),
     #[error("profile not found: {0}")]
     ProfileNotFound(String),
+    #[error("unsupported profile bundle version: {0}; expected 1")]
+    ProfileBundleVersionUnsupported(u32),
     #[error("profile validation failed: {0}")]
     ProfileValidationFailed(String),
     #[error("invalid env pair: {0}; expected KEY=VALUE")]
@@ -61,6 +63,7 @@ impl AppError {
             Self::SessionMissingDebugMeta(_) => "session_missing_debug_meta",
             Self::SessionMissingLogPath(_) => "session_missing_log_path",
             Self::ProfileNotFound(_) => "profile_not_found",
+            Self::ProfileBundleVersionUnsupported(_) => "profile_bundle_version_unsupported",
             Self::ProfileValidationFailed(_) => "profile_validation_failed",
             Self::InvalidEnvPair(_) => "invalid_env_pair",
             Self::InvalidEnvFileLine(_) => "invalid_env_file_line",
@@ -76,6 +79,7 @@ impl AppError {
             Self::InvalidEnvPair(_)
             | Self::InvalidEnvFileLine(_)
             | Self::InvalidLogRegex(_)
+            | Self::ProfileBundleVersionUnsupported(_)
             | Self::ProfileValidationFailed(_) => 2,
             Self::SessionNotFound(_)
             | Self::SessionMissingPid(_)
