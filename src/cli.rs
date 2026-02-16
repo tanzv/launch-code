@@ -60,7 +60,7 @@ pub enum Commands {
     #[command(about = "Stop a running session.")]
     Stop(StopArgs),
     #[command(about = "Restart a session process.")]
-    Restart(SessionIdArgs),
+    Restart(RestartArgs),
     #[command(about = "Suspend a running session.")]
     Suspend(SessionIdArgs),
     #[command(about = "Resume a suspended session.")]
@@ -179,6 +179,25 @@ pub struct StopArgs {
         long,
         default_value_t = 1500,
         help = "Graceful stop timeout in milliseconds before force kill."
+    )]
+    pub grace_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct RestartArgs {
+    #[arg(long, help = "Target session id.")]
+    pub id: String,
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        help = "Force kill if process is still alive after grace timeout."
+    )]
+    pub force: bool,
+    #[arg(
+        long,
+        default_value_t = 150,
+        help = "Graceful stop timeout in milliseconds before optional force kill."
     )]
     pub grace_timeout_ms: u64,
 }

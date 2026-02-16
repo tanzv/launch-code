@@ -205,6 +205,27 @@ fn serve_help_exposes_worker_and_queue_options() {
 }
 
 #[test]
+fn restart_help_exposes_force_and_grace_timeout_options() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("restart")
+        .arg("--help")
+        .output()
+        .expect("restart help should run");
+    assert!(output.status.success(), "restart help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("--force"),
+        "restart help should expose --force"
+    );
+    assert!(
+        stdout.contains("--grace-timeout-ms"),
+        "restart help should expose --grace-timeout-ms"
+    );
+}
+
+#[test]
 fn config_help_lists_profile_subcommands() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd

@@ -21,8 +21,8 @@ use launch_code::model::{
     SessionStatus, unix_timestamp_secs,
 };
 use launch_code::process::{
-    is_process_alive, resume_process, run_shell_task, spawn_process, stop_process,
-    stop_process_with_options, suspend_process,
+    is_process_alive, resume_process, run_shell_task, spawn_process, stop_process_with_options,
+    suspend_process,
 };
 use launch_code::runtime::build_command;
 use launch_code::runtime::python_executable;
@@ -32,7 +32,7 @@ use uuid::Uuid;
 
 use crate::cli::{
     Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, ListArgs, ListStatusArg, LogsArgs,
-    ServeArgs, SessionIdArgs, StopArgs,
+    RestartArgs, ServeArgs, SessionIdArgs, StopArgs,
 };
 use crate::dap::DapRegistry;
 use crate::error::AppError;
@@ -342,14 +342,15 @@ fn handle_stop(store: &StateStore, args: &StopArgs) -> Result<(), AppError> {
     Ok(())
 }
 
-fn handle_restart(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppError> {
+fn handle_restart(store: &StateStore, args: &RestartArgs) -> Result<(), AppError> {
     let session_id = args.id.clone();
+    let grace_timeout = Duration::from_millis(args.grace_timeout_ms);
     let output = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = find_session_mut(state, &session_id)?;
         if let Some(pid) = session.pid {
             if is_process_alive(pid) {
-                stop_process(pid)?;
+                stop_process_with_options(pid, args.force, grace_timeout)?;
             }
         }
 
