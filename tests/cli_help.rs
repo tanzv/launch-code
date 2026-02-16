@@ -132,6 +132,10 @@ fn start_help_exposes_env_file_flag() {
         stdout.contains("Repeatable"),
         "start help should describe repeatable env files"
     );
+    assert!(
+        stdout.contains("Env merge order"),
+        "start help should explain env merge precedence"
+    );
 }
 
 #[test]
@@ -227,5 +231,13 @@ fn config_run_help_exposes_runtime_override_flags() {
     assert!(
         stdout.contains("Repeatable"),
         "config run help should describe repeatable env files"
+    );
+    assert!(
+        stdout.contains("saved profile env"),
+        "config run help should explain env precedence"
+    );
+    assert!(
+        stdout.contains("launch-code config run --name"),
+        "config run help should include command examples"
     );
 }
