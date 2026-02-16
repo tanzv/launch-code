@@ -4,6 +4,19 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use serde_json::{Value, json};
 use tempfile::tempdir;
 
+fn python_available() -> bool {
+    std::process::Command::new("python")
+        .arg("--version")
+        .output()
+        .is_ok()
+}
+
+fn parse_field<'a>(output: &'a str, key: &str) -> Option<&'a str> {
+    output
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix(&format!("{key}=")))
+}
+
 #[test]
 fn json_error_output_includes_stable_error_code() {
     let tmp = tempdir().expect("temp dir should exist");
@@ -295,6 +308,79 @@ fn json_config_validate_invalid_profile_has_stable_error_code() {
     assert_eq!(doc["ok"], false);
     assert_eq!(doc["error"], "profile_validation_failed");
     assert!(doc["message"].as_str().is_some());
+}
+
+#[cfg(unix)]
+#[test]
+fn json_restart_timeout_uses_stop_timeout_error_code() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("ignore_term.py");
+    std::fs::write(
+        &script_path,
+        "import signal\nimport time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('ready', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("json-restart-timeout")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let start_stdout = String::from_utf8(start_output.stdout).expect("start output should be utf8");
+    let session_id = parse_field(&start_stdout, "session_id")
+        .expect("session id should be present")
+        .to_string();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    let mut restart_cmd = cargo_bin_cmd!("launch-code");
+    let restart_output = restart_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("restart")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--no-force")
+        .arg("--grace-timeout-ms")
+        .arg("100")
+        .output()
+        .expect("restart should run");
+    assert!(
+        !restart_output.status.success(),
+        "restart without force should fail on timeout"
+    );
+    let restart_stderr = String::from_utf8(restart_output.stderr).expect("stderr should be utf8");
+    let restart_doc: Value =
+        serde_json::from_str(&restart_stderr).expect("stderr should be valid json");
+    assert_eq!(restart_doc["ok"], false);
+    assert_eq!(restart_doc["error"], "stop_timeout");
+
+    let mut cleanup_cmd = cargo_bin_cmd!("launch-code");
+    let cleanup_output = cleanup_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .output()
+        .expect("cleanup stop should run");
+    assert!(
+        cleanup_output.status.success(),
+        "cleanup stop should succeed"
+    );
 }
 
 #[test]

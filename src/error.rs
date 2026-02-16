@@ -57,6 +57,7 @@ impl AppError {
             Self::Debug(_) => "debug_error",
             Self::Config(_) => "config_error",
             Self::State(_) => "state_error",
+            Self::Process(ProcessError::StopTimeout { .. }) => "stop_timeout",
             Self::Process(_) => "process_error",
             Self::SessionNotFound(_) => "session_not_found",
             Self::SessionMissingPid(_) => "session_missing_pid",
