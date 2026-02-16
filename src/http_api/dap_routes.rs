@@ -6,7 +6,8 @@ use serde_json::json;
 
 use crate::dap::{DapRegistry, proxy_for_session, send_batch_with_retry, send_request_with_retry};
 use crate::http_utils::{
-    http_json, http_json_error, http_query_u64, http_query_usize, http_read_json_body,
+    http_json, http_json_body_error, http_json_error, http_query_u64, http_query_usize,
+    http_read_json_body,
 };
 
 pub(super) fn handle_dap_request(
@@ -17,11 +18,8 @@ pub(super) fn handle_dap_request(
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
     let payload = match http_read_json_body(request) {
         Ok(value) => value,
-        Err(msg) => {
-            return http_json(
-                tiny_http::StatusCode(400),
-                json!({"ok": false, "error": "bad_request", "message": msg}),
-            );
+        Err(err) => {
+            return http_json_body_error(err);
         }
     };
 

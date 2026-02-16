@@ -2,6 +2,8 @@ use serde_json::json;
 
 use crate::error::AppError;
 
+const MAX_HTTP_JSON_BODY_BYTES: usize = 1_048_576;
+
 pub(crate) fn http_is_authorized(request: &tiny_http::Request, token: &str) -> bool {
     let expected = format!("Bearer {token}");
     request
@@ -9,7 +11,7 @@ pub(crate) fn http_is_authorized(request: &tiny_http::Request, token: &str) -> b
         .iter()
         .find(|header| header.field.equiv("Authorization"))
         .map(|header| header.value.as_str())
-        .is_some_and(|value| value.trim() == expected)
+        .is_some_and(|value| constant_time_eq(value.trim().as_bytes(), expected.as_bytes()))
 }
 
 pub(crate) fn http_split_url(url: &str) -> (&str, Option<&str>) {
@@ -118,16 +120,68 @@ fn http_json_response(
 
 pub(crate) fn http_read_json_body(
     request: &mut tiny_http::Request,
-) -> Result<serde_json::Value, String> {
-    let mut body = String::new();
-    request
-        .as_reader()
-        .read_to_string(&mut body)
-        .map_err(|err| err.to_string())?;
+) -> Result<serde_json::Value, HttpReadJsonError> {
+    let mut body = Vec::new();
+    let mut chunk = [0u8; 8192];
+    let mut total = 0usize;
+    let reader = request.as_reader();
+    loop {
+        let read = reader
+            .read(&mut chunk)
+            .map_err(|err| HttpReadJsonError::Invalid(err.to_string()))?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read);
+        if total > MAX_HTTP_JSON_BODY_BYTES {
+            return Err(HttpReadJsonError::TooLarge {
+                limit_bytes: MAX_HTTP_JSON_BODY_BYTES,
+            });
+        }
+        body.extend_from_slice(&chunk[..read]);
+    }
 
+    let body = String::from_utf8(body)
+        .map_err(|err| HttpReadJsonError::Invalid(format!("request body must be UTF-8: {err}")))?;
     if body.trim().is_empty() {
         return Ok(json!({}));
     }
 
-    serde_json::from_str(&body).map_err(|err| err.to_string())
+    serde_json::from_str(&body).map_err(|err| HttpReadJsonError::Invalid(err.to_string()))
+}
+
+pub(crate) fn http_json_body_error(
+    err: HttpReadJsonError,
+) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
+    match err {
+        HttpReadJsonError::TooLarge { limit_bytes } => http_json(
+            tiny_http::StatusCode(413),
+            json!({
+                "ok": false,
+                "error": "payload_too_large",
+                "message": format!("request body exceeds maximum size of {limit_bytes} bytes"),
+            }),
+        ),
+        HttpReadJsonError::Invalid(message) => http_json(
+            tiny_http::StatusCode(400),
+            json!({"ok": false, "error": "bad_request", "message": message}),
+        ),
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum HttpReadJsonError {
+    TooLarge { limit_bytes: usize },
+    Invalid(String),
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    let max_len = left.len().max(right.len());
+    let mut diff = left.len() ^ right.len();
+    for index in 0..max_len {
+        let l = *left.get(index).unwrap_or(&0);
+        let r = *right.get(index).unwrap_or(&0);
+        diff |= usize::from(l ^ r);
+    }
+    diff == 0
 }

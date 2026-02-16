@@ -5,7 +5,7 @@ use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::dap::{DapRegistry, send_request_with_retry};
-use crate::http_utils::{http_json, http_json_error, http_read_json_body};
+use crate::http_utils::{http_json, http_json_body_error, http_json_error, http_read_json_body};
 
 pub(crate) fn handle_debug_breakpoints(
     store: &StateStore,
@@ -15,11 +15,8 @@ pub(crate) fn handle_debug_breakpoints(
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
     let payload = match http_read_json_body(request) {
         Ok(value) => value,
-        Err(msg) => {
-            return http_json(
-                tiny_http::StatusCode(400),
-                json!({"ok": false, "error": "bad_request", "message": msg}),
-            );
+        Err(err) => {
+            return http_json_body_error(err);
         }
     };
 
@@ -107,11 +104,8 @@ pub(crate) fn handle_debug_exception_breakpoints(
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
     let payload = match http_read_json_body(request) {
         Ok(value) => value,
-        Err(msg) => {
-            return http_json(
-                tiny_http::StatusCode(400),
-                json!({"ok": false, "error": "bad_request", "message": msg}),
-            );
+        Err(err) => {
+            return http_json_body_error(err);
         }
     };
 
