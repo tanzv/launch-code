@@ -67,8 +67,8 @@ pub enum Commands {
     Resume(SessionIdArgs),
     #[command(about = "Show reconciled status for a session.")]
     Status(SessionIdArgs),
-    #[command(about = "List all known sessions.")]
-    List,
+    #[command(about = "List known sessions with optional filters.")]
+    List(ListArgs),
     #[command(about = "Manage saved run/debug profiles.")]
     Config(ConfigArgs),
     #[command(about = "Run reconciliation loop for managed sessions.")]
@@ -153,6 +153,16 @@ pub struct LaunchArgs {
 pub struct SessionIdArgs {
     #[arg(long, help = "Target session id.")]
     pub id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ListArgs {
+    #[arg(long, value_enum, help = "Filter sessions by reconciled status.")]
+    pub status: Option<ListStatusArg>,
+    #[arg(long, value_enum, help = "Filter sessions by runtime kind.")]
+    pub runtime: Option<RuntimeArg>,
+    #[arg(long, help = "Case-insensitive substring filter on session name.")]
+    pub name_contains: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -268,4 +278,12 @@ pub enum RuntimeArg {
 pub enum LaunchModeArg {
     Run,
     Debug,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum ListStatusArg {
+    Running,
+    Stopped,
+    Suspended,
+    Unknown,
 }

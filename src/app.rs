@@ -28,8 +28,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::cli::{
-    Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, LogsArgs, ServeArgs, SessionIdArgs,
-    StopArgs,
+    Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, ListArgs, ListStatusArg, LogsArgs,
+    ServeArgs, SessionIdArgs, StopArgs,
 };
 use crate::dap::DapRegistry;
 use crate::error::AppError;
@@ -56,7 +56,7 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
         Commands::Suspend(args) => handle_suspend(store, &args),
         Commands::Resume(args) => handle_resume(store, &args),
         Commands::Status(args) => handle_status(store, &args),
-        Commands::List => handle_list(store),
+        Commands::List(args) => handle_list(store, &args),
         Commands::Config(args) => config_ops::handle_config(store, &args),
         Commands::Daemon(args) => handle_daemon(store, &args),
         Commands::Serve(args) => handle_serve(store, &args),
@@ -366,7 +366,14 @@ fn handle_status(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppErro
     Ok(())
 }
 
-fn handle_list(store: &StateStore) -> Result<(), AppError> {
+fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
+    let runtime_filter = args.runtime.as_ref().map(spec_ops::to_runtime_kind);
+    let name_filter = args
+        .name_contains
+        .as_ref()
+        .map(|value| value.to_lowercase());
+    let status_filter = args.status.clone();
+
     let lines = store.update::<_, _, AppError>(|state| {
         if state.sessions.is_empty() {
             return Ok(Vec::<String>::new());
@@ -383,14 +390,44 @@ fn handle_list(store: &StateStore) -> Result<(), AppError> {
                 .ok_or_else(|| AppError::SessionNotFound(id.clone()))?;
             reconcile_session(store, session, now)?;
 
-            lines.push(format!(
-                "{}\t{}\t{}\t{}\trestarts={}",
+            if let Some(status) = &status_filter {
+                if !matches_list_status(status, &session.status) {
+                    continue;
+                }
+            }
+            if let Some(runtime) = &runtime_filter {
+                if &session.spec.runtime != runtime {
+                    continue;
+                }
+            }
+            if let Some(filter) = &name_filter {
+                if !session.spec.name.to_lowercase().contains(filter) {
+                    continue;
+                }
+            }
+
+            let pid_display = session
+                .pid
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            let mut line = format!(
+                "{}\t{}\t{}\t{}\tpid={}\trestarts={}\tname={}\tentry={}",
                 id,
                 status_label(&session.status),
                 spec_ops::runtime_label(&session.spec.runtime),
+                spec_ops::mode_label(&session.spec.mode),
+                pid_display,
+                session.restart_count,
+                session.spec.name,
                 session.spec.entry,
-                session.restart_count
-            ));
+            );
+            if let Some(meta) = &session.debug_meta {
+                line.push_str(&format!(
+                    " debug_endpoint={}:{}",
+                    meta.host, meta.active_port
+                ));
+            }
+            lines.push(line);
         }
 
         Ok(lines)
@@ -576,6 +613,16 @@ fn status_label(status: &SessionStatus) -> &'static str {
         SessionStatus::Suspended => "suspended",
         SessionStatus::Unknown => "unknown",
     }
+}
+
+fn matches_list_status(filter: &ListStatusArg, status: &SessionStatus) -> bool {
+    matches!(
+        (filter, status),
+        (ListStatusArg::Running, SessionStatus::Running)
+            | (ListStatusArg::Stopped, SessionStatus::Stopped)
+            | (ListStatusArg::Suspended, SessionStatus::Suspended)
+            | (ListStatusArg::Unknown, SessionStatus::Unknown)
+    )
 }
 
 fn build_debug_session_doc(session: &SessionRecord, meta: &DebugSessionMeta) -> serde_json::Value {

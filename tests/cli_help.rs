@@ -139,6 +139,31 @@ fn start_help_exposes_env_file_flag() {
 }
 
 #[test]
+fn list_help_exposes_filter_flags() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("list")
+        .arg("--help")
+        .output()
+        .expect("list help should run");
+    assert!(output.status.success(), "list help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("--status"),
+        "list help should expose --status"
+    );
+    assert!(
+        stdout.contains("--runtime"),
+        "list help should expose --runtime"
+    );
+    assert!(
+        stdout.contains("--name-contains"),
+        "list help should expose --name-contains"
+    );
+}
+
+#[test]
 fn config_help_lists_profile_subcommands() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd
