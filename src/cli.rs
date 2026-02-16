@@ -141,8 +141,8 @@ pub enum ConfigCommands {
     Delete(ConfigNameArgs),
     #[command(about = "Run a saved profile.")]
     Run(ConfigRunArgs),
-    #[command(about = "Validate a saved profile.")]
-    Validate(ConfigNameArgs),
+    #[command(about = "Validate one profile or all saved profiles.")]
+    Validate(ConfigValidateArgs),
     #[command(about = "Export profiles to a JSON file.")]
     Export(ConfigExportArgs),
     #[command(about = "Import profiles from a JSON file.")]
@@ -153,6 +153,24 @@ pub enum ConfigCommands {
 pub struct ConfigNameArgs {
     #[arg(long, help = "Profile name.")]
     pub name: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ConfigValidateArgs {
+    #[arg(
+        long,
+        help = "Profile name to validate.",
+        required_unless_present = "all",
+        conflicts_with = "all"
+    )]
+    pub name: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Validate all saved profiles.",
+        conflicts_with = "name"
+    )]
+    pub all: bool,
 }
 
 #[derive(Debug, Clone, Args)]

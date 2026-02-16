@@ -570,3 +570,135 @@ fn config_validate_supports_rust_runtime_profiles() {
         "validate output should indicate success"
     );
 }
+
+#[test]
+fn config_validate_all_succeeds_for_valid_profiles() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let entry_a = tmp.path().join("a.py");
+    let entry_b = tmp.path().join("b.py");
+    fs::write(&entry_a, "print('a')\n").expect("entry a should be written");
+    fs::write(&entry_b, "print('b')\n").expect("entry b should be written");
+
+    let mut save_a = cargo_bin_cmd!("launch-code");
+    let save_a_output = save_a
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("profile-a")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(entry_a.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("save profile a should run");
+    assert!(
+        save_a_output.status.success(),
+        "save profile a should succeed"
+    );
+
+    let mut save_b = cargo_bin_cmd!("launch-code");
+    let save_b_output = save_b
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("profile-b")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(entry_b.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("save profile b should run");
+    assert!(
+        save_b_output.status.success(),
+        "save profile b should succeed"
+    );
+
+    let mut validate_all = cargo_bin_cmd!("launch-code");
+    let validate_all_output = validate_all
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("validate")
+        .arg("--all")
+        .output()
+        .expect("validate all should run");
+    assert!(
+        validate_all_output.status.success(),
+        "validate --all should succeed for valid profiles"
+    );
+    let stdout = String::from_utf8(validate_all_output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("validated_profiles=2"),
+        "validate --all should report validated profile count"
+    );
+}
+
+#[test]
+fn config_validate_all_fails_if_any_profile_is_invalid() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let entry_valid = tmp.path().join("ok.py");
+    fs::write(&entry_valid, "print('ok')\n").expect("valid entry should be written");
+
+    let mut save_valid = cargo_bin_cmd!("launch-code");
+    let save_valid_output = save_valid
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("ok-profile")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(entry_valid.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("save valid profile should run");
+    assert!(
+        save_valid_output.status.success(),
+        "save valid profile should succeed"
+    );
+
+    let mut save_invalid = cargo_bin_cmd!("launch-code");
+    let save_invalid_output = save_invalid
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("bad-profile")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg("missing.py")
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("save invalid profile should run");
+    assert!(
+        save_invalid_output.status.success(),
+        "save invalid profile should succeed"
+    );
+
+    let mut validate_all = cargo_bin_cmd!("launch-code");
+    let validate_all_output = validate_all
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("validate")
+        .arg("--all")
+        .output()
+        .expect("validate all should run");
+    assert!(
+        !validate_all_output.status.success(),
+        "validate --all should fail when one profile is invalid"
+    );
+    let stderr = String::from_utf8(validate_all_output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("bad-profile"),
+        "validate --all failure should include failing profile name"
+    );
+}

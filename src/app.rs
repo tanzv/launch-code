@@ -31,8 +31,8 @@ use uuid::Uuid;
 
 use crate::cli::{
     Commands, ConfigArgs, ConfigCommands, ConfigExportArgs, ConfigImportArgs, ConfigNameArgs,
-    ConfigRunArgs, ConfigSaveArgs, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, LaunchModeArg,
-    LogsArgs, RuntimeArg, ServeArgs, SessionIdArgs, StartArgs, StopArgs,
+    ConfigRunArgs, ConfigSaveArgs, ConfigValidateArgs, DaemonArgs, DebugArgs, InspectArgs,
+    LaunchArgs, LaunchModeArg, LogsArgs, RuntimeArg, ServeArgs, SessionIdArgs, StartArgs, StopArgs,
 };
 use crate::dap::DapRegistry;
 use crate::error::AppError;
@@ -563,24 +563,69 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
     handle_start_spec(store, spec)
 }
 
-fn handle_config_validate(store: &StateStore, args: &ConfigNameArgs) -> Result<(), AppError> {
+fn handle_config_validate(store: &StateStore, args: &ConfigValidateArgs) -> Result<(), AppError> {
+    if args.all {
+        let state = store.load()?;
+        let mut validated_profiles = 0usize;
+        let mut items = Vec::<serde_json::Value>::new();
+
+        for (name, spec) in &state.profiles {
+            match validate_profile_spec(spec) {
+                Ok(checks) => {
+                    validated_profiles += 1;
+                    if output::is_json_mode() {
+                        items.push(json!({
+                            "name": name,
+                            "valid": true,
+                            "checks": checks,
+                        }));
+                    }
+                }
+                Err(AppError::ProfileValidationFailed(message)) => {
+                    return Err(AppError::ProfileValidationFailed(format!(
+                        "profile `{name}`: {message}"
+                    )));
+                }
+                Err(other) => return Err(other),
+            }
+        }
+
+        if output::is_json_mode() {
+            output::print_json_doc(&json!({
+                "ok": true,
+                "all": true,
+                "validated_profiles": validated_profiles,
+                "items": items,
+            }));
+        } else {
+            output::print_message(&format!(
+                "validated_profiles={validated_profiles} valid=true"
+            ));
+        }
+        return Ok(());
+    }
+
+    let profile_name = args
+        .name
+        .as_ref()
+        .ok_or_else(|| AppError::ProfileValidationFailed("missing profile name".to_string()))?;
     let state = store.load()?;
     let spec = state
         .profiles
-        .get(&args.name)
+        .get(profile_name)
         .cloned()
-        .ok_or_else(|| AppError::ProfileNotFound(args.name.clone()))?;
+        .ok_or_else(|| AppError::ProfileNotFound(profile_name.clone()))?;
 
     let checks = validate_profile_spec(&spec)?;
     if output::is_json_mode() {
         output::print_json_doc(&json!({
             "ok": true,
-            "profile": args.name,
+            "profile": profile_name,
             "valid": true,
             "checks": checks,
         }));
     } else {
-        output::print_message(&format!("profile={} valid=true", args.name));
+        output::print_message(&format!("profile={profile_name} valid=true"));
     }
     Ok(())
 }

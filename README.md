@@ -55,6 +55,7 @@ launch-code config save --name "Python Profile" --runtime python --entry app.py 
 launch-code config list
 launch-code config show --name "Python Profile"
 launch-code config validate --name "Python Profile"
+launch-code config validate --all
 launch-code config run --name "Python Profile"
 launch-code config export --file ./.launch-code/profiles.json
 launch-code config import --file ./.launch-code/profiles.json
@@ -393,6 +394,7 @@ launch-code config save --name "Python Debug" --runtime python --entry app.py --
 launch-code config list
 launch-code config show --name "Python Debug"
 launch-code config validate --name "Python Debug"
+launch-code config validate --all
 launch-code config run --name "Python Debug"
 launch-code config run --name "Python Run" --mode debug
 launch-code config run --name "Python Run" --managed
