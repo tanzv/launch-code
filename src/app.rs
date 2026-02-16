@@ -560,6 +560,15 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
         spec.managed = true;
     }
 
+    if !args.args.is_empty() {
+        spec.args.extend(args.args.clone());
+    }
+
+    if !args.env.is_empty() {
+        let overrides = parse_env_map(&args.env)?;
+        spec.env.extend(overrides);
+    }
+
     handle_start_spec(store, spec)
 }
 

@@ -170,3 +170,25 @@ fn config_validate_help_exposes_all_flag() {
         "validate help should expose --all flag"
     );
 }
+
+#[test]
+fn config_run_help_exposes_runtime_override_flags() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("config")
+        .arg("run")
+        .arg("--help")
+        .output()
+        .expect("config run help should run");
+    assert!(output.status.success(), "config run help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("--arg"),
+        "config run help should expose --arg"
+    );
+    assert!(
+        stdout.contains("--env"),
+        "config run help should expose --env"
+    );
+}

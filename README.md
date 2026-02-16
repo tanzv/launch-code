@@ -57,6 +57,7 @@ launch-code config show --name "Python Profile"
 launch-code config validate --name "Python Profile"
 launch-code config validate --all
 launch-code config run --name "Python Profile"
+launch-code config run --name "Python Profile" --arg "--feature" --env API_URL=http://127.0.0.1:9000
 launch-code config export --file ./.launch-code/profiles.json
 launch-code config import --file ./.launch-code/profiles.json
 launch-code config delete --name "Python Profile"
@@ -398,6 +399,7 @@ launch-code config validate --all
 launch-code config run --name "Python Debug"
 launch-code config run --name "Python Run" --mode debug
 launch-code config run --name "Python Run" --managed
+launch-code config run --name "Python Run" --arg "--feature" --env API_URL=http://127.0.0.1:9000
 launch-code config export --file ./profiles.json
 launch-code config import --file ./profiles.json
 launch-code config import --file ./profiles.json --replace

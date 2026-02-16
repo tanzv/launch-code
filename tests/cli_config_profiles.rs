@@ -702,3 +702,96 @@ fn config_validate_all_fails_if_any_profile_is_invalid() {
         "validate --all failure should include failing profile name"
     );
 }
+
+#[test]
+fn config_run_can_apply_runtime_arg_and_env_overrides() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("run_overrides.py");
+    fs::write(
+        &script_path,
+        "import time\nprint('run-overrides', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut save_cmd = cargo_bin_cmd!("launch-code");
+    let save_output = save_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("override-profile")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .arg("--arg")
+        .arg("base-arg")
+        .arg("--env")
+        .arg("BASE=1")
+        .output()
+        .expect("save profile should run");
+    assert!(save_output.status.success(), "save profile should succeed");
+
+    let mut run_cmd = cargo_bin_cmd!("launch-code");
+    let run_output = run_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("run")
+        .arg("--name")
+        .arg("override-profile")
+        .arg("--arg")
+        .arg("extra-arg")
+        .arg("--env")
+        .arg("BASE=9")
+        .arg("--env")
+        .arg("EXTRA=2")
+        .output()
+        .expect("config run should execute");
+    assert!(run_output.status.success(), "config run should succeed");
+    let run_stdout = String::from_utf8(run_output.stdout).expect("run stdout should be utf8");
+    let session_id = parse_session_id(&run_stdout).expect("session id should be present");
+
+    let state_path = tmp.path().join(".launch-code").join("state.json");
+    let state_payload = fs::read_to_string(state_path).expect("state file should exist");
+    let state_doc: serde_json::Value =
+        serde_json::from_str(&state_payload).expect("state should be valid json");
+
+    let args_doc = &state_doc["sessions"][&session_id]["spec"]["args"];
+    assert!(
+        args_doc
+            .as_array()
+            .expect("args should be array")
+            .iter()
+            .any(|value| value.as_str() == Some("base-arg")),
+        "saved arg should remain in run spec"
+    );
+    assert!(
+        args_doc
+            .as_array()
+            .expect("args should be array")
+            .iter()
+            .any(|value| value.as_str() == Some("extra-arg")),
+        "runtime arg override should be added in run spec"
+    );
+
+    let env_doc = &state_doc["sessions"][&session_id]["spec"]["env"];
+    assert_eq!(env_doc["BASE"].as_str(), Some("9"));
+    assert_eq!(env_doc["EXTRA"].as_str(), Some("2"));
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(stop_output.status.success(), "stop should succeed");
+}

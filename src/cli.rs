@@ -181,6 +181,16 @@ pub struct ConfigRunArgs {
     pub mode: Option<LaunchModeArg>,
     #[arg(long, help = "Force managed restart behavior for this run.")]
     pub managed: bool,
+    #[arg(
+        long = "arg",
+        help = "Additional runtime argument for this run. Repeatable."
+    )]
+    pub args: Vec<String>,
+    #[arg(
+        long = "env",
+        help = "Runtime environment override in KEY=VALUE format. Repeatable."
+    )]
+    pub env: Vec<String>,
 }
 
 #[derive(Debug, Clone, Args)]
