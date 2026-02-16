@@ -1,4 +1,5 @@
 use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use fs2::FileExt;
@@ -97,12 +98,22 @@ impl StateStore {
     }
 
     fn save_unlocked(&self, state: &AppState) -> Result<(), StateError> {
-        fs::create_dir_all(self.state_dir_path())?;
+        let state_dir = self.state_dir_path();
+        fs::create_dir_all(&state_dir)?;
         let state_path = self.state_file_path();
         let tmp_path = state_path.with_extension("json.tmp");
         let payload = serde_json::to_string_pretty(state)?;
-        fs::write(&tmp_path, payload)?;
-        fs::rename(tmp_path, state_path)?;
+        {
+            let mut tmp_file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&tmp_path)?;
+            tmp_file.write_all(payload.as_bytes())?;
+            tmp_file.sync_all()?;
+        }
+        fs::rename(&tmp_path, &state_path)?;
+        sync_state_dir(&state_dir)?;
         Ok(())
     }
 
@@ -116,4 +127,19 @@ impl StateStore {
             .truncate(false)
             .open(lock_path)?)
     }
+}
+
+fn sync_state_dir(path: &Path) -> Result<(), StateError> {
+    #[cfg(unix)]
+    {
+        let dir = OpenOptions::new().read(true).open(path)?;
+        dir.sync_all()?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+
+    Ok(())
 }

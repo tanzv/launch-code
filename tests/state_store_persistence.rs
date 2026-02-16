@@ -57,6 +57,12 @@ fn state_store_persists_sessions_to_disk() {
     assert_eq!(restored.spec.entry, "app.py");
     assert_eq!(restored.status, SessionStatus::Running);
     assert_eq!(restored.pid, Some(43210));
+
+    let tmp_state_path = tmp.path().join(".launch-code").join("state.json.tmp");
+    assert!(
+        !tmp_state_path.exists(),
+        "temporary state file should be cleaned up after save"
+    );
 }
 
 #[test]
