@@ -50,6 +50,7 @@ struct HttpMetrics {
     responses_5xx: AtomicU64,
     responses_401: AtomicU64,
     responses_404: AtomicU64,
+    responses_409: AtomicU64,
     responses_503: AtomicU64,
     total_duration_micros: AtomicU64,
 }
@@ -64,6 +65,7 @@ impl HttpMetrics {
             responses_5xx: AtomicU64::new(0),
             responses_401: AtomicU64::new(0),
             responses_404: AtomicU64::new(0),
+            responses_409: AtomicU64::new(0),
             responses_503: AtomicU64::new(0),
             total_duration_micros: AtomicU64::new(0),
         }
@@ -301,6 +303,9 @@ fn record_http_metrics(status: u16, duration: Duration) {
     if status == 404 {
         HTTP_METRICS.responses_404.fetch_add(1, Ordering::Relaxed);
     }
+    if status == 409 {
+        HTTP_METRICS.responses_409.fetch_add(1, Ordering::Relaxed);
+    }
     if status == 503 {
         HTTP_METRICS.responses_503.fetch_add(1, Ordering::Relaxed);
     }
@@ -334,6 +339,7 @@ fn build_metrics_doc() -> serde_json::Value {
                 "5xx": HTTP_METRICS.responses_5xx.load(Ordering::Relaxed),
                 "401": HTTP_METRICS.responses_401.load(Ordering::Relaxed),
                 "404": HTTP_METRICS.responses_404.load(Ordering::Relaxed),
+                "409": HTTP_METRICS.responses_409.load(Ordering::Relaxed),
                 "503": HTTP_METRICS.responses_503.load(Ordering::Relaxed),
             },
             "latency": {

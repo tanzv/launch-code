@@ -402,7 +402,7 @@ fn serve_stop_timeout_returns_conflict_error() {
         .into();
     let timeout_payload = serde_json::json!({
         "force": false,
-        "grace_timeout_ms": 100
+        "grace_timeout_ms": 0
     });
     let mut timeout_res = noerr_agent
         .post(&format!("{url}/v1/sessions/{session_id}/stop"))
@@ -417,6 +417,25 @@ fn serve_stop_timeout_returns_conflict_error() {
     let timeout_json: Value = serde_json::from_str(&timeout_body).expect("timeout response json");
     assert_eq!(timeout_json["ok"], false);
     assert_eq!(timeout_json["error"], "stop_timeout");
+
+    let mut metrics_res = noerr_agent
+        .get(&format!("{url}/v1/metrics"))
+        .header("Authorization", "Bearer testtoken")
+        .call()
+        .expect("metrics request should complete");
+    assert_eq!(metrics_res.status(), ureq::http::StatusCode::OK);
+    let metrics_body = metrics_res
+        .body_mut()
+        .read_to_string()
+        .expect("metrics body should be readable");
+    let metrics_json: Value = serde_json::from_str(&metrics_body).expect("metrics body json");
+    let responses_409 = metrics_json["metrics"]["responses"]["409"]
+        .as_u64()
+        .expect("409 bucket should be numeric");
+    assert!(
+        responses_409 >= 1,
+        "metrics should record stop timeout conflict responses"
+    );
 
     let force_payload = serde_json::json!({
         "force": true,
