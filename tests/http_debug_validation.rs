@@ -277,3 +277,176 @@ fn serve_rejects_non_boolean_disconnect_flags_and_allows_followup_disconnect() {
     let _ = child.wait();
     let _ = dap_thread.join();
 }
+
+#[test]
+fn serve_rejects_invalid_expression_payload_types_and_allows_followup_requests() {
+    let dap_listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let dap_port = dap_listener.local_addr().expect("local addr").port();
+
+    let dap_thread = thread::spawn(move || {
+        let (mut stream, _) = dap_listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let evaluate_msg = read_dap_message(&mut reader);
+        assert_eq!(evaluate_msg["type"], "request");
+        assert_eq!(evaluate_msg["command"], "evaluate");
+        assert_eq!(evaluate_msg["arguments"]["expression"], "counter + 1");
+        assert_eq!(evaluate_msg["arguments"]["frameId"], 301);
+        assert_eq!(evaluate_msg["arguments"]["context"], "watch");
+        let evaluate_seq = evaluate_msg["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 1,
+                "type": "response",
+                "request_seq": evaluate_seq,
+                "success": true,
+                "command": "evaluate",
+                "body": {}
+            }),
+        );
+
+        let set_variable_msg = read_dap_message(&mut reader);
+        assert_eq!(set_variable_msg["type"], "request");
+        assert_eq!(set_variable_msg["command"], "setVariable");
+        assert_eq!(set_variable_msg["arguments"]["variablesReference"], 7001);
+        assert_eq!(set_variable_msg["arguments"]["name"], "counter");
+        assert_eq!(set_variable_msg["arguments"]["value"], "42");
+        let set_variable_seq = set_variable_msg["seq"]
+            .as_u64()
+            .expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 2,
+                "type": "response",
+                "request_seq": set_variable_seq,
+                "success": true,
+                "command": "setVariable",
+                "body": {}
+            }),
+        );
+
+        let exception_msg = read_dap_message(&mut reader);
+        assert_eq!(exception_msg["type"], "request");
+        assert_eq!(exception_msg["command"], "setExceptionBreakpoints");
+        assert_eq!(exception_msg["arguments"]["filters"][0], "raised");
+        let exception_seq = exception_msg["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 3,
+                "type": "response",
+                "request_seq": exception_seq,
+                "success": true,
+                "command": "setExceptionBreakpoints",
+                "body": {}
+            }),
+        );
+    });
+
+    let tmp = tempfile::tempdir().expect("temp dir should exist");
+    write_debug_session_state(&tmp, dap_port);
+    let (mut child, url) = start_http_server(&tmp);
+
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(2)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let mut bad_evaluate_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/evaluate"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"expression":"counter + 1","frameId":"main"})).unwrap())
+        .expect("bad evaluate request should complete");
+    assert_eq!(
+        bad_evaluate_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let bad_evaluate_doc = read_json_response(&mut bad_evaluate_res);
+    assert_eq!(bad_evaluate_doc["ok"], false);
+    assert_eq!(bad_evaluate_doc["error"], "bad_request");
+
+    let mut good_evaluate_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/evaluate"))
+        .header("Authorization", "Bearer testtoken")
+        .send(
+            serde_json::to_string(
+                &json!({"expression":"counter + 1","frameId":301,"context":"watch"}),
+            )
+            .unwrap(),
+        )
+        .expect("good evaluate request should complete");
+    assert_eq!(good_evaluate_res.status(), ureq::http::StatusCode::OK);
+    let good_evaluate_doc = read_json_response(&mut good_evaluate_res);
+    assert_eq!(good_evaluate_doc["ok"], true);
+    assert_eq!(good_evaluate_doc["response"]["command"], "evaluate");
+
+    let mut bad_set_variable_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/set-variable"))
+        .header("Authorization", "Bearer testtoken")
+        .send(
+            serde_json::to_string(
+                &json!({"variablesReference":7001,"name":"counter","value":"42","timeout_ms":"fast"}),
+            )
+            .unwrap(),
+        )
+        .expect("bad set-variable request should complete");
+    assert_eq!(
+        bad_set_variable_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let bad_set_variable_doc = read_json_response(&mut bad_set_variable_res);
+    assert_eq!(bad_set_variable_doc["ok"], false);
+    assert_eq!(bad_set_variable_doc["error"], "bad_request");
+
+    let mut good_set_variable_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/set-variable"))
+        .header("Authorization", "Bearer testtoken")
+        .send(
+            serde_json::to_string(
+                &json!({"variablesReference":7001,"name":"counter","value":"42","timeout_ms":1500}),
+            )
+            .unwrap(),
+        )
+        .expect("good set-variable request should complete");
+    assert_eq!(good_set_variable_res.status(), ureq::http::StatusCode::OK);
+    let good_set_variable_doc = read_json_response(&mut good_set_variable_res);
+    assert_eq!(good_set_variable_doc["ok"], true);
+    assert_eq!(good_set_variable_doc["response"]["command"], "setVariable");
+
+    let mut bad_exception_res = agent
+        .post(&format!(
+            "{url}/v1/sessions/session-1/debug/exception-breakpoints"
+        ))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"filters":["raised"],"timeout_ms":"slow"})).unwrap())
+        .expect("bad exception-breakpoints request should complete");
+    assert_eq!(
+        bad_exception_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let bad_exception_doc = read_json_response(&mut bad_exception_res);
+    assert_eq!(bad_exception_doc["ok"], false);
+    assert_eq!(bad_exception_doc["error"], "bad_request");
+
+    let mut good_exception_res = agent
+        .post(&format!(
+            "{url}/v1/sessions/session-1/debug/exception-breakpoints"
+        ))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"filters":["raised"],"timeout_ms":1500})).unwrap())
+        .expect("good exception-breakpoints request should complete");
+    assert_eq!(good_exception_res.status(), ureq::http::StatusCode::OK);
+    let good_exception_doc = read_json_response(&mut good_exception_res);
+    assert_eq!(good_exception_doc["ok"], true);
+    assert_eq!(
+        good_exception_doc["response"]["command"],
+        "setExceptionBreakpoints"
+    );
+
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = dap_thread.join();
+}

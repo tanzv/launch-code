@@ -32,20 +32,31 @@ pub(crate) fn handle_debug_evaluate(
 
     let mut args = serde_json::Map::new();
     args.insert("expression".to_string(), json!(expression));
-    if let Some(frame_id) = payload.get("frameId").and_then(|v| v.as_u64()) {
-        args.insert("frameId".to_string(), json!(frame_id));
+    if let Some(frame_id_value) = payload.get("frameId") {
+        match frame_id_value.as_u64() {
+            Some(frame_id) => {
+                args.insert("frameId".to_string(), json!(frame_id));
+            }
+            None => {
+                return bad_request("frameId must be a non-negative integer");
+            }
+        }
     }
-    if let Some(context) = payload.get("context").and_then(|v| v.as_str()) {
-        args.insert("context".to_string(), json!(context));
+    if let Some(context_value) = payload.get("context") {
+        match context_value.as_str() {
+            Some(context) => {
+                args.insert("context".to_string(), json!(context));
+            }
+            None => {
+                return bad_request("context must be a string");
+            }
+        }
     }
 
-    let timeout = Duration::from_millis(
-        payload
-            .get("timeout_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1500)
-            .min(60_000),
-    );
+    let timeout = match parse_optional_timeout_ms(&payload, 1500) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
 
     match send_request_with_retry(
         store,
@@ -104,13 +115,10 @@ pub(crate) fn handle_debug_set_variable(
         }
     };
 
-    let timeout = Duration::from_millis(
-        payload
-            .get("timeout_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1500)
-            .min(60_000),
-    );
+    let timeout = match parse_optional_timeout_ms(&payload, 1500) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
     match send_request_with_retry(
         store,
         serve_state,
@@ -129,4 +137,27 @@ pub(crate) fn handle_debug_set_variable(
         ),
         Err(err) => http_json_error(&err),
     }
+}
+
+type HttpResponse = tiny_http::Response<std::io::Cursor<Vec<u8>>>;
+
+fn bad_request(message: impl Into<String>) -> HttpResponse {
+    http_json(
+        tiny_http::StatusCode(400),
+        json!({"ok": false, "error": "bad_request", "message": message.into()}),
+    )
+}
+
+fn parse_optional_timeout_ms(
+    payload: &serde_json::Value,
+    default: u64,
+) -> Result<Duration, HttpResponse> {
+    let timeout_ms = match payload.get("timeout_ms") {
+        None => default,
+        Some(value) => match value.as_u64() {
+            Some(value) => value,
+            None => return Err(bad_request("timeout_ms must be a non-negative integer")),
+        },
+    };
+    Ok(Duration::from_millis(timeout_ms.min(60_000)))
 }
