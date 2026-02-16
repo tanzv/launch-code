@@ -7,6 +7,7 @@ mod spec_ops;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -71,17 +72,52 @@ fn handle_serve(store: &StateStore, args: &ServeArgs) -> Result<(), AppError> {
     output::print_message(&format!("listening={url}"));
     std::io::stdout().flush()?;
 
+    let worker_count = args.workers.clamp(1, 256);
+    let queue_capacity = args.queue_capacity.clamp(1, 4096);
     let serve_state = Arc::new(Mutex::new(DapRegistry::default()));
-    for request in server.incoming_requests() {
+    let (sender, receiver) = mpsc::sync_channel::<tiny_http::Request>(queue_capacity);
+    let receiver = Arc::new(Mutex::new(receiver));
+
+    let mut workers = Vec::new();
+    for _ in 0..worker_count {
         let store = store.clone();
         let token = args.token.clone();
         let serve_state = Arc::clone(&serve_state);
-        thread::spawn(move || {
-            let mut request = request;
-            let response =
-                crate::http_api::response_for_request(&store, &token, &serve_state, &mut request);
-            let _ = request.respond(response);
-        });
+        let receiver = Arc::clone(&receiver);
+        workers.push(thread::spawn(move || {
+            loop {
+                let request = {
+                    let guard = match receiver.lock() {
+                        Ok(value) => value,
+                        Err(_) => break,
+                    };
+                    match guard.recv() {
+                        Ok(request) => request,
+                        Err(_) => break,
+                    }
+                };
+
+                let mut request = request;
+                let response = crate::http_api::response_for_request(
+                    &store,
+                    &token,
+                    &serve_state,
+                    &mut request,
+                );
+                let _ = request.respond(response);
+            }
+        }));
+    }
+
+    for request in server.incoming_requests() {
+        if sender.send(request).is_err() {
+            break;
+        }
+    }
+
+    drop(sender);
+    for worker in workers {
+        let _ = worker.join();
     }
 
     Ok(())

@@ -265,6 +265,18 @@ pub struct ServeArgs {
     pub bind: String,
     #[arg(long, help = "Bearer token required by all HTTP API requests.")]
     pub token: String,
+    #[arg(
+        long,
+        default_value_t = default_serve_workers(),
+        help = "Number of worker threads for processing HTTP requests."
+    )]
+    pub workers: usize,
+    #[arg(
+        long,
+        default_value_t = 256,
+        help = "Maximum queued HTTP requests waiting for workers."
+    )]
+    pub queue_capacity: usize,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -286,4 +298,10 @@ pub enum ListStatusArg {
     Stopped,
     Suspended,
     Unknown,
+}
+
+fn default_serve_workers() -> usize {
+    std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(4)
 }

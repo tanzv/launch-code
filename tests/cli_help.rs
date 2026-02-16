@@ -164,6 +164,27 @@ fn list_help_exposes_filter_flags() {
 }
 
 #[test]
+fn serve_help_exposes_worker_and_queue_options() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("serve")
+        .arg("--help")
+        .output()
+        .expect("serve help should run");
+    assert!(output.status.success(), "serve help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("--workers"),
+        "serve help should expose --workers"
+    );
+    assert!(
+        stdout.contains("--queue-capacity"),
+        "serve help should expose --queue-capacity"
+    );
+}
+
+#[test]
 fn config_help_lists_profile_subcommands() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd
