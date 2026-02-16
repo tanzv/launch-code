@@ -345,13 +345,14 @@ fn handle_stop(store: &StateStore, args: &StopArgs) -> Result<(), AppError> {
 
 fn handle_restart(store: &StateStore, args: &RestartArgs) -> Result<(), AppError> {
     let session_id = args.id.clone();
+    let force = args.force && !args.no_force;
     let grace_timeout = Duration::from_millis(args.grace_timeout_ms);
     let output = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = find_session_mut(state, &session_id)?;
         if let Some(pid) = session.pid {
             if is_process_alive(pid) {
-                stop_process_with_options(pid, args.force, grace_timeout)?;
+                stop_process_with_options(pid, force, grace_timeout)?;
             }
         }
 

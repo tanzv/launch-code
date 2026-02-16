@@ -196,6 +196,13 @@ pub struct RestartArgs {
     pub force: bool,
     #[arg(
         long,
+        default_value_t = false,
+        conflicts_with = "force",
+        help = "Shortcut to disable force kill fallback (equivalent to --force false)."
+    )]
+    pub no_force: bool,
+    #[arg(
+        long,
         default_value_t = 150,
         help = "Graceful stop timeout in milliseconds before optional force kill."
     )]

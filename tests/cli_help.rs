@@ -223,6 +223,10 @@ fn restart_help_exposes_force_and_grace_timeout_options() {
         stdout.contains("--grace-timeout-ms"),
         "restart help should expose --grace-timeout-ms"
     );
+    assert!(
+        stdout.contains("--no-force"),
+        "restart help should expose --no-force"
+    );
 }
 
 #[test]
