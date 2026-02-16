@@ -285,6 +285,12 @@ pub struct ServeArgs {
         help = "Maximum queued HTTP requests waiting for workers."
     )]
     pub queue_capacity: usize,
+    #[arg(
+        long,
+        default_value_t = 1_048_576,
+        help = "Maximum JSON request body size in bytes for HTTP debug APIs."
+    )]
+    pub max_body_bytes: usize,
 }
 
 #[derive(Debug, Clone, ValueEnum)]

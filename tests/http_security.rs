@@ -81,6 +81,8 @@ fn serve_rejects_oversized_json_payloads() {
         .arg("127.0.0.1:0")
         .arg("--token")
         .arg("testtoken")
+        .arg("--max-body-bytes")
+        .arg("1024")
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
@@ -95,7 +97,7 @@ fn serve_rejects_oversized_json_payloads() {
         .expect("listening url should be printed")
         .to_string();
 
-    let oversized_body = "x".repeat(1_100_000);
+    let oversized_body = "x".repeat(2048);
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(3)))
         .http_status_as_error(false)

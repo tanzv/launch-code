@@ -1,8 +1,15 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use serde_json::json;
 
 use crate::error::AppError;
 
-const MAX_HTTP_JSON_BODY_BYTES: usize = 1_048_576;
+const DEFAULT_MAX_HTTP_JSON_BODY_BYTES: usize = 1_048_576;
+static MAX_HTTP_JSON_BODY_BYTES: AtomicUsize = AtomicUsize::new(DEFAULT_MAX_HTTP_JSON_BODY_BYTES);
+
+pub(crate) fn set_http_max_json_body_bytes(value: usize) {
+    MAX_HTTP_JSON_BODY_BYTES.store(value, Ordering::Relaxed);
+}
 
 pub(crate) fn http_is_authorized(request: &tiny_http::Request, token: &str) -> bool {
     let expected = format!("Bearer {token}");
@@ -121,6 +128,7 @@ fn http_json_response(
 pub(crate) fn http_read_json_body(
     request: &mut tiny_http::Request,
 ) -> Result<serde_json::Value, HttpReadJsonError> {
+    let max_body_bytes = MAX_HTTP_JSON_BODY_BYTES.load(Ordering::Relaxed);
     let mut body = Vec::new();
     let mut chunk = [0u8; 8192];
     let mut total = 0usize;
@@ -133,9 +141,9 @@ pub(crate) fn http_read_json_body(
             break;
         }
         total = total.saturating_add(read);
-        if total > MAX_HTTP_JSON_BODY_BYTES {
+        if total > max_body_bytes {
             return Err(HttpReadJsonError::TooLarge {
-                limit_bytes: MAX_HTTP_JSON_BODY_BYTES,
+                limit_bytes: max_body_bytes,
             });
         }
         body.extend_from_slice(&chunk[..read]);

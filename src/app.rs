@@ -68,6 +68,8 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
 
 fn handle_serve(store: &StateStore, args: &ServeArgs) -> Result<(), AppError> {
     let token = resolve_serve_token(args)?;
+    let max_body_bytes = args.max_body_bytes.clamp(1024, 16_777_216);
+    crate::http_utils::set_http_max_json_body_bytes(max_body_bytes);
     let server =
         tiny_http::Server::http(&args.bind).map_err(|err| AppError::Http(err.to_string()))?;
     let url = format!("http://{}", server.server_addr());

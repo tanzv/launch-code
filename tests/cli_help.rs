@@ -186,6 +186,10 @@ fn serve_help_exposes_worker_and_queue_options() {
         stdout.contains("--queue-capacity"),
         "serve help should expose --queue-capacity"
     );
+    assert!(
+        stdout.contains("--max-body-bytes"),
+        "serve help should expose --max-body-bytes"
+    );
 }
 
 #[test]
