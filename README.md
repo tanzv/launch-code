@@ -58,6 +58,7 @@ launch-code config validate --name "Python Profile"
 launch-code config validate --all
 launch-code config run --name "Python Profile"
 launch-code config run --name "Python Profile" --arg "--feature" --env API_URL=http://127.0.0.1:9000
+launch-code config run --name "Python Profile" --clear-args --clear-env --env-file ./run.env
 launch-code config export --file ./.launch-code/profiles.json
 launch-code config import --file ./.launch-code/profiles.json
 launch-code config delete --name "Python Profile"
@@ -139,6 +140,7 @@ Representative error codes:
 - `profile_not_found`
 - `profile_validation_failed`
 - `invalid_env_pair`
+- `invalid_env_file_line`
 - `invalid_log_regex`
 - `python_debugpy_unavailable`
 - `dap_error`
@@ -400,6 +402,7 @@ launch-code config run --name "Python Debug"
 launch-code config run --name "Python Run" --mode debug
 launch-code config run --name "Python Run" --managed
 launch-code config run --name "Python Run" --arg "--feature" --env API_URL=http://127.0.0.1:9000
+launch-code config run --name "Python Run" --clear-args --clear-env --env-file ./run.env
 launch-code config export --file ./profiles.json
 launch-code config import --file ./profiles.json
 launch-code config import --file ./profiles.json --replace

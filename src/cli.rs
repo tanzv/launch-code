@@ -182,6 +182,23 @@ pub struct ConfigRunArgs {
     #[arg(long, help = "Force managed restart behavior for this run.")]
     pub managed: bool,
     #[arg(
+        long,
+        default_value_t = false,
+        help = "Ignore saved profile arguments for this run."
+    )]
+    pub clear_args: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Ignore saved profile environment variables for this run."
+    )]
+    pub clear_env: bool,
+    #[arg(
+        long,
+        help = "Optional env file loaded for this run (KEY=VALUE per line)."
+    )]
+    pub env_file: Option<PathBuf>,
+    #[arg(
         long = "arg",
         help = "Additional runtime argument for this run. Repeatable."
     )]

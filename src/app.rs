@@ -560,8 +560,21 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
         spec.managed = true;
     }
 
+    if args.clear_args {
+        spec.args.clear();
+    }
+
     if !args.args.is_empty() {
         spec.args.extend(args.args.clone());
+    }
+
+    if args.clear_env {
+        spec.env.clear();
+    }
+
+    if let Some(env_file) = &args.env_file {
+        let env_map = parse_env_file_map(env_file)?;
+        spec.env.extend(env_map);
     }
 
     if !args.env.is_empty() {
@@ -1215,6 +1228,42 @@ fn parse_env_map(items: &[String]) -> Result<BTreeMap<String, String>, AppError>
             .ok_or_else(|| AppError::InvalidEnvPair(item.clone()))?;
         env_map.insert(key.to_string(), value.to_string());
     }
+    Ok(env_map)
+}
+
+fn parse_env_file_map(path: &Path) -> Result<BTreeMap<String, String>, AppError> {
+    let payload = fs::read_to_string(path)?;
+    let mut env_map = BTreeMap::new();
+
+    for line in payload.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let trimmed = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+        let (key, value) = trimmed
+            .split_once('=')
+            .ok_or_else(|| AppError::InvalidEnvFileLine(trimmed.to_string()))?;
+
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty() {
+            continue;
+        }
+
+        let value = value
+            .strip_prefix('"')
+            .and_then(|inner| inner.strip_suffix('"'))
+            .or_else(|| {
+                value
+                    .strip_prefix('\'')
+                    .and_then(|inner| inner.strip_suffix('\''))
+            })
+            .unwrap_or(value);
+        env_map.insert(key.to_string(), value.to_string());
+    }
+
     Ok(env_map)
 }
 

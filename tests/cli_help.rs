@@ -191,4 +191,16 @@ fn config_run_help_exposes_runtime_override_flags() {
         stdout.contains("--env"),
         "config run help should expose --env"
     );
+    assert!(
+        stdout.contains("--clear-args"),
+        "config run help should expose --clear-args"
+    );
+    assert!(
+        stdout.contains("--clear-env"),
+        "config run help should expose --clear-env"
+    );
+    assert!(
+        stdout.contains("--env-file"),
+        "config run help should expose --env-file"
+    );
 }

@@ -34,6 +34,8 @@ pub enum AppError {
     ProfileValidationFailed(String),
     #[error("invalid env pair: {0}; expected KEY=VALUE")]
     InvalidEnvPair(String),
+    #[error("invalid env file line: {0}; expected KEY=VALUE")]
+    InvalidEnvFileLine(String),
     #[error("invalid log regex: {0}")]
     InvalidLogRegex(String),
     #[error("python debug requires debugpy; install with `python -m pip install debugpy`")]
@@ -61,6 +63,7 @@ impl AppError {
             Self::ProfileNotFound(_) => "profile_not_found",
             Self::ProfileValidationFailed(_) => "profile_validation_failed",
             Self::InvalidEnvPair(_) => "invalid_env_pair",
+            Self::InvalidEnvFileLine(_) => "invalid_env_file_line",
             Self::InvalidLogRegex(_) => "invalid_log_regex",
             Self::PythonDebugpyUnavailable => "python_debugpy_unavailable",
             Self::Http(_) => "http_error",
@@ -71,6 +74,7 @@ impl AppError {
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::InvalidEnvPair(_)
+            | Self::InvalidEnvFileLine(_)
             | Self::InvalidLogRegex(_)
             | Self::ProfileValidationFailed(_) => 2,
             Self::SessionNotFound(_)

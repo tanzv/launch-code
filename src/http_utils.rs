@@ -92,9 +92,9 @@ fn http_status_for_error(err: &AppError) -> (tiny_http::StatusCode, &'static str
         AppError::ProfileValidationFailed(_) => {
             (tiny_http::StatusCode(422), "profile_validation_failed")
         }
-        AppError::InvalidEnvPair(_) | AppError::InvalidLogRegex(_) => {
-            (tiny_http::StatusCode(400), "bad_request")
-        }
+        AppError::InvalidEnvPair(_)
+        | AppError::InvalidEnvFileLine(_)
+        | AppError::InvalidLogRegex(_) => (tiny_http::StatusCode(400), "bad_request"),
         AppError::PythonDebugpyUnavailable => (tiny_http::StatusCode(412), "debugpy_unavailable"),
         AppError::Dap(_) => (tiny_http::StatusCode(502), "dap_error"),
         _ => (tiny_http::StatusCode(500), "internal_error"),

@@ -795,3 +795,174 @@ fn config_run_can_apply_runtime_arg_and_env_overrides() {
         .expect("stop should run");
     assert!(stop_output.status.success(), "stop should succeed");
 }
+
+#[test]
+fn config_run_can_clear_saved_args_and_env() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("clear_overrides.py");
+    fs::write(
+        &script_path,
+        "import time\nprint('clear-overrides', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut save_cmd = cargo_bin_cmd!("launch-code");
+    let save_output = save_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("clear-profile")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .arg("--arg")
+        .arg("saved-arg")
+        .arg("--env")
+        .arg("SAVED=1")
+        .arg("--env")
+        .arg("KEEP=2")
+        .output()
+        .expect("save profile should run");
+    assert!(save_output.status.success(), "save profile should succeed");
+
+    let mut run_cmd = cargo_bin_cmd!("launch-code");
+    let run_output = run_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("run")
+        .arg("--name")
+        .arg("clear-profile")
+        .arg("--clear-args")
+        .arg("--clear-env")
+        .arg("--arg")
+        .arg("only-arg")
+        .arg("--env")
+        .arg("ONLY=9")
+        .output()
+        .expect("config run should execute");
+    assert!(run_output.status.success(), "config run should succeed");
+    let run_stdout = String::from_utf8(run_output.stdout).expect("run stdout should be utf8");
+    let session_id = parse_session_id(&run_stdout).expect("session id should be present");
+
+    let state_path = tmp.path().join(".launch-code").join("state.json");
+    let state_payload = fs::read_to_string(state_path).expect("state file should exist");
+    let state_doc: serde_json::Value =
+        serde_json::from_str(&state_payload).expect("state should be valid json");
+
+    let args_doc = &state_doc["sessions"][&session_id]["spec"]["args"];
+    let args_array = args_doc.as_array().expect("args should be array");
+    assert_eq!(args_array.len(), 1);
+    assert_eq!(args_array[0].as_str(), Some("only-arg"));
+
+    let env_doc = &state_doc["sessions"][&session_id]["spec"]["env"];
+    assert_eq!(env_doc["ONLY"].as_str(), Some("9"));
+    assert!(
+        env_doc.get("SAVED").is_none(),
+        "clear env should remove saved variables"
+    );
+    assert!(
+        env_doc.get("KEEP").is_none(),
+        "clear env should remove saved variables"
+    );
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(stop_output.status.success(), "stop should succeed");
+}
+
+#[test]
+fn config_run_can_merge_env_file_with_overrides() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("env_file_overrides.py");
+    let env_file = tmp.path().join("run.env");
+    fs::write(
+        &script_path,
+        "import time\nprint('env-file-overrides', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+    fs::write(&env_file, "FILE_A=alpha\nexport FILE_B=\"beta\"\nBASE=7\n")
+        .expect("env file should be written");
+
+    let mut save_cmd = cargo_bin_cmd!("launch-code");
+    let save_output = save_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("env-file-profile")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .arg("--env")
+        .arg("BASE=1")
+        .arg("--env")
+        .arg("KEEP=yes")
+        .output()
+        .expect("save profile should run");
+    assert!(save_output.status.success(), "save profile should succeed");
+
+    let mut run_cmd = cargo_bin_cmd!("launch-code");
+    let run_output = run_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("run")
+        .arg("--name")
+        .arg("env-file-profile")
+        .arg("--env-file")
+        .arg(env_file.to_string_lossy().to_string())
+        .arg("--env")
+        .arg("BASE=9")
+        .output()
+        .expect("config run should execute");
+    assert!(run_output.status.success(), "config run should succeed");
+    let run_stdout = String::from_utf8(run_output.stdout).expect("run stdout should be utf8");
+    let session_id = parse_session_id(&run_stdout).expect("session id should be present");
+
+    let state_path = tmp.path().join(".launch-code").join("state.json");
+    let state_payload = fs::read_to_string(state_path).expect("state file should exist");
+    let state_doc: serde_json::Value =
+        serde_json::from_str(&state_payload).expect("state should be valid json");
+
+    let env_doc = &state_doc["sessions"][&session_id]["spec"]["env"];
+    assert_eq!(env_doc["FILE_A"].as_str(), Some("alpha"));
+    assert_eq!(env_doc["FILE_B"].as_str(), Some("beta"));
+    assert_eq!(env_doc["KEEP"].as_str(), Some("yes"));
+    assert_eq!(
+        env_doc["BASE"].as_str(),
+        Some("9"),
+        "explicit --env override should win over env-file and saved env"
+    );
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(stop_output.status.success(), "stop should succeed");
+}
