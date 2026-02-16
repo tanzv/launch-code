@@ -90,13 +90,6 @@ pub(crate) fn api_debug_session(
     Ok(super::build_debug_session_doc(session, meta))
 }
 
-pub(crate) fn api_stop_session(
-    store: &StateStore,
-    session_id: &str,
-) -> Result<SessionRecord, AppError> {
-    api_stop_session_with_options(store, session_id, true, 150)
-}
-
 pub(crate) fn api_stop_session_with_options(
     store: &StateStore,
     session_id: &str,
