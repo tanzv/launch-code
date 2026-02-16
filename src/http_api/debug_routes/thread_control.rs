@@ -89,8 +89,16 @@ fn handle_debug_thread_control(
     };
 
     let timeout = Duration::from_millis(1500);
-    let thread_id = match payload.get("threadId").and_then(|v| v.as_u64()) {
-        Some(value) => value,
+    let thread_id = match payload.get("threadId") {
+        Some(value) => match value.as_u64() {
+            Some(thread_id) => thread_id,
+            None => {
+                return http_json(
+                    tiny_http::StatusCode(400),
+                    json!({"ok": false, "error": "bad_request", "message": "threadId must be a non-negative integer"}),
+                );
+            }
+        },
         None => {
             let threads_response = match send_request_with_retry(
                 store,

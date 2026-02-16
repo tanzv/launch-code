@@ -20,16 +20,21 @@ pub(crate) fn handle_debug_disconnect(
         }
     };
 
-    let timeout = Duration::from_millis(
-        payload
-            .get("timeout_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1500)
-            .min(60_000),
-    );
+    let timeout = match parse_optional_timeout_ms(&payload, "timeout_ms", 1500) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let terminate_debuggee = match parse_optional_bool(&payload, "terminateDebuggee", false) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let suspend_debuggee = match parse_optional_bool(&payload, "suspendDebuggee", false) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
     let args = json!({
-        "terminateDebuggee": payload.get("terminateDebuggee").and_then(|v| v.as_bool()).unwrap_or(false),
-        "suspendDebuggee": payload.get("suspendDebuggee").and_then(|v| v.as_bool()).unwrap_or(false)
+        "terminateDebuggee": terminate_debuggee,
+        "suspendDebuggee": suspend_debuggee
     });
 
     match send_request_with_retry(store, serve_state, session_id, "disconnect", args, timeout) {
@@ -54,15 +59,16 @@ pub(crate) fn handle_debug_terminate(
         }
     };
 
-    let timeout = Duration::from_millis(
-        payload
-            .get("timeout_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1500)
-            .min(60_000),
-    );
+    let timeout = match parse_optional_timeout_ms(&payload, "timeout_ms", 1500) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let restart = match parse_optional_bool(&payload, "restart", false) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
     let args = json!({
-        "restart": payload.get("restart").and_then(|v| v.as_bool()).unwrap_or(false)
+        "restart": restart
     });
 
     match send_request_with_retry(store, serve_state, session_id, "terminate", args, timeout) {
@@ -87,29 +93,23 @@ pub(crate) fn handle_debug_adopt_subprocess(
         }
     };
 
-    let timeout = Duration::from_millis(
-        payload
-            .get("timeout_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1500)
-            .min(60_000),
-    );
-    let bootstrap_timeout = Duration::from_millis(
-        payload
-            .get("bootstrap_timeout_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(5000)
-            .min(60_000),
-    );
-    let max_events = payload
-        .get("max_events")
-        .and_then(|v| v.as_u64())
-        .and_then(|v| usize::try_from(v).ok())
-        .unwrap_or(50);
-    let child_session_id = payload
-        .get("childSessionId")
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.trim().is_empty());
+    let timeout = match parse_optional_timeout_ms(&payload, "timeout_ms", 1500) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let bootstrap_timeout = match parse_optional_timeout_ms(&payload, "bootstrap_timeout_ms", 5000)
+    {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let max_events = match parse_optional_usize(&payload, "max_events", 50, usize::MAX) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let child_session_id = match parse_optional_non_empty_string(&payload, "childSessionId") {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
 
     match adopt_debugpy_subprocess(
         store,
@@ -118,7 +118,7 @@ pub(crate) fn handle_debug_adopt_subprocess(
         timeout,
         max_events,
         bootstrap_timeout,
-        child_session_id,
+        child_session_id.as_deref(),
     ) {
         Ok(adopted) => http_json(
             tiny_http::StatusCode(200),
@@ -135,5 +135,81 @@ pub(crate) fn handle_debug_adopt_subprocess(
             }),
         ),
         Err(err) => http_json_error(&err),
+    }
+}
+
+type HttpResponse = tiny_http::Response<std::io::Cursor<Vec<u8>>>;
+
+fn bad_request(message: impl Into<String>) -> HttpResponse {
+    http_json(
+        tiny_http::StatusCode(400),
+        json!({"ok": false, "error": "bad_request", "message": message.into()}),
+    )
+}
+
+fn parse_optional_timeout_ms(
+    payload: &serde_json::Value,
+    key: &str,
+    default: u64,
+) -> Result<Duration, HttpResponse> {
+    let value = match payload.get(key) {
+        None => default,
+        Some(value) => match value.as_u64() {
+            Some(value) => value,
+            None => return Err(bad_request(format!("{key} must be a non-negative integer"))),
+        },
+    };
+    Ok(Duration::from_millis(value.min(60_000)))
+}
+
+fn parse_optional_bool(
+    payload: &serde_json::Value,
+    key: &str,
+    default: bool,
+) -> Result<bool, HttpResponse> {
+    match payload.get(key) {
+        None => Ok(default),
+        Some(value) => match value.as_bool() {
+            Some(value) => Ok(value),
+            None => Err(bad_request(format!("{key} must be a boolean"))),
+        },
+    }
+}
+
+fn parse_optional_usize(
+    payload: &serde_json::Value,
+    key: &str,
+    default: usize,
+    max: usize,
+) -> Result<usize, HttpResponse> {
+    let value = match payload.get(key) {
+        None => default as u64,
+        Some(value) => match value.as_u64() {
+            Some(value) => value,
+            None => return Err(bad_request(format!("{key} must be a non-negative integer"))),
+        },
+    };
+
+    let capped = value.min(max as u64);
+    usize::try_from(capped).map_err(|_| bad_request(format!("{key} is out of range")))
+}
+
+fn parse_optional_non_empty_string(
+    payload: &serde_json::Value,
+    key: &str,
+) -> Result<Option<String>, HttpResponse> {
+    match payload.get(key) {
+        None => Ok(None),
+        Some(value) => match value.as_str() {
+            Some(value) => {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(trimmed.to_string()))
+                }
+            }
+            None => Err(bad_request(format!("{key} must be a string"))),
+        },
     }
 }
