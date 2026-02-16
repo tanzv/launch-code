@@ -4,6 +4,7 @@ mod log_ops;
 mod session_api;
 mod spec_ops;
 
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -66,6 +67,7 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
 }
 
 fn handle_serve(store: &StateStore, args: &ServeArgs) -> Result<(), AppError> {
+    let token = resolve_serve_token(args)?;
     let server =
         tiny_http::Server::http(&args.bind).map_err(|err| AppError::Http(err.to_string()))?;
     let url = format!("http://{}", server.server_addr());
@@ -81,7 +83,7 @@ fn handle_serve(store: &StateStore, args: &ServeArgs) -> Result<(), AppError> {
     let mut workers = Vec::new();
     for _ in 0..worker_count {
         let store = store.clone();
-        let token = args.token.clone();
+        let token = token.clone();
         let serve_state = Arc::clone(&serve_state);
         let receiver = Arc::clone(&receiver);
         workers.push(thread::spawn(move || {
@@ -121,6 +123,37 @@ fn handle_serve(store: &StateStore, args: &ServeArgs) -> Result<(), AppError> {
     }
 
     Ok(())
+}
+
+fn resolve_serve_token(args: &ServeArgs) -> Result<String, AppError> {
+    if let Some(token) = args.token.as_ref().map(|value| value.trim().to_string()) {
+        if !token.is_empty() {
+            return Ok(token);
+        }
+    }
+
+    if let Some(path) = &args.token_file {
+        let raw = fs::read_to_string(path)?;
+        let token = raw
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .ok_or_else(|| {
+                AppError::Http(format!("token file is empty: {}", path.to_string_lossy()))
+            })?;
+        return Ok(token.to_string());
+    }
+
+    if let Ok(token) = std::env::var("LAUNCH_CODE_HTTP_TOKEN") {
+        let token = token.trim();
+        if !token.is_empty() {
+            return Ok(token.to_string());
+        }
+    }
+
+    Err(AppError::Http(
+        "missing serve token: provide --token, --token-file, or LAUNCH_CODE_HTTP_TOKEN".to_string(),
+    ))
 }
 
 fn handle_debug(store: &StateStore, args: &DebugArgs) -> Result<(), AppError> {

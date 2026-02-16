@@ -263,8 +263,16 @@ pub struct ServeArgs {
         help = "HTTP bind address. Use :0 for random port."
     )]
     pub bind: String,
-    #[arg(long, help = "Bearer token required by all HTTP API requests.")]
-    pub token: String,
+    #[arg(
+        long,
+        help = "Bearer token required by all HTTP API requests. Prefer --token-file or LAUNCH_CODE_HTTP_TOKEN in production."
+    )]
+    pub token: Option<String>,
+    #[arg(
+        long,
+        help = "Path to file containing bearer token (first non-empty trimmed line)."
+    )]
+    pub token_file: Option<PathBuf>,
     #[arg(
         long,
         default_value_t = default_serve_workers(),

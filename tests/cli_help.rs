@@ -179,6 +179,10 @@ fn serve_help_exposes_worker_and_queue_options() {
         "serve help should expose --workers"
     );
     assert!(
+        stdout.contains("--token-file"),
+        "serve help should expose --token-file"
+    );
+    assert!(
         stdout.contains("--queue-capacity"),
         "serve help should expose --queue-capacity"
     );
