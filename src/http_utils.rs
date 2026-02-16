@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use launch_code::process::ProcessError;
 use serde_json::json;
 
 use crate::error::AppError;
@@ -108,6 +109,9 @@ fn http_status_for_error(err: &AppError) -> (tiny_http::StatusCode, &'static str
         AppError::InvalidEnvPair(_)
         | AppError::InvalidEnvFileLine(_)
         | AppError::InvalidLogRegex(_) => (tiny_http::StatusCode(400), "bad_request"),
+        AppError::Process(ProcessError::StopTimeout { .. }) => {
+            (tiny_http::StatusCode(409), "stop_timeout")
+        }
         AppError::PythonDebugpyUnavailable => (tiny_http::StatusCode(412), "debugpy_unavailable"),
         AppError::Dap(_) => (tiny_http::StatusCode(502), "dap_error"),
         _ => (tiny_http::StatusCode(500), "internal_error"),
