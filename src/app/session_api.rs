@@ -52,7 +52,8 @@ pub(crate) fn api_inspect_session(
         let pid = session.pid;
         let alive = pid.map(is_process_alive).unwrap_or(false);
         let command = build_command(&session.spec)?;
-        let log_tail = super::read_log_tail(session.log_path.as_deref(), tail).unwrap_or_default();
+        let log_tail =
+            super::log_ops::read_log_tail(session.log_path.as_deref(), tail).unwrap_or_default();
 
         Ok(json!({
             "ok": true,
