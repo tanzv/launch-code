@@ -49,7 +49,9 @@ launch-code debug --runtime python --entry app.py --cwd . --subprocess true
 
 ```bash
 launch-code start --runtime python --entry app.py --cwd .
+launch-code start --runtime python --entry app.py --cwd . --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
 launch-code debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
+launch-code debug --runtime python --entry app.py --cwd . --env-file ./.env.base --env DEBUG=1
 launch-code launch --name "Python Demo" --mode run
 launch-code config save --name "Python Profile" --runtime python --entry app.py --cwd . --mode debug
 launch-code config list
@@ -118,7 +120,7 @@ Debug output includes endpoint metadata:
 - `--ignore-case` applies case-insensitive matching for `--contains`, `--exclude`, `--regex`, and `--exclude-regex`.
 - Filtering applies to both `--tail` output and `--follow` stream output.
 
-`config run` env override order:
+`start` / `debug` / `config run` env override order:
 
 - Saved profile env values are loaded first.
 - `--env-file` values are applied in declaration order (`--env-file a --env-file b`, so `b` overrides `a`).

@@ -1084,7 +1084,11 @@ fn build_launch_spec(
     debug: Option<DebugConfig>,
 ) -> Result<LaunchSpec, AppError> {
     let runtime = to_runtime_kind(&args.runtime);
-    let env = parse_env_map(&args.env)?;
+    let mut env = BTreeMap::new();
+    for env_file in &args.env_file {
+        env.extend(parse_env_file_map(env_file)?);
+    }
+    env.extend(parse_env_map(&args.env)?);
     let name = args
         .name
         .clone()

@@ -114,6 +114,27 @@ fn logs_help_explains_filter_arguments() {
 }
 
 #[test]
+fn start_help_exposes_env_file_flag() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("start")
+        .arg("--help")
+        .output()
+        .expect("start help should run");
+    assert!(output.status.success(), "start help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("--env-file"),
+        "start help should expose --env-file"
+    );
+    assert!(
+        stdout.contains("Repeatable"),
+        "start help should describe repeatable env files"
+    );
+}
+
+#[test]
 fn config_help_lists_profile_subcommands() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd

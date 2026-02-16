@@ -88,6 +88,11 @@ pub struct StartArgs {
     pub env: Vec<String>,
     #[arg(
         long,
+        help = "Env file loaded for this run (KEY=VALUE per line). Repeatable; later files override earlier ones."
+    )]
+    pub env_file: Vec<PathBuf>,
+    #[arg(
+        long,
         default_value_t = false,
         help = "Enable managed restart on unexpected exit."
     )]
