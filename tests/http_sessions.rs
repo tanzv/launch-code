@@ -455,3 +455,119 @@ fn serve_stop_timeout_returns_conflict_error() {
     let _ = child.kill();
     let _ = child.wait();
 }
+
+#[test]
+fn serve_suspend_resume_validate_payload_and_keep_connection_healthy() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("app_suspend_resume.py");
+    fs::write(&script_path, "import time\ntime.sleep(30)\n").expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("python-suspend-resume")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let start_stdout = String::from_utf8(start_output.stdout).expect("start output utf8");
+    let session_id = parse_session_id(&start_stdout).expect("session id should be present");
+
+    let exe = assert_cmd::cargo::cargo_bin!("launch-code");
+    let mut child = Command::new(exe)
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("serve")
+        .arg("--bind")
+        .arg("127.0.0.1:0")
+        .arg("--token")
+        .arg("testtoken")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("serve should start");
+
+    let stdout = child.stdout.take().expect("stdout should be piped");
+    let mut reader = BufReader::new(stdout);
+    let line = wait_for_server_line(&mut reader);
+    let url = line
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix("listening="))
+        .expect("listening url should be printed")
+        .to_string();
+
+    let noerr_agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let mut invalid_suspend_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/suspend"))
+        .header("Authorization", "Bearer testtoken")
+        .send("{")
+        .expect("invalid suspend request should complete");
+    assert_eq!(
+        invalid_suspend_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let invalid_body = invalid_suspend_res
+        .body_mut()
+        .read_to_string()
+        .expect("invalid body should be readable");
+    let invalid_json: Value = serde_json::from_str(&invalid_body).expect("invalid response json");
+    assert_eq!(invalid_json["ok"], false);
+    assert_eq!(invalid_json["error"], "bad_request");
+
+    let mut suspend_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/suspend"))
+        .header("Authorization", "Bearer testtoken")
+        .send("{}")
+        .expect("suspend should succeed");
+    assert_eq!(suspend_res.status(), ureq::http::StatusCode::OK);
+    let suspend_body = suspend_res
+        .body_mut()
+        .read_to_string()
+        .expect("suspend body should be readable");
+    let suspend_json: Value = serde_json::from_str(&suspend_body).expect("suspend response json");
+    assert_eq!(suspend_json["ok"], true);
+    assert_eq!(suspend_json["session"]["status"], "suspended");
+
+    let mut resume_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/resume"))
+        .header("Authorization", "Bearer testtoken")
+        .send("{}")
+        .expect("resume should succeed");
+    assert_eq!(resume_res.status(), ureq::http::StatusCode::OK);
+    let resume_body = resume_res
+        .body_mut()
+        .read_to_string()
+        .expect("resume body should be readable");
+    let resume_json: Value = serde_json::from_str(&resume_body).expect("resume response json");
+    assert_eq!(resume_json["ok"], true);
+    assert_eq!(resume_json["session"]["status"], "running");
+
+    let mut stop_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/stop"))
+        .header("Authorization", "Bearer testtoken")
+        .send("{}")
+        .expect("stop should succeed");
+    assert_eq!(stop_res.status(), ureq::http::StatusCode::OK);
+    let _ = stop_res
+        .body_mut()
+        .read_to_string()
+        .expect("stop response body should be readable");
+
+    let _ = child.kill();
+    let _ = child.wait();
+}

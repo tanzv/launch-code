@@ -253,6 +253,9 @@ fn response_for_request_inner(
             }
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "suspend"]) => {
+            if let Err(response) = ensure_json_payload(request) {
+                return response;
+            }
             match api_suspend_session(store, session_id) {
                 Ok(session) => http_json(
                     tiny_http::StatusCode(200),
@@ -262,6 +265,9 @@ fn response_for_request_inner(
             }
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "resume"]) => {
+            if let Err(response) = ensure_json_payload(request) {
+                return response;
+            }
             match api_resume_session(store, session_id) {
                 Ok(session) => http_json(
                     tiny_http::StatusCode(200),
@@ -385,4 +391,13 @@ fn parse_force_and_grace(
         },
     };
     Ok((force, grace_timeout_ms))
+}
+
+fn ensure_json_payload(
+    request: &mut tiny_http::Request,
+) -> Result<(), tiny_http::Response<std::io::Cursor<Vec<u8>>>> {
+    match http_read_json_body(request) {
+        Ok(_) => Ok(()),
+        Err(err) => Err(http_json_body_error(err)),
+    }
 }
