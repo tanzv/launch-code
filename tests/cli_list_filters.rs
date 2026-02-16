@@ -364,18 +364,17 @@ fn json_list_filters_return_filtered_items() {
     let items = doc["items"].as_array().expect("items should be array");
     assert!(
         items.iter().any(|item| {
-            item.as_str()
-                .map(|line| line.contains(&running_id))
-                .unwrap_or(false)
+            item["id"].as_str() == Some(&running_id)
+                && item["status"].as_str() == Some("running")
+                && item["runtime"].as_str() == Some("python")
+                && item["mode"].as_str() == Some("run")
         }),
         "running json list should include running session id"
     );
     assert!(
-        !items.iter().any(|item| {
-            item.as_str()
-                .map(|line| line.contains(&stopped_id))
-                .unwrap_or(false)
-        }),
+        !items
+            .iter()
+            .any(|item| item["id"].as_str() == Some(&stopped_id)),
         "running json list should exclude stopped session id"
     );
 

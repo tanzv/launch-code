@@ -1,5 +1,7 @@
+use std::fs;
+
 use assert_cmd::cargo::cargo_bin_cmd;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tempfile::tempdir;
 
 #[test]
@@ -44,6 +46,70 @@ fn json_list_output_is_structured() {
     let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
     assert_eq!(doc["ok"], true);
     assert!(doc["items"].is_array(), "items should be an array");
+}
+
+#[test]
+fn json_list_output_includes_session_objects() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    let state = json!({
+        "sessions": {
+            "session-1": {
+                "id": "session-1",
+                "spec": {
+                    "name": "api",
+                    "runtime": "python",
+                    "entry": "app.py",
+                    "args": [],
+                    "cwd": ".",
+                    "env": {},
+                    "managed": false,
+                    "mode": "run",
+                    "debug": null,
+                    "prelaunch_task": null,
+                    "poststop_task": null
+                },
+                "status": "stopped",
+                "pid": null,
+                "supervisor_pid": null,
+                "log_path": null,
+                "debug_meta": null,
+                "created_at": 1,
+                "updated_at": 1,
+                "last_exit_code": null,
+                "restart_count": 0
+            }
+        }
+    });
+    fs::write(
+        &state_path,
+        serde_json::to_string_pretty(&state).expect("state json"),
+    )
+    .expect("state should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("list")
+        .output()
+        .expect("list should run");
+    assert!(output.status.success(), "list should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    let items = doc["items"].as_array().expect("items should be an array");
+    assert_eq!(items.len(), 1, "should include one session row");
+    let item = &items[0];
+    assert_eq!(item["id"], "session-1");
+    assert_eq!(item["status"], "stopped");
+    assert_eq!(item["runtime"], "python");
+    assert_eq!(item["mode"], "run");
+    assert_eq!(item["pid"], Value::Null);
+    assert_eq!(item["name"], "api");
+    assert_eq!(item["entry"], "app.py");
 }
 
 #[test]
