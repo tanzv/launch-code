@@ -23,38 +23,35 @@ pub(super) fn handle_dap_request(
         }
     };
 
-    let timeout = Duration::from_millis(
-        payload
-            .get("timeout_ms")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1500)
-            .min(60_000),
-    );
+    let timeout = match parse_optional_timeout_ms(&payload, "timeout_ms", 1500) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
 
-    if let Some(batch) = payload.get("batch").and_then(|v| v.as_array()) {
+    if let Some(batch_value) = payload.get("batch") {
+        let Some(batch) = batch_value.as_array() else {
+            return bad_request("batch must be an array");
+        };
+
         if batch.is_empty() {
-            return http_json(
-                tiny_http::StatusCode(400),
-                json!({"ok": false, "error": "bad_request", "message": "batch must not be empty"}),
-            );
+            return bad_request("batch must not be empty");
         }
 
         let mut requests = Vec::with_capacity(batch.len());
         for item in batch {
-            let command = match item.get("command").and_then(|v| v.as_str()) {
-                Some(value) if !value.trim().is_empty() => value.to_string(),
-                _ => {
-                    return http_json(
-                        tiny_http::StatusCode(400),
-                        json!({"ok": false, "error": "bad_request", "message": "batch items require command"}),
-                    );
-                }
+            let Some(_) = item.as_object() else {
+                return bad_request("batch items must be objects");
             };
 
-            let mut arguments = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if arguments.is_null() {
-                arguments = json!({});
-            }
+            let command = match item.get("command").and_then(|v| v.as_str()) {
+                Some(value) if !value.trim().is_empty() => value.to_string(),
+                _ => return bad_request("batch items require command"),
+            };
+
+            let arguments = match parse_optional_arguments(item, "arguments") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
 
             requests.push((command, arguments));
         }
@@ -69,21 +66,13 @@ pub(super) fn handle_dap_request(
     } else {
         let command = match payload.get("command").and_then(|v| v.as_str()) {
             Some(value) if !value.trim().is_empty() => value.to_string(),
-            _ => {
-                return http_json(
-                    tiny_http::StatusCode(400),
-                    json!({"ok": false, "error": "bad_request", "message": "command is required"}),
-                );
-            }
+            _ => return bad_request("command is required"),
         };
 
-        let mut arguments = payload
-            .get("arguments")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        if arguments.is_null() {
-            arguments = json!({});
-        }
+        let arguments = match parse_optional_arguments(&payload, "arguments") {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
 
         match send_request_with_retry(store, serve_state, session_id, &command, arguments, timeout)
         {
@@ -94,6 +83,49 @@ pub(super) fn handle_dap_request(
             Err(err) => http_json_error(&err),
         }
     }
+}
+
+type HttpResponse = tiny_http::Response<std::io::Cursor<Vec<u8>>>;
+
+fn bad_request(message: impl Into<String>) -> HttpResponse {
+    http_json(
+        tiny_http::StatusCode(400),
+        json!({"ok": false, "error": "bad_request", "message": message.into()}),
+    )
+}
+
+fn parse_optional_timeout_ms(
+    payload: &serde_json::Value,
+    key: &str,
+    default: u64,
+) -> Result<Duration, HttpResponse> {
+    let timeout_ms = match payload.get(key) {
+        None => default,
+        Some(value) => match value.as_u64() {
+            Some(value) => value,
+            None => return Err(bad_request(format!("{key} must be a non-negative integer"))),
+        },
+    };
+    Ok(Duration::from_millis(timeout_ms.min(60_000)))
+}
+
+fn parse_optional_arguments(
+    payload: &serde_json::Value,
+    key: &str,
+) -> Result<serde_json::Value, HttpResponse> {
+    let value = match payload.get(key) {
+        Some(value) => value,
+        None => return Ok(json!({})),
+    };
+
+    if value.is_null() {
+        return Ok(json!({}));
+    }
+    if value.is_object() {
+        return Ok(value.clone());
+    }
+
+    Err(bad_request(format!("{key} must be an object")))
 }
 
 pub(super) fn handle_dap_events(
