@@ -146,6 +146,7 @@ Representative error codes:
 - `session_missing_pid`
 - `session_missing_debug_meta`
 - `session_missing_log_path`
+- `session_state_changed`
 - `profile_not_found`
 - `profile_bundle_version_unsupported`
 - `profile_validation_failed`
@@ -155,6 +156,10 @@ Representative error codes:
 - `python_debugpy_unavailable`
 - `dap_error`
 - `http_error`
+
+Session lifecycle operations (`stop` / `restart`) include bounded internal retries for transient
+state races in concurrent CLI/HTTP workflows. If all retries still observe conflicting state, APIs
+return `session_state_changed` with HTTP 409.
 
 ## HTTP Control Plane
 

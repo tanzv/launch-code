@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::Duration;
 
 use launch_code::model::{LaunchSpec, SessionRecord, SessionStatus, unix_timestamp_secs};
@@ -13,6 +14,7 @@ use serde_json::json;
 use crate::error::AppError;
 
 type ShellTaskSpec = (String, String, BTreeMap<String, String>, String);
+const SESSION_CONTROL_MAX_RETRIES: usize = 3;
 
 #[derive(Clone)]
 struct RestartPlan {
@@ -108,16 +110,38 @@ pub(crate) fn api_stop_session_with_options(
     force: bool,
     grace_timeout_ms: u64,
 ) -> Result<SessionRecord, AppError> {
-    let session_id = session_id.to_string();
     let grace_timeout = Duration::from_millis(grace_timeout_ms);
-    let expected_pid = load_session_pid(store, &session_id)?;
+    retry_session_control(session_id, || {
+        api_stop_session_once(store, session_id, force, grace_timeout)
+    })
+}
+
+pub(crate) fn api_restart_session_with_options(
+    store: &StateStore,
+    session_id: &str,
+    force: bool,
+    grace_timeout_ms: u64,
+) -> Result<SessionRecord, AppError> {
+    let grace_timeout = Duration::from_millis(grace_timeout_ms);
+    retry_session_control(session_id, || {
+        api_restart_session_once(store, session_id, force, grace_timeout)
+    })
+}
+
+fn api_stop_session_once(
+    store: &StateStore,
+    session_id: &str,
+    force: bool,
+    grace_timeout: Duration,
+) -> Result<SessionRecord, AppError> {
+    let expected_pid = load_session_pid(store, session_id)?;
     if let Some(pid) = expected_pid {
         stop_process_with_options(pid, force, grace_timeout)?;
     }
 
     let (session_clone, post_task) = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
-        let session = super::find_session_mut(state, &session_id)?;
+        let session = super::find_session_mut(state, session_id)?;
         if session.pid != expected_pid {
             if session.pid.is_none() {
                 if !matches!(session.status, SessionStatus::Stopped) {
@@ -147,14 +171,13 @@ pub(crate) fn api_stop_session_with_options(
     Ok(session_clone)
 }
 
-pub(crate) fn api_restart_session_with_options(
+fn api_restart_session_once(
     store: &StateStore,
     session_id: &str,
     force: bool,
-    grace_timeout_ms: u64,
+    grace_timeout: Duration,
 ) -> Result<SessionRecord, AppError> {
     let plan = load_restart_plan(store, session_id)?;
-    let grace_timeout = Duration::from_millis(grace_timeout_ms);
     if let Some(pid) = plan.expected_pid {
         if is_process_alive(pid) {
             stop_process_with_options(pid, force, grace_timeout)?;
@@ -197,6 +220,31 @@ pub(crate) fn api_restart_session_with_options(
     };
 
     Ok(session)
+}
+
+fn retry_backoff(attempt: usize) -> Duration {
+    let step = u64::try_from(attempt).unwrap_or(u64::MAX).saturating_add(1);
+    Duration::from_millis(step.saturating_mul(10))
+}
+
+fn retry_session_control<T, F>(session_id: &str, mut operation: F) -> Result<T, AppError>
+where
+    F: FnMut() -> Result<T, AppError>,
+{
+    for attempt in 0..SESSION_CONTROL_MAX_RETRIES {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(AppError::SessionStateChanged(_)) => {
+                if attempt + 1 < SESSION_CONTROL_MAX_RETRIES {
+                    thread::sleep(retry_backoff(attempt));
+                    continue;
+                }
+                return Err(AppError::SessionStateChanged(session_id.to_string()));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    Err(AppError::SessionStateChanged(session_id.to_string()))
 }
 
 fn build_post_stop_task(session: &SessionRecord) -> Option<ShellTaskSpec> {
@@ -275,4 +323,45 @@ pub(crate) fn api_resume_session(
         session.updated_at = now;
         Ok(session.clone())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    #[test]
+    fn retry_session_control_recovers_after_transient_conflicts() {
+        let attempts = AtomicUsize::new(0);
+        let value = retry_session_control("session-a", || {
+            let observed = attempts.fetch_add(1, Ordering::SeqCst);
+            if observed < 2 {
+                return Err(AppError::SessionStateChanged("session-a".to_string()));
+            }
+            Ok(7u64)
+        })
+        .expect("retry should recover");
+
+        assert_eq!(value, 7);
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn retry_session_control_returns_conflict_after_retry_budget() {
+        let attempts = AtomicUsize::new(0);
+        let err = retry_session_control("session-b", || {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err::<u64, AppError>(AppError::SessionStateChanged("other-session".to_string()))
+        })
+        .expect_err("retry should eventually fail");
+
+        match err {
+            AppError::SessionStateChanged(session_id) => {
+                assert_eq!(session_id, "session-b");
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+        assert_eq!(attempts.load(Ordering::SeqCst), SESSION_CONTROL_MAX_RETRIES);
+    }
 }
