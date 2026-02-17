@@ -66,7 +66,8 @@ pub(super) fn extract_first_thread_id(
         .and_then(|threads| threads.first())
         .and_then(|thread| thread.get("id"))
         .and_then(|id| id.as_u64())
-        .ok_or_else(|| AppError::Dap("no thread returned by debug adapter".to_string()))
+        .filter(|id| *id > 0)
+        .ok_or_else(|| AppError::Dap("no positive thread id returned by debug adapter".to_string()))
 }
 
 fn resolve_thread_id(
@@ -77,7 +78,10 @@ fn resolve_thread_id(
     timeout: Duration,
 ) -> Result<u64, AppError> {
     match thread_id {
-        Some(value) => Ok(value),
+        Some(value) if value > 0 => Ok(value),
+        Some(_) => Err(AppError::Dap(
+            "threadId must be a positive integer".to_string(),
+        )),
         None => {
             let threads_response = send_request_with_retry(
                 store,
@@ -89,5 +93,35 @@ fn resolve_thread_id(
             )?;
             extract_first_thread_id(&threads_response)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::extract_first_thread_id;
+
+    #[test]
+    fn extract_first_thread_id_rejects_zero_id() {
+        let response = json!({
+            "body": {
+                "threads": [{"id": 0, "name": "Main"}]
+            }
+        });
+        let err = extract_first_thread_id(&response).expect_err("thread id zero should fail");
+        let text = err.to_string();
+        assert!(text.contains("no positive thread id returned by debug adapter"));
+    }
+
+    #[test]
+    fn extract_first_thread_id_accepts_positive_id() {
+        let response = json!({
+            "body": {
+                "threads": [{"id": 9, "name": "Main"}]
+            }
+        });
+        let thread_id = extract_first_thread_id(&response).expect("thread id should parse");
+        assert_eq!(thread_id, 9);
     }
 }

@@ -108,6 +108,7 @@ pub struct DapContinueArgs {
     pub id: String,
     #[arg(
         long,
+        value_parser = clap::value_parser!(u64).range(1..),
         help = "Thread id. If omitted, the first reported thread is used."
     )]
     pub thread_id: Option<u64>,
@@ -158,7 +159,11 @@ pub struct DapEvaluateArgs {
 pub struct DapSetVariableArgs {
     #[arg(long, help = "Target session id.")]
     pub id: String,
-    #[arg(long, help = "variablesReference value from a scope or variable.")]
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "variablesReference value from a scope or variable."
+    )]
     pub variables_reference: u64,
     #[arg(long, help = "Variable name to update.")]
     pub name: String,
@@ -178,6 +183,7 @@ pub struct DapPauseArgs {
     pub id: String,
     #[arg(
         long,
+        value_parser = clap::value_parser!(u64).range(1..),
         help = "Thread id. If omitted, the first reported thread is used."
     )]
     pub thread_id: Option<u64>,
@@ -195,6 +201,7 @@ pub struct DapStepArgs {
     pub id: String,
     #[arg(
         long,
+        value_parser = clap::value_parser!(u64).range(1..),
         help = "Thread id. If omitted, the first reported thread is used."
     )]
     pub thread_id: Option<u64>,
@@ -310,6 +317,7 @@ pub struct DapStackTraceArgs {
     pub id: String,
     #[arg(
         long,
+        value_parser = clap::value_parser!(u64).range(1..),
         help = "Thread id. If omitted, the first reported thread is used."
     )]
     pub thread_id: Option<u64>,
@@ -343,7 +351,11 @@ pub struct DapScopesArgs {
 pub struct DapVariablesArgs {
     #[arg(long, help = "Target session id.")]
     pub id: String,
-    #[arg(long, help = "variablesReference value from scopes/variables.")]
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "variablesReference value from scopes/variables."
+    )]
     pub variables_reference: u64,
     #[arg(long, value_enum, help = "Variable filter mode.")]
     pub filter: Option<DapVariablesFilterArg>,

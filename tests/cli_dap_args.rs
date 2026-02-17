@@ -168,3 +168,51 @@ fn cli_dap_batch_rejects_oversized_request_count() {
         "error should mention batch size upper bound"
     );
 }
+
+#[test]
+fn cli_dap_continue_rejects_zero_thread_id() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("continue")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--thread-id")
+        .arg("0")
+        .output()
+        .expect("dap continue should run");
+
+    assert!(
+        !output.status.success(),
+        "dap continue should reject non-positive thread-id"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("--thread-id"),
+        "error should reference thread-id argument"
+    );
+}
+
+#[test]
+fn cli_dap_variables_rejects_zero_variables_reference() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("variables")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--variables-reference")
+        .arg("0")
+        .output()
+        .expect("dap variables should run");
+
+    assert!(
+        !output.status.success(),
+        "dap variables should reject non-positive variables-reference"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("--variables-reference"),
+        "error should reference variables-reference argument"
+    );
+}
