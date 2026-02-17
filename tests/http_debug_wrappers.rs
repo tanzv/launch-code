@@ -116,7 +116,7 @@ fn serve_exposes_high_level_debug_endpoints() {
             "success": true,
             "command": "threads",
             "body": {
-                "threads": [{"id": 1, "name": "Main"}]
+                "threads": [{"id": 0, "name": "Invalid"}, {"id": 1, "name": "Main"}]
             }
         });
         write_dap_message(&mut stream, &response);

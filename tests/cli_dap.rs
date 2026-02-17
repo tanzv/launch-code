@@ -702,7 +702,7 @@ fn cli_dap_expression_commands_send_expected_dap_requests() {
 }
 
 #[test]
-fn cli_dap_continue_without_thread_id_uses_first_reported_thread() {
+fn cli_dap_continue_without_thread_id_uses_first_positive_thread() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
     let port = listener.local_addr().unwrap().port();
 
@@ -721,7 +721,7 @@ fn cli_dap_continue_without_thread_id_uses_first_reported_thread() {
             "success": true,
             "command": "threads",
             "body": {
-                "threads": [{"id": 7, "name": "MainThread"}]
+                "threads": [{"id": 0, "name": "InvalidThread"}, {"id": 7, "name": "MainThread"}]
             }
         });
         write_dap_message(&mut stream, &threads_resp);
@@ -865,7 +865,7 @@ fn cli_dap_threads_requests_threads_command() {
 }
 
 #[test]
-fn cli_dap_stack_trace_without_thread_id_uses_first_reported_thread() {
+fn cli_dap_stack_trace_without_thread_id_uses_first_positive_thread() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
     let port = listener.local_addr().unwrap().port();
 
@@ -884,7 +884,7 @@ fn cli_dap_stack_trace_without_thread_id_uses_first_reported_thread() {
             "success": true,
             "command": "threads",
             "body": {
-                "threads": [{"id": 21, "name": "MainThread"}]
+                "threads": [{"id": 0, "name": "InvalidThread"}, {"id": 21, "name": "MainThread"}]
             }
         });
         write_dap_message(&mut stream, &threads_resp);

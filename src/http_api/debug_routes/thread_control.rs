@@ -124,11 +124,14 @@ fn handle_debug_thread_control(
                 .get("body")
                 .and_then(|body| body.get("threads"))
                 .and_then(|threads| threads.as_array())
-                .and_then(|threads| threads.first())
-                .and_then(|thread| thread.get("id"))
-                .and_then(|id| id.as_u64())
-                .filter(|id| *id > 0)
-            {
+                .and_then(|threads| {
+                    threads.iter().find_map(|thread| {
+                        thread
+                            .get("id")
+                            .and_then(|id| id.as_u64())
+                            .filter(|id| *id > 0)
+                    })
+                }) {
                 Some(value) => value,
                 None => {
                     return http_json(

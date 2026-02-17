@@ -63,10 +63,14 @@ pub(super) fn extract_first_thread_id(
         .get("body")
         .and_then(|body| body.get("threads"))
         .and_then(|threads| threads.as_array())
-        .and_then(|threads| threads.first())
-        .and_then(|thread| thread.get("id"))
-        .and_then(|id| id.as_u64())
-        .filter(|id| *id > 0)
+        .and_then(|threads| {
+            threads.iter().find_map(|thread| {
+                thread
+                    .get("id")
+                    .and_then(|id| id.as_u64())
+                    .filter(|id| *id > 0)
+            })
+        })
         .ok_or_else(|| AppError::Dap("no positive thread id returned by debug adapter".to_string()))
 }
 
@@ -123,5 +127,16 @@ mod tests {
         });
         let thread_id = extract_first_thread_id(&response).expect("thread id should parse");
         assert_eq!(thread_id, 9);
+    }
+
+    #[test]
+    fn extract_first_thread_id_skips_zero_and_uses_next_positive_id() {
+        let response = json!({
+            "body": {
+                "threads": [{"id": 0, "name": "Invalid"}, {"id": 12, "name": "Main"}]
+            }
+        });
+        let thread_id = extract_first_thread_id(&response).expect("thread id should parse");
+        assert_eq!(thread_id, 12);
     }
 }
