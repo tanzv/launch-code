@@ -173,7 +173,7 @@ fn response_for_request_inner(
             }
         }
         (&tiny_http::Method::Get, ["v1", "sessions", session_id, "debug", "threads"]) => {
-            debug_routes::handle_debug_threads(store, serve_state, session_id)
+            debug_routes::handle_debug_threads(store, serve_state, session_id, query)
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "debug", "breakpoints"]) => {
             debug_routes::handle_debug_breakpoints(store, serve_state, session_id, request)

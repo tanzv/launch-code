@@ -6,15 +6,25 @@ use serde_json::json;
 
 use crate::dap::{DapRegistry, send_request_with_retry};
 use crate::http_utils::{
-    http_json, http_json_body_error, http_json_error, http_read_json_object_body,
+    http_json, http_json_body_error, http_json_error, http_query_u64, http_read_json_object_body,
 };
 
 pub(crate) fn handle_debug_threads(
     store: &StateStore,
     serve_state: &Arc<Mutex<DapRegistry>>,
     session_id: &str,
+    query: Option<&str>,
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
-    let timeout = Duration::from_millis(1500);
+    let timeout_ms = match http_query_u64(query, "timeout_ms") {
+        Ok(value) => value.unwrap_or(1500),
+        Err(msg) => {
+            return http_json(
+                tiny_http::StatusCode(400),
+                json!({"ok": false, "error": "bad_request", "message": msg}),
+            );
+        }
+    };
+    let timeout = Duration::from_millis(timeout_ms.min(60_000));
     match send_request_with_retry(
         store,
         serve_state,

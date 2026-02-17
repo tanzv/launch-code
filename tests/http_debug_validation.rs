@@ -245,6 +245,73 @@ fn serve_rejects_non_numeric_thread_id_and_allows_followup_pause() {
 }
 
 #[test]
+fn serve_rejects_invalid_threads_timeout_and_allows_followup_threads() {
+    let dap_listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let dap_port = dap_listener.local_addr().expect("local addr").port();
+
+    let dap_thread = thread::spawn(move || {
+        let (mut stream, _) = dap_listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let msg = read_dap_message(&mut reader);
+        assert_eq!(msg["type"], "request");
+        assert_eq!(msg["command"], "threads");
+        let req_seq = msg["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 1,
+                "type": "response",
+                "request_seq": req_seq,
+                "success": true,
+                "command": "threads",
+                "body": {
+                    "threads": [{"id": 7, "name": "MainThread"}]
+                }
+            }),
+        );
+    });
+
+    let tmp = tempfile::tempdir().expect("temp dir should exist");
+    write_debug_session_state(&tmp, dap_port);
+    let (mut child, url) = start_http_server(&tmp);
+
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(2)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let mut bad_res = agent
+        .get(&format!(
+            "{url}/v1/sessions/session-1/debug/threads?timeout_ms=slow"
+        ))
+        .header("Authorization", "Bearer testtoken")
+        .call()
+        .expect("bad threads request should complete");
+    assert_eq!(bad_res.status(), ureq::http::StatusCode::BAD_REQUEST);
+    let bad_doc = read_json_response(&mut bad_res);
+    assert_eq!(bad_doc["ok"], false);
+    assert_eq!(bad_doc["error"], "bad_request");
+
+    let mut good_res = agent
+        .get(&format!(
+            "{url}/v1/sessions/session-1/debug/threads?timeout_ms=1200"
+        ))
+        .header("Authorization", "Bearer testtoken")
+        .call()
+        .expect("good threads request should complete");
+    assert_eq!(good_res.status(), ureq::http::StatusCode::OK);
+    let good_doc = read_json_response(&mut good_res);
+    assert_eq!(good_doc["ok"], true);
+    assert_eq!(good_doc["response"]["command"], "threads");
+
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = dap_thread.join();
+}
+
+#[test]
 fn serve_rejects_non_positive_breakpoint_line_and_allows_followup_request() {
     let dap_listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
     let dap_port = dap_listener.local_addr().expect("local addr").port();
