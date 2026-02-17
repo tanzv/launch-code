@@ -67,7 +67,38 @@ pub(in crate::app) fn read_log_tail(
         _ => return Ok(String::new()),
     };
 
-    let payload = fs::read_to_string(path)?;
+    let mut file = fs::File::open(path)?;
+    let mut position = file.metadata()?.len();
+    if position == 0 {
+        return Ok(String::new());
+    }
+
+    let mut newline_count = 0usize;
+    let mut chunks: Vec<Vec<u8>> = Vec::new();
+    const CHUNK_SIZE_BYTES: u64 = 8192;
+
+    while position > 0 && newline_count <= max_lines {
+        let read_size = CHUNK_SIZE_BYTES.min(position);
+        position -= read_size;
+        file.seek(SeekFrom::Start(position))?;
+
+        let mut chunk = vec![0u8; read_size as usize];
+        file.read_exact(&mut chunk)?;
+        newline_count =
+            newline_count.saturating_add(chunk.iter().filter(|byte| **byte == b'\n').count());
+        chunks.push(chunk);
+    }
+
+    chunks.reverse();
+    let total_size = chunks
+        .iter()
+        .fold(0usize, |acc, chunk| acc.saturating_add(chunk.len()));
+    let mut payload = Vec::with_capacity(total_size);
+    for chunk in chunks {
+        payload.extend_from_slice(&chunk);
+    }
+
+    let payload = String::from_utf8_lossy(&payload);
     let mut lines: Vec<&str> = payload.lines().collect();
     if lines.len() > max_lines {
         lines = lines.split_off(lines.len() - max_lines);
@@ -266,4 +297,38 @@ fn follow_log_until_exit(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use tempfile::NamedTempFile;
+
+    use super::read_log_tail;
+
+    #[test]
+    fn read_log_tail_returns_last_lines_without_trailing_newline() {
+        let mut file = NamedTempFile::new().expect("temp file should be created");
+        writeln!(file, "line-1").expect("write line-1");
+        writeln!(file, "line-2").expect("write line-2");
+        writeln!(file, "line-3").expect("write line-3");
+        write!(file, "line-4").expect("write line-4");
+
+        let path = file.path().to_string_lossy().to_string();
+        let tail = read_log_tail(Some(&path), 2).expect("read tail should succeed");
+        assert_eq!(tail, "line-3\nline-4");
+    }
+
+    #[test]
+    fn read_log_tail_returns_all_lines_when_max_exceeds_file_length() {
+        let mut file = NamedTempFile::new().expect("temp file should be created");
+        writeln!(file, "line-1").expect("write line-1");
+        writeln!(file, "line-2").expect("write line-2");
+        write!(file, "line-3").expect("write line-3");
+
+        let path = file.path().to_string_lossy().to_string();
+        let tail = read_log_tail(Some(&path), 50).expect("read tail should succeed");
+        assert_eq!(tail, "line-1\nline-2\nline-3");
+    }
 }
