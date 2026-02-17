@@ -162,6 +162,18 @@ pub(crate) fn http_read_json_body(
     serde_json::from_str(&body).map_err(|err| HttpReadJsonError::Invalid(err.to_string()))
 }
 
+pub(crate) fn http_read_json_object_body(
+    request: &mut tiny_http::Request,
+) -> Result<serde_json::Value, HttpReadJsonError> {
+    let value = http_read_json_body(request)?;
+    if value.is_object() {
+        return Ok(value);
+    }
+    Err(HttpReadJsonError::Invalid(
+        "request body must be a JSON object".to_string(),
+    ))
+}
+
 pub(crate) fn http_json_body_error(
     err: HttpReadJsonError,
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {

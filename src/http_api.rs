@@ -17,7 +17,7 @@ use crate::app::{
 use crate::dap::DapRegistry;
 use crate::http_utils::{
     http_is_authorized, http_json, http_json_body_error, http_json_error, http_path_segments,
-    http_query_usize, http_read_json_body, http_split_url,
+    http_query_usize, http_read_json_object_body, http_split_url,
 };
 
 static HTTP_SERVER_STARTED_AT: OnceLock<Instant> = OnceLock::new();
@@ -230,7 +230,7 @@ fn response_for_request_inner(
             dap_routes::handle_dap_request(store, serve_state, session_id, request)
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "stop"]) => {
-            let payload = match http_read_json_body(request) {
+            let payload = match http_read_json_object_body(request) {
                 Ok(value) => value,
                 Err(err) => return http_json_body_error(err),
             };
@@ -247,7 +247,7 @@ fn response_for_request_inner(
             }
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "restart"]) => {
-            let payload = match http_read_json_body(request) {
+            let payload = match http_read_json_object_body(request) {
                 Ok(value) => value,
                 Err(err) => return http_json_body_error(err),
             };
@@ -407,7 +407,7 @@ fn parse_force_and_grace(
 fn ensure_json_payload(
     request: &mut tiny_http::Request,
 ) -> Result<(), tiny_http::Response<std::io::Cursor<Vec<u8>>>> {
-    match http_read_json_body(request) {
+    match http_read_json_object_body(request) {
         Ok(_) => Ok(()),
         Err(err) => Err(http_json_body_error(err)),
     }

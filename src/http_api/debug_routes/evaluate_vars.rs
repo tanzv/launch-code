@@ -5,7 +5,9 @@ use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::dap::{DapRegistry, send_request_with_retry};
-use crate::http_utils::{http_json, http_json_body_error, http_json_error, http_read_json_body};
+use crate::http_utils::{
+    http_json, http_json_body_error, http_json_error, http_read_json_object_body,
+};
 
 pub(crate) fn handle_debug_evaluate(
     store: &StateStore,
@@ -13,7 +15,7 @@ pub(crate) fn handle_debug_evaluate(
     session_id: &str,
     request: &mut tiny_http::Request,
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
-    let payload = match http_read_json_body(request) {
+    let payload = match http_read_json_object_body(request) {
         Ok(value) => value,
         Err(err) => {
             return http_json_body_error(err);
@@ -80,7 +82,7 @@ pub(crate) fn handle_debug_set_variable(
     session_id: &str,
     request: &mut tiny_http::Request,
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
-    let payload = match http_read_json_body(request) {
+    let payload = match http_read_json_object_body(request) {
         Ok(value) => value,
         Err(err) => {
             return http_json_body_error(err);

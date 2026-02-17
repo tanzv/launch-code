@@ -194,6 +194,21 @@ fn serve_restart_accepts_options_and_validates_payload() {
         .build()
         .into();
 
+    let mut non_object_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/restart"))
+        .header("Authorization", "Bearer testtoken")
+        .send("[]")
+        .expect("non-object restart request should complete");
+    assert_eq!(non_object_res.status(), ureq::http::StatusCode::BAD_REQUEST);
+    let non_object_body = non_object_res
+        .body_mut()
+        .read_to_string()
+        .expect("non-object response body should be readable");
+    let non_object_json: Value =
+        serde_json::from_str(&non_object_body).expect("non-object response json");
+    assert_eq!(non_object_json["ok"], false);
+    assert_eq!(non_object_json["error"], "bad_request");
+
     let restart_payload = serde_json::json!({
         "force": true,
         "grace_timeout_ms": 250
@@ -528,6 +543,24 @@ fn serve_suspend_resume_validate_payload_and_keep_connection_healthy() {
     let invalid_json: Value = serde_json::from_str(&invalid_body).expect("invalid response json");
     assert_eq!(invalid_json["ok"], false);
     assert_eq!(invalid_json["error"], "bad_request");
+
+    let mut non_object_suspend_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/suspend"))
+        .header("Authorization", "Bearer testtoken")
+        .send("[]")
+        .expect("non-object suspend request should complete");
+    assert_eq!(
+        non_object_suspend_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let non_object_suspend_body = non_object_suspend_res
+        .body_mut()
+        .read_to_string()
+        .expect("non-object suspend body should be readable");
+    let non_object_suspend_json: Value =
+        serde_json::from_str(&non_object_suspend_body).expect("non-object suspend json");
+    assert_eq!(non_object_suspend_json["ok"], false);
+    assert_eq!(non_object_suspend_json["error"], "bad_request");
 
     let mut suspend_res = noerr_agent
         .post(&format!("{url}/v1/sessions/{session_id}/suspend"))

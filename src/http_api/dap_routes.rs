@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::dap::{DapRegistry, proxy_for_session, send_batch_with_retry, send_request_with_retry};
 use crate::http_utils::{
     http_json, http_json_body_error, http_json_error, http_query_u64, http_query_usize,
-    http_read_json_body,
+    http_read_json_object_body,
 };
 
 const MAX_DAP_BATCH_REQUESTS: usize = 128;
@@ -19,7 +19,7 @@ pub(super) fn handle_dap_request(
     session_id: &str,
     request: &mut tiny_http::Request,
 ) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
-    let payload = match http_read_json_body(request) {
+    let payload = match http_read_json_object_body(request) {
         Ok(value) => value,
         Err(err) => {
             return http_json_body_error(err);
