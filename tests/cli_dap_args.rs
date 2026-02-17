@@ -170,6 +170,41 @@ fn cli_dap_batch_rejects_oversized_request_count() {
 }
 
 #[test]
+fn cli_dap_batch_rejects_whitespace_command() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let batch_path = tmp.path().join("batch.json");
+    let payload = json!([
+        {
+            "command": "   ",
+            "arguments": {}
+        }
+    ]);
+    fs::write(&batch_path, serde_json::to_string_pretty(&payload).unwrap())
+        .expect("batch file should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("batch")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--file")
+        .arg(batch_path.to_string_lossy().to_string())
+        .output()
+        .expect("dap batch should run");
+
+    assert!(
+        !output.status.success(),
+        "dap batch should reject empty command values"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("batch item missing command"),
+        "error should mention missing command"
+    );
+}
+
+#[test]
 fn cli_dap_continue_rejects_zero_thread_id() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd
