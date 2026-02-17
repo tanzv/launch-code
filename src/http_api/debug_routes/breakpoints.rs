@@ -44,6 +44,12 @@ pub(crate) fn handle_debug_breakpoints(
     let mut breakpoints = Vec::new();
     for item in lines {
         if let Some(line) = item.as_u64() {
+            if line == 0 {
+                return http_json(
+                    tiny_http::StatusCode(400),
+                    json!({"ok": false, "error": "bad_request", "message": "line must be a positive integer"}),
+                );
+            }
             breakpoints.push(json!({ "line": line }));
             continue;
         }
@@ -61,6 +67,12 @@ pub(crate) fn handle_debug_breakpoints(
                 json!({"ok": false, "error": "bad_request", "message": "breakpoint object requires numeric line"}),
             );
         };
+        if line == 0 {
+            return http_json(
+                tiny_http::StatusCode(400),
+                json!({"ok": false, "error": "bad_request", "message": "line must be a positive integer"}),
+            );
+        }
 
         let mut breakpoint = serde_json::Map::new();
         breakpoint.insert("line".to_string(), json!(line));

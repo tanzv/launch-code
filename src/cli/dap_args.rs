@@ -86,7 +86,11 @@ pub struct DapBreakpointsArgs {
     pub id: String,
     #[arg(long, help = "Source file path.")]
     pub path: String,
-    #[arg(long = "line", help = "Breakpoint line number. Repeatable.")]
+    #[arg(
+        long = "line",
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "Breakpoint line number. Repeatable."
+    )]
     pub lines: Vec<u64>,
     #[arg(long, help = "Optional breakpoint condition expression.")]
     pub condition: Option<String>,

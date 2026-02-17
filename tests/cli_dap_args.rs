@@ -266,3 +266,29 @@ fn cli_dap_scopes_rejects_zero_frame_id() {
         "error should reference frame-id argument"
     );
 }
+
+#[test]
+fn cli_dap_breakpoints_rejects_zero_line() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("breakpoints")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--path")
+        .arg("app.py")
+        .arg("--line")
+        .arg("0")
+        .output()
+        .expect("dap breakpoints should run");
+
+    assert!(
+        !output.status.success(),
+        "dap breakpoints should reject non-positive line"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("--line"),
+        "error should reference line argument"
+    );
+}
