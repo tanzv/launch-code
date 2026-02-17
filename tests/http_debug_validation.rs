@@ -373,6 +373,17 @@ fn serve_rejects_non_positive_breakpoint_line_and_allows_followup_request() {
     assert_eq!(bad_obj_doc["error"], "bad_request");
     assert_eq!(bad_obj_doc["message"], "line must be a positive integer");
 
+    let mut bad_path_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/breakpoints"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"path":"   ","lines":[12]})).unwrap())
+        .expect("bad path breakpoints request should complete");
+    assert_eq!(bad_path_res.status(), ureq::http::StatusCode::BAD_REQUEST);
+    let bad_path_doc = read_json_response(&mut bad_path_res);
+    assert_eq!(bad_path_doc["ok"], false);
+    assert_eq!(bad_path_doc["error"], "bad_request");
+    assert_eq!(bad_path_doc["message"], "path is required");
+
     let mut bad_timeout_res = agent
         .post(&format!("{url}/v1/sessions/session-1/debug/breakpoints"))
         .header("Authorization", "Bearer testtoken")
