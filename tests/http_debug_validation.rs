@@ -199,6 +199,18 @@ fn serve_rejects_non_numeric_thread_id_and_allows_followup_pause() {
     let bad_doc = read_json_response(&mut bad_res);
     assert_eq!(bad_doc["ok"], false);
     assert_eq!(bad_doc["error"], "bad_request");
+    assert_eq!(bad_doc["message"], "threadId must be a positive integer");
+
+    let mut zero_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/pause"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"threadId":0})).unwrap())
+        .expect("zero thread pause request should complete");
+    assert_eq!(zero_res.status(), ureq::http::StatusCode::BAD_REQUEST);
+    let zero_doc = read_json_response(&mut zero_res);
+    assert_eq!(zero_doc["ok"], false);
+    assert_eq!(zero_doc["error"], "bad_request");
+    assert_eq!(zero_doc["message"], "threadId must be a positive integer");
 
     let mut good_res = agent
         .post(&format!("{url}/v1/sessions/session-1/debug/pause"))
@@ -382,6 +394,28 @@ fn serve_rejects_invalid_expression_payload_types_and_allows_followup_requests()
     let good_evaluate_doc = read_json_response(&mut good_evaluate_res);
     assert_eq!(good_evaluate_doc["ok"], true);
     assert_eq!(good_evaluate_doc["response"]["command"], "evaluate");
+
+    let mut bad_set_variable_zero_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/set-variable"))
+        .header("Authorization", "Bearer testtoken")
+        .send(
+            serde_json::to_string(
+                &json!({"variablesReference":0,"name":"counter","value":"42","timeout_ms":1500}),
+            )
+            .unwrap(),
+        )
+        .expect("zero variablesReference set-variable request should complete");
+    assert_eq!(
+        bad_set_variable_zero_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let bad_set_variable_zero_doc = read_json_response(&mut bad_set_variable_zero_res);
+    assert_eq!(bad_set_variable_zero_doc["ok"], false);
+    assert_eq!(bad_set_variable_zero_doc["error"], "bad_request");
+    assert_eq!(
+        bad_set_variable_zero_doc["message"],
+        "variablesReference must be a positive integer"
+    );
 
     let mut bad_set_variable_res = agent
         .post(&format!("{url}/v1/sessions/session-1/debug/set-variable"))

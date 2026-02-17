@@ -93,11 +93,17 @@ fn handle_debug_thread_control(
     let timeout = Duration::from_millis(1500);
     let thread_id = match payload.get("threadId") {
         Some(value) => match value.as_u64() {
-            Some(thread_id) => thread_id,
+            Some(thread_id) if thread_id > 0 => thread_id,
             None => {
                 return http_json(
                     tiny_http::StatusCode(400),
-                    json!({"ok": false, "error": "bad_request", "message": "threadId must be a non-negative integer"}),
+                    json!({"ok": false, "error": "bad_request", "message": "threadId must be a positive integer"}),
+                );
+            }
+            Some(_) => {
+                return http_json(
+                    tiny_http::StatusCode(400),
+                    json!({"ok": false, "error": "bad_request", "message": "threadId must be a positive integer"}),
                 );
             }
         },
@@ -121,6 +127,7 @@ fn handle_debug_thread_control(
                 .and_then(|threads| threads.first())
                 .and_then(|thread| thread.get("id"))
                 .and_then(|id| id.as_u64())
+                .filter(|id| *id > 0)
             {
                 Some(value) => value,
                 None => {

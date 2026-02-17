@@ -89,8 +89,16 @@ pub(crate) fn handle_debug_set_variable(
         }
     };
 
-    let variables_reference = match payload.get("variablesReference").and_then(|v| v.as_u64()) {
-        Some(value) => value,
+    let variables_reference = match payload.get("variablesReference") {
+        Some(value) => match value.as_u64() {
+            Some(value) if value > 0 => value,
+            _ => {
+                return http_json(
+                    tiny_http::StatusCode(400),
+                    json!({"ok": false, "error": "bad_request", "message": "variablesReference must be a positive integer"}),
+                );
+            }
+        },
         None => {
             return http_json(
                 tiny_http::StatusCode(400),
