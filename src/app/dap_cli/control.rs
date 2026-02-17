@@ -12,6 +12,10 @@ pub(super) fn handle_dap_breakpoints(
     store: &StateStore,
     args: &DapBreakpointsArgs,
 ) -> Result<(), AppError> {
+    if args.path.trim().is_empty() {
+        return Err(AppError::Dap("path cannot be empty".to_string()));
+    }
+
     if args.lines.is_empty() {
         return Err(AppError::Dap("at least one --line is required".to_string()));
     }

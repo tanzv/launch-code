@@ -340,3 +340,55 @@ fn cli_dap_request_rejects_whitespace_command() {
         "error should mention non-empty command requirement"
     );
 }
+
+#[test]
+fn cli_dap_breakpoints_rejects_empty_path() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("breakpoints")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--path")
+        .arg("")
+        .arg("--line")
+        .arg("12")
+        .output()
+        .expect("dap breakpoints should run");
+
+    assert!(
+        !output.status.success(),
+        "dap breakpoints should reject empty path"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("path cannot be empty"),
+        "error should mention non-empty path requirement"
+    );
+}
+
+#[test]
+fn cli_dap_breakpoints_rejects_whitespace_path() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("breakpoints")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--path")
+        .arg("   ")
+        .arg("--line")
+        .arg("12")
+        .output()
+        .expect("dap breakpoints should run");
+
+    assert!(
+        !output.status.success(),
+        "dap breakpoints should reject whitespace path"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("path cannot be empty"),
+        "error should mention non-empty path requirement"
+    );
+}
