@@ -450,3 +450,176 @@ fn serve_rejects_invalid_expression_payload_types_and_allows_followup_requests()
     let _ = child.wait();
     let _ = dap_thread.join();
 }
+
+#[test]
+fn serve_rejects_invalid_session_control_types_and_allows_followup_requests() {
+    let dap_listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let dap_port = dap_listener.local_addr().expect("local addr").port();
+
+    let dap_thread = thread::spawn(move || {
+        let (mut stream, _) = dap_listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let disconnect_msg = read_dap_message(&mut reader);
+        assert_eq!(disconnect_msg["type"], "request");
+        assert_eq!(disconnect_msg["command"], "disconnect");
+        assert_eq!(disconnect_msg["arguments"]["terminateDebuggee"], true);
+        assert_eq!(disconnect_msg["arguments"]["suspendDebuggee"], false);
+        let disconnect_seq = disconnect_msg["seq"].as_u64().expect("seq should exist");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 1,
+                "type": "response",
+                "request_seq": disconnect_seq,
+                "success": true,
+                "command": "disconnect",
+                "body": {}
+            }),
+        );
+
+        let terminate_msg = read_dap_message(&mut reader);
+        assert_eq!(terminate_msg["type"], "request");
+        assert_eq!(terminate_msg["command"], "terminate");
+        assert_eq!(terminate_msg["arguments"]["restart"], true);
+        let terminate_seq = terminate_msg["seq"].as_u64().expect("seq should exist");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 2,
+                "type": "response",
+                "request_seq": terminate_seq,
+                "success": true,
+                "command": "terminate",
+                "body": {}
+            }),
+        );
+    });
+
+    let tmp = tempfile::tempdir().expect("temp dir should exist");
+    write_debug_session_state(&tmp, dap_port);
+    let (mut child, url) = start_http_server(&tmp);
+
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(2)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let mut bad_disconnect_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/disconnect"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"timeout_ms":"slow"})).unwrap())
+        .expect("bad disconnect request should complete");
+    assert_eq!(
+        bad_disconnect_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let bad_disconnect_doc = read_json_response(&mut bad_disconnect_res);
+    assert_eq!(bad_disconnect_doc["ok"], false);
+    assert_eq!(bad_disconnect_doc["error"], "bad_request");
+
+    let mut good_disconnect_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/disconnect"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"terminateDebuggee":true,"timeout_ms":1500})).unwrap())
+        .expect("good disconnect request should complete");
+    assert_eq!(good_disconnect_res.status(), ureq::http::StatusCode::OK);
+    let good_disconnect_doc = read_json_response(&mut good_disconnect_res);
+    assert_eq!(good_disconnect_doc["ok"], true);
+    assert_eq!(good_disconnect_doc["response"]["command"], "disconnect");
+
+    let mut bad_terminate_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/terminate"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"restart":"yes"})).unwrap())
+        .expect("bad terminate request should complete");
+    assert_eq!(
+        bad_terminate_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let bad_terminate_doc = read_json_response(&mut bad_terminate_res);
+    assert_eq!(bad_terminate_doc["ok"], false);
+    assert_eq!(bad_terminate_doc["error"], "bad_request");
+
+    let mut good_terminate_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/terminate"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"restart":true,"timeout_ms":1500})).unwrap())
+        .expect("good terminate request should complete");
+    assert_eq!(good_terminate_res.status(), ureq::http::StatusCode::OK);
+    let good_terminate_doc = read_json_response(&mut good_terminate_res);
+    assert_eq!(good_terminate_doc["ok"], true);
+    assert_eq!(good_terminate_doc["response"]["command"], "terminate");
+
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = dap_thread.join();
+}
+
+#[test]
+fn serve_rejects_invalid_exception_breakpoint_filters_and_allows_followup_request() {
+    let dap_listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let dap_port = dap_listener.local_addr().expect("local addr").port();
+
+    let dap_thread = thread::spawn(move || {
+        let (mut stream, _) = dap_listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let exception_msg = read_dap_message(&mut reader);
+        assert_eq!(exception_msg["type"], "request");
+        assert_eq!(exception_msg["command"], "setExceptionBreakpoints");
+        assert_eq!(exception_msg["arguments"]["filters"][0], "raised");
+        assert_eq!(exception_msg["arguments"]["filters"][1], "uncaught");
+        let exception_seq = exception_msg["seq"].as_u64().expect("seq should exist");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 1,
+                "type": "response",
+                "request_seq": exception_seq,
+                "success": true,
+                "command": "setExceptionBreakpoints",
+                "body": {}
+            }),
+        );
+    });
+
+    let tmp = tempfile::tempdir().expect("temp dir should exist");
+    write_debug_session_state(&tmp, dap_port);
+    let (mut child, url) = start_http_server(&tmp);
+
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(2)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let mut bad_res = agent
+        .post(&format!(
+            "{url}/v1/sessions/session-1/debug/exception-breakpoints"
+        ))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"filters":"raised"})).unwrap())
+        .expect("bad exception-breakpoints request should complete");
+    assert_eq!(bad_res.status(), ureq::http::StatusCode::BAD_REQUEST);
+    let bad_doc = read_json_response(&mut bad_res);
+    assert_eq!(bad_doc["ok"], false);
+    assert_eq!(bad_doc["error"], "bad_request");
+
+    let mut good_res = agent
+        .post(&format!(
+            "{url}/v1/sessions/session-1/debug/exception-breakpoints"
+        ))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"filters":["raised","uncaught"]})).unwrap())
+        .expect("good exception-breakpoints request should complete");
+    assert_eq!(good_res.status(), ureq::http::StatusCode::OK);
+    let good_doc = read_json_response(&mut good_res);
+    assert_eq!(good_doc["ok"], true);
+    assert_eq!(good_doc["response"]["command"], "setExceptionBreakpoints");
+
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = dap_thread.join();
+}

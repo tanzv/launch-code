@@ -109,11 +109,19 @@ pub(crate) fn handle_debug_exception_breakpoints(
         }
     };
 
-    let filters = match payload.get("filters").and_then(|v| v.as_array()) {
-        Some(value) => value
-            .iter()
-            .map(|item| item.as_str().map(|text| text.to_string()))
-            .collect::<Option<Vec<String>>>(),
+    let filters = match payload.get("filters") {
+        Some(value) => match value.as_array() {
+            Some(items) => items
+                .iter()
+                .map(|item| item.as_str().map(|text| text.to_string()))
+                .collect::<Option<Vec<String>>>(),
+            None => {
+                return http_json(
+                    tiny_http::StatusCode(400),
+                    json!({"ok": false, "error": "bad_request", "message": "filters must be an array of strings"}),
+                );
+            }
+        },
         None => Some(Vec::new()),
     };
 
