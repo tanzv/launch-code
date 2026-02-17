@@ -32,6 +32,10 @@ pub(super) fn handle_dap_request(
     };
 
     if let Some(batch_value) = payload.get("batch") {
+        if payload.get("command").is_some() {
+            return bad_request("command cannot be combined with batch");
+        }
+
         let Some(batch) = batch_value.as_array() else {
             return bad_request("batch must be an array");
         };
