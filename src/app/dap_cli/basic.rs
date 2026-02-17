@@ -12,6 +12,10 @@ pub(super) fn handle_dap_request(
     store: &StateStore,
     args: &DapRequestArgs,
 ) -> Result<(), AppError> {
+    if args.command.trim().is_empty() {
+        return Err(AppError::Dap("command cannot be empty".to_string()));
+    }
+
     let serve_state = super::shared::fresh_registry();
     let timeout = super::shared::clamp_timeout(args.timeout_ms);
     let arguments = super::shared::parse_dap_arguments(args.arguments.as_deref())?;

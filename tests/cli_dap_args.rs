@@ -292,3 +292,51 @@ fn cli_dap_breakpoints_rejects_zero_line() {
         "error should reference line argument"
     );
 }
+
+#[test]
+fn cli_dap_request_rejects_empty_command() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("request")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--command")
+        .arg("")
+        .output()
+        .expect("dap request should run");
+
+    assert!(
+        !output.status.success(),
+        "dap request should reject empty command"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("command cannot be empty"),
+        "error should mention non-empty command requirement"
+    );
+}
+
+#[test]
+fn cli_dap_request_rejects_whitespace_command() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("request")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--command")
+        .arg("   ")
+        .output()
+        .expect("dap request should run");
+
+    assert!(
+        !output.status.success(),
+        "dap request should reject whitespace command"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("command cannot be empty"),
+        "error should mention non-empty command requirement"
+    );
+}
