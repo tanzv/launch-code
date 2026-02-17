@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::dap::{DapRegistry, send_request_with_retry};
 use crate::http_utils::{
-    http_json, http_json_body_error, http_json_error, http_read_json_object_body,
+    http_json, http_json_body_error, http_json_error, http_optional_timeout_ms,
+    http_read_json_object_body,
 };
 
 pub(crate) fn handle_debug_breakpoints(
@@ -93,19 +93,15 @@ pub(crate) fn handle_debug_breakpoints(
         "breakpoints": breakpoints
     });
 
-    let timeout_ms = match payload.get("timeout_ms") {
-        None => 1500,
-        Some(value) => match value.as_u64() {
-            Some(value) => value,
-            None => {
-                return http_json(
-                    tiny_http::StatusCode(400),
-                    json!({"ok": false, "error": "bad_request", "message": "timeout_ms must be a non-negative integer"}),
-                );
-            }
-        },
+    let timeout = match http_optional_timeout_ms(&payload, "timeout_ms", 1500) {
+        Ok(value) => value,
+        Err(message) => {
+            return http_json(
+                tiny_http::StatusCode(400),
+                json!({"ok": false, "error": "bad_request", "message": message}),
+            );
+        }
     };
-    let timeout = Duration::from_millis(timeout_ms.min(60_000));
     match send_request_with_retry(
         store,
         serve_state,
@@ -158,19 +154,15 @@ pub(crate) fn handle_debug_exception_breakpoints(
         );
     };
 
-    let timeout_ms = match payload.get("timeout_ms") {
-        None => 1500,
-        Some(value) => match value.as_u64() {
-            Some(value) => value,
-            None => {
-                return http_json(
-                    tiny_http::StatusCode(400),
-                    json!({"ok": false, "error": "bad_request", "message": "timeout_ms must be a non-negative integer"}),
-                );
-            }
-        },
+    let timeout = match http_optional_timeout_ms(&payload, "timeout_ms", 1500) {
+        Ok(value) => value,
+        Err(message) => {
+            return http_json(
+                tiny_http::StatusCode(400),
+                json!({"ok": false, "error": "bad_request", "message": message}),
+            );
+        }
     };
-    let timeout = Duration::from_millis(timeout_ms.min(60_000));
     match send_request_with_retry(
         store,
         serve_state,

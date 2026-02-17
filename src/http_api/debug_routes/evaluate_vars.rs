@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::dap::{DapRegistry, send_request_with_retry};
 use crate::http_utils::{
-    http_json, http_json_body_error, http_json_error, http_read_json_object_body,
+    http_json, http_json_body_error, http_json_error, http_optional_timeout_ms,
+    http_read_json_object_body,
 };
 
 pub(crate) fn handle_debug_evaluate(
@@ -55,9 +55,9 @@ pub(crate) fn handle_debug_evaluate(
         }
     }
 
-    let timeout = match parse_optional_timeout_ms(&payload, 1500) {
+    let timeout = match http_optional_timeout_ms(&payload, "timeout_ms", 1500) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(message) => return bad_request(message),
     };
 
     match send_request_with_retry(
@@ -125,9 +125,9 @@ pub(crate) fn handle_debug_set_variable(
         }
     };
 
-    let timeout = match parse_optional_timeout_ms(&payload, 1500) {
+    let timeout = match http_optional_timeout_ms(&payload, "timeout_ms", 1500) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(message) => return bad_request(message),
     };
     match send_request_with_retry(
         store,
@@ -156,18 +156,4 @@ fn bad_request(message: impl Into<String>) -> HttpResponse {
         tiny_http::StatusCode(400),
         json!({"ok": false, "error": "bad_request", "message": message.into()}),
     )
-}
-
-fn parse_optional_timeout_ms(
-    payload: &serde_json::Value,
-    default: u64,
-) -> Result<Duration, HttpResponse> {
-    let timeout_ms = match payload.get("timeout_ms") {
-        None => default,
-        Some(value) => match value.as_u64() {
-            Some(value) => value,
-            None => return Err(bad_request("timeout_ms must be a non-negative integer")),
-        },
-    };
-    Ok(Duration::from_millis(timeout_ms.min(60_000)))
 }

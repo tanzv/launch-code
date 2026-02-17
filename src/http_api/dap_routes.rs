@@ -6,8 +6,8 @@ use serde_json::json;
 
 use crate::dap::{DapRegistry, proxy_for_session, send_batch_with_retry, send_request_with_retry};
 use crate::http_utils::{
-    http_json, http_json_body_error, http_json_error, http_query_u64, http_query_usize,
-    http_read_json_object_body,
+    http_json, http_json_body_error, http_json_error, http_optional_timeout_ms, http_query_u64,
+    http_query_usize, http_read_json_object_body,
 };
 
 const MAX_DAP_BATCH_REQUESTS: usize = 128;
@@ -26,9 +26,9 @@ pub(super) fn handle_dap_request(
         }
     };
 
-    let timeout = match parse_optional_timeout_ms(&payload, "timeout_ms", 1500) {
+    let timeout = match http_optional_timeout_ms(&payload, "timeout_ms", 1500) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(message) => return bad_request(message),
     };
 
     if let Some(batch_value) = payload.get("batch") {
@@ -104,21 +104,6 @@ fn bad_request(message: impl Into<String>) -> HttpResponse {
         tiny_http::StatusCode(400),
         json!({"ok": false, "error": "bad_request", "message": message.into()}),
     )
-}
-
-fn parse_optional_timeout_ms(
-    payload: &serde_json::Value,
-    key: &str,
-    default: u64,
-) -> Result<Duration, HttpResponse> {
-    let timeout_ms = match payload.get(key) {
-        None => default,
-        Some(value) => match value.as_u64() {
-            Some(value) => value,
-            None => return Err(bad_request(format!("{key} must be a non-negative integer"))),
-        },
-    };
-    Ok(Duration::from_millis(timeout_ms.min(60_000)))
 }
 
 fn parse_optional_arguments(

@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use launch_code::process::ProcessError;
 use serde_json::json;
@@ -73,6 +74,20 @@ pub(crate) fn http_query_u64(query: Option<&str>, key: &str) -> Result<Option<u6
     }
 
     Ok(None)
+}
+
+pub(crate) fn http_optional_timeout_ms(
+    payload: &serde_json::Value,
+    key: &str,
+    default_ms: u64,
+) -> Result<Duration, String> {
+    let timeout_ms = match payload.get(key) {
+        None => default_ms,
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| format!("{key} must be a non-negative integer"))?,
+    };
+    Ok(Duration::from_millis(timeout_ms.min(60_000)))
 }
 
 pub(crate) fn http_json(
