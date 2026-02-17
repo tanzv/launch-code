@@ -56,7 +56,7 @@ pub(super) fn handle_dap_request(
             };
 
             let command = match item.get("command").and_then(|v| v.as_str()) {
-                Some(value) if !value.trim().is_empty() => value.to_string(),
+                Some(value) if !value.trim().is_empty() => value.trim().to_string(),
                 _ => return bad_request("batch items require command"),
             };
 
@@ -77,7 +77,7 @@ pub(super) fn handle_dap_request(
         }
     } else {
         let command = match payload.get("command").and_then(|v| v.as_str()) {
-            Some(value) if !value.trim().is_empty() => value.to_string(),
+            Some(value) if !value.trim().is_empty() => value.trim().to_string(),
             _ => return bad_request("command is required"),
         };
 

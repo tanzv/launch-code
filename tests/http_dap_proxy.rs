@@ -165,7 +165,7 @@ fn serve_can_proxy_dap_requests_over_http() {
         .into();
 
     let body = json!({
-        "command": "initialize",
+        "command": "  initialize  ",
         "arguments": {
             "clientID": "launch-code-test"
         }

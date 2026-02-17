@@ -127,7 +127,7 @@ fn cli_dap_request_sends_command_and_prints_response() {
         .arg("--id")
         .arg("session-1")
         .arg("--command")
-        .arg("initialize")
+        .arg(" initialize ")
         .arg("--arguments")
         .arg("{\"clientID\":\"launch-code-test\"}")
         .output()
@@ -190,8 +190,8 @@ fn cli_dap_batch_can_complete_attach_sequence_without_deadlock() {
     write_state_with_debug_session(tmp.path(), "127.0.0.1", port);
     let batch_path = tmp.path().join("batch.json");
     let batch = json!([
-        {"command": "attach", "arguments": {"justMyCode": false}},
-        {"command": "configurationDone", "arguments": {}}
+        {"command": " attach ", "arguments": {"justMyCode": false}},
+        {"command": " configurationDone ", "arguments": {}}
     ]);
     fs::write(&batch_path, serde_json::to_string_pretty(&batch).unwrap())
         .expect("batch file written");

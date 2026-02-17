@@ -167,8 +167,8 @@ fn serve_supports_batched_dap_requests() {
 
     let body = json!({
         "batch": [
-            {"command": "initialize", "arguments": {"clientID": "launch-code-test"}},
-            {"command": "threads", "arguments": {}}
+            {"command": " initialize ", "arguments": {"clientID": "launch-code-test"}},
+            {"command": " threads ", "arguments": {}}
         ]
     });
     let mut res = agent

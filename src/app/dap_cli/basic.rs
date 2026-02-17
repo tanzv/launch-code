@@ -12,7 +12,8 @@ pub(super) fn handle_dap_request(
     store: &StateStore,
     args: &DapRequestArgs,
 ) -> Result<(), AppError> {
-    if args.command.trim().is_empty() {
+    let command = args.command.trim();
+    if command.is_empty() {
         return Err(AppError::Dap("command cannot be empty".to_string()));
     }
 
@@ -20,14 +21,8 @@ pub(super) fn handle_dap_request(
     let timeout = super::shared::clamp_timeout(args.timeout_ms);
     let arguments = super::shared::parse_dap_arguments(args.arguments.as_deref())?;
 
-    let response = send_request_with_retry(
-        store,
-        &serve_state,
-        &args.id,
-        &args.command,
-        arguments,
-        timeout,
-    )?;
+    let response =
+        send_request_with_retry(store, &serve_state, &args.id, command, arguments, timeout)?;
     let doc = json!({
         "ok": true,
         "session_id": args.id,
@@ -62,8 +57,11 @@ pub(super) fn handle_dap_batch(store: &StateStore, args: &DapBatchArgs) -> Resul
         let command = item
             .get("command")
             .and_then(|v| v.as_str())
-            .filter(|v| !v.trim().is_empty())
             .ok_or_else(|| AppError::Dap("batch item missing command".to_string()))?;
+        let command = command.trim();
+        if command.is_empty() {
+            return Err(AppError::Dap("batch item missing command".to_string()));
+        }
         let arguments = match item_obj.get("arguments") {
             None => json!({}),
             Some(value) if value.is_null() => json!({}),
