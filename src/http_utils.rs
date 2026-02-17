@@ -113,6 +113,7 @@ fn http_status_for_error(err: &AppError) -> (tiny_http::StatusCode, &'static str
         AppError::SessionMissingPid(_) => (tiny_http::StatusCode(409), "missing_pid"),
         AppError::SessionMissingDebugMeta(_) => (tiny_http::StatusCode(409), "missing_debug_meta"),
         AppError::SessionMissingLogPath(_) => (tiny_http::StatusCode(409), "missing_log_path"),
+        AppError::SessionStateChanged(_) => (tiny_http::StatusCode(409), "session_state_changed"),
         AppError::ProfileNotFound(_) => (tiny_http::StatusCode(404), "profile_not_found"),
         AppError::ProfileBundleVersionUnsupported(_) => (
             tiny_http::StatusCode(422),

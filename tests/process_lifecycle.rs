@@ -5,7 +5,8 @@ use std::thread;
 use std::time::Duration;
 
 use launch_code::process::{
-    is_process_alive, resume_process, spawn_process, stop_process, suspend_process,
+    is_process_alive, resume_process, spawn_process, stop_process, stop_process_with_options,
+    suspend_process,
 };
 use tempfile::tempdir;
 
@@ -44,6 +45,32 @@ fn process_can_be_spawned_suspended_resumed_and_stopped() {
     }
 
     panic!("process should stop after stop command");
+}
+
+#[cfg(unix)]
+#[test]
+fn stop_process_with_options_falls_back_when_group_signal_is_unavailable() {
+    let mut child = Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .expect("process should start");
+    let pid = child.id();
+    assert!(is_process_alive(pid), "process should be alive before stop");
+
+    stop_process_with_options(pid, false, Duration::from_millis(1500))
+        .expect("stop should succeed");
+
+    for _ in 0..40 {
+        if !is_process_alive(pid) {
+            let _ = child.wait();
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    panic!("process should stop after fallback single-process signaling");
 }
 
 #[cfg(unix)]

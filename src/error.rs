@@ -28,6 +28,8 @@ pub enum AppError {
     SessionMissingDebugMeta(String),
     #[error("session has no log path: {0}")]
     SessionMissingLogPath(String),
+    #[error("session state changed during operation: {0}")]
+    SessionStateChanged(String),
     #[error("profile not found: {0}")]
     ProfileNotFound(String),
     #[error("unsupported profile bundle version: {0}; expected 1")]
@@ -63,6 +65,7 @@ impl AppError {
             Self::SessionMissingPid(_) => "session_missing_pid",
             Self::SessionMissingDebugMeta(_) => "session_missing_debug_meta",
             Self::SessionMissingLogPath(_) => "session_missing_log_path",
+            Self::SessionStateChanged(_) => "session_state_changed",
             Self::ProfileNotFound(_) => "profile_not_found",
             Self::ProfileBundleVersionUnsupported(_) => "profile_bundle_version_unsupported",
             Self::ProfileValidationFailed(_) => "profile_validation_failed",
@@ -86,6 +89,7 @@ impl AppError {
             | Self::SessionMissingPid(_)
             | Self::SessionMissingDebugMeta(_)
             | Self::SessionMissingLogPath(_)
+            | Self::SessionStateChanged(_)
             | Self::ProfileNotFound(_) => 3,
             Self::PythonDebugpyUnavailable => 4,
             Self::Dap(_) => 5,

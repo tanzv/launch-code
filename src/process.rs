@@ -78,7 +78,7 @@ pub fn is_process_alive(pid: u32) -> bool {
     {
         let result = unsafe { libc::kill(pid as i32, 0) };
         if result == 0 {
-            return true;
+            return !is_zombie_process(pid);
         }
 
         let code = std::io::Error::last_os_error().raw_os_error();
@@ -138,23 +138,19 @@ pub fn stop_process_with_options(
     #[cfg(unix)]
     {
         send_signal_group(pid, libc::SIGTERM)?;
-        let deadline = Instant::now() + grace_timeout;
-        while Instant::now() < deadline {
-            if !is_process_alive(pid) {
-                break;
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
+        wait_for_exit(pid, grace_timeout);
 
         if is_process_alive(pid) {
             if force_if_running {
                 send_signal_group(pid, libc::SIGKILL)?;
-                let force_deadline = Instant::now() + Duration::from_secs(2);
-                while Instant::now() < force_deadline {
-                    if !is_process_alive(pid) {
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(50));
+                let force_timeout = Duration::from_secs(2);
+                wait_for_exit(pid, force_timeout);
+                if is_process_alive(pid) {
+                    let timeout = grace_timeout.saturating_add(force_timeout);
+                    return Err(ProcessError::StopTimeout {
+                        pid,
+                        grace_timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                    });
                 }
             } else {
                 return Err(ProcessError::StopTimeout {
@@ -233,13 +229,16 @@ fn send_signal_group(pid: u32, signal: i32) -> Result<(), ProcessError> {
     }
 
     let source = std::io::Error::last_os_error();
-    if source.raw_os_error() == Some(libc::ESRCH) {
-        return Ok(());
+    // Fallback to single-process signaling when process-group signaling is not available
+    // but the target process still exists.
+    if matches!(source.raw_os_error(), Some(libc::ESRCH) | Some(libc::EPERM))
+        && is_process_alive(pid)
+    {
+        return send_signal(pid, signal);
     }
 
-    // Fallback to single-process signaling when process-group signaling is not available.
-    if source.raw_os_error() == Some(libc::EPERM) {
-        return send_signal(pid, signal);
+    if source.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
     }
 
     Err(ProcessError::Signal {
@@ -247,6 +246,17 @@ fn send_signal_group(pid: u32, signal: i32) -> Result<(), ProcessError> {
         signal,
         source,
     })
+}
+
+#[cfg(unix)]
+fn wait_for_exit(pid: u32, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if !is_process_alive(pid) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 pub fn run_shell_task(
@@ -295,4 +305,24 @@ fn task_command_command(task_command: &str) -> Command {
     let mut cmd = Command::new("cmd");
     cmd.arg("/C").arg(task_command);
     cmd
+}
+
+#[cfg(unix)]
+fn is_zombie_process(pid: u32) -> bool {
+    let output = match Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+    {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    if !output.status.success() {
+        return false;
+    }
+
+    let state = match String::from_utf8(output.stdout) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    state.trim().contains('Z')
 }

@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use launch_code::model::{SessionRecord, SessionStatus, unix_timestamp_secs};
+use launch_code::model::{LaunchSpec, SessionRecord, SessionStatus, unix_timestamp_secs};
 use launch_code::process::{
     is_process_alive, resume_process, run_shell_task, stop_process_with_options, suspend_process,
 };
@@ -10,6 +11,16 @@ use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::error::AppError;
+
+type ShellTaskSpec = (String, String, BTreeMap<String, String>, String);
+
+#[derive(Clone)]
+struct RestartPlan {
+    session_id: String,
+    expected_pid: Option<u32>,
+    spec: LaunchSpec,
+    log_path: PathBuf,
+}
 
 pub(crate) fn api_list_sessions(store: &StateStore) -> Result<Vec<SessionRecord>, AppError> {
     store.update::<_, _, AppError>(|state| {
@@ -99,26 +110,30 @@ pub(crate) fn api_stop_session_with_options(
 ) -> Result<SessionRecord, AppError> {
     let session_id = session_id.to_string();
     let grace_timeout = Duration::from_millis(grace_timeout_ms);
+    let expected_pid = load_session_pid(store, &session_id)?;
+    if let Some(pid) = expected_pid {
+        stop_process_with_options(pid, force, grace_timeout)?;
+    }
+
     let (session_clone, post_task) = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, &session_id)?;
-        if let Some(pid) = session.pid {
-            stop_process_with_options(pid, force, grace_timeout)?;
+        if session.pid != expected_pid {
+            if session.pid.is_none() {
+                if !matches!(session.status, SessionStatus::Stopped) {
+                    session.status = SessionStatus::Stopped;
+                    session.updated_at = now;
+                }
+                return Ok((session.clone(), None));
+            }
+            return Err(AppError::SessionStateChanged(session.id.clone()));
         }
 
-        let post_task = if let (Some(task), Some(log_path)) =
-            (session.spec.poststop_task.clone(), session.log_path.clone())
-        {
-            Some((
-                task,
-                session.spec.cwd.clone(),
-                session.spec.env.clone(),
-                log_path,
-            ))
+        let post_task = if expected_pid.is_some() {
+            build_post_stop_task(session)
         } else {
             None
         };
-
         session.pid = None;
         session.status = SessionStatus::Stopped;
         session.updated_at = now;
@@ -138,32 +153,91 @@ pub(crate) fn api_restart_session_with_options(
     force: bool,
     grace_timeout_ms: u64,
 ) -> Result<SessionRecord, AppError> {
-    let session_id = session_id.to_string();
+    let plan = load_restart_plan(store, session_id)?;
     let grace_timeout = Duration::from_millis(grace_timeout_ms);
-    store.update::<_, _, AppError>(|state| {
-        let now = unix_timestamp_secs();
-        let session = super::find_session_mut(state, &session_id)?;
-        if let Some(pid) = session.pid {
-            if is_process_alive(pid) {
-                stop_process_with_options(pid, force, grace_timeout)?;
-            }
+    if let Some(pid) = plan.expected_pid {
+        if is_process_alive(pid) {
+            stop_process_with_options(pid, force, grace_timeout)?;
         }
+    }
 
-        let log_path = session
-            .log_path
-            .clone()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| super::default_log_path(store, &session.id));
-        let debug_meta = super::prepare_debug_spec(&mut session.spec)?;
-        super::run_prelaunch_task_if_any(&session.spec, &log_path)?;
-        let pid =
-            super::spawn_session_worker(store, &session.id, &session.spec, Some(log_path.clone()))?;
+    let mut next_spec = plan.spec.clone();
+    let debug_meta = super::prepare_debug_spec(&mut next_spec)?;
+    super::run_prelaunch_task_if_any(&next_spec, &plan.log_path)?;
+    let pid = super::spawn_session_worker(
+        store,
+        &plan.session_id,
+        &next_spec,
+        Some(plan.log_path.clone()),
+    )?;
+    let log_path = plan.log_path.to_string_lossy().to_string();
+
+    let session = match store.update::<_, _, AppError>(|state| {
+        let now = unix_timestamp_secs();
+        let session = super::find_session_mut(state, &plan.session_id)?;
+        if session.pid != plan.expected_pid {
+            return Err(AppError::SessionStateChanged(session.id.clone()));
+        }
+        session.spec = next_spec.clone();
         session.pid = Some(pid);
         session.status = SessionStatus::Running;
         session.restart_count = session.restart_count.saturating_add(1);
         session.updated_at = now;
-        session.debug_meta = debug_meta;
+        session.debug_meta = debug_meta.clone();
+        if session.log_path.is_none() {
+            session.log_path = Some(log_path.clone());
+        }
         Ok(session.clone())
+    }) {
+        Ok(value) => value,
+        Err(err) => {
+            let _ = stop_process_with_options(pid, true, Duration::from_millis(150));
+            return Err(err);
+        }
+    };
+
+    Ok(session)
+}
+
+fn build_post_stop_task(session: &SessionRecord) -> Option<ShellTaskSpec> {
+    if let (Some(task), Some(log_path)) =
+        (session.spec.poststop_task.clone(), session.log_path.clone())
+    {
+        return Some((
+            task,
+            session.spec.cwd.clone(),
+            session.spec.env.clone(),
+            log_path,
+        ));
+    }
+    None
+}
+
+fn load_session_pid(store: &StateStore, session_id: &str) -> Result<Option<u32>, AppError> {
+    let state = store.load()?;
+    let session = state
+        .sessions
+        .get(session_id)
+        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
+    Ok(session.pid)
+}
+
+fn load_restart_plan(store: &StateStore, session_id: &str) -> Result<RestartPlan, AppError> {
+    let state = store.load()?;
+    let session = state
+        .sessions
+        .get(session_id)
+        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
+    let log_path = session
+        .log_path
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| super::default_log_path(store, &session.id));
+    Ok(RestartPlan {
+        session_id: session.id.clone(),
+        expected_pid: session.pid,
+        spec: session.spec.clone(),
+        log_path,
     })
 }
 

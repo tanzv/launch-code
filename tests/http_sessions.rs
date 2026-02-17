@@ -712,3 +712,194 @@ fn serve_inspect_validates_tail_upper_bound_and_allows_followup_inspect() {
     let _ = child.kill();
     let _ = child.wait();
 }
+
+#[cfg(unix)]
+#[test]
+fn serve_stop_default_uses_non_force_behavior() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("ignore_term_default_stop.py");
+    fs::write(
+        &script_path,
+        "import signal\nimport time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('ready', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("python-stop-default")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let start_stdout = String::from_utf8(start_output.stdout).expect("start output utf8");
+    let session_id = parse_session_id(&start_stdout).expect("session id should be present");
+
+    let exe = assert_cmd::cargo::cargo_bin!("launch-code");
+    let mut child = Command::new(exe)
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("serve")
+        .arg("--bind")
+        .arg("127.0.0.1:0")
+        .arg("--token")
+        .arg("testtoken")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("serve should start");
+
+    let stdout = child.stdout.take().expect("stdout should be piped");
+    let mut reader = BufReader::new(stdout);
+    let line = wait_for_server_line(&mut reader);
+    let url = line
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix("listening="))
+        .expect("listening url should be printed")
+        .to_string();
+
+    let noerr_agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    std::thread::sleep(Duration::from_millis(300));
+
+    let mut stop_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/stop"))
+        .header("Authorization", "Bearer testtoken")
+        .send_empty()
+        .expect("stop request should complete");
+    assert_eq!(stop_res.status(), ureq::http::StatusCode::CONFLICT);
+    let stop_body = stop_res
+        .body_mut()
+        .read_to_string()
+        .expect("stop response body should be readable");
+    let stop_json: Value = serde_json::from_str(&stop_body).expect("stop response json");
+    assert_eq!(stop_json["ok"], false);
+    assert_eq!(stop_json["error"], "stop_timeout");
+
+    let force_payload = serde_json::json!({
+        "force": true,
+        "grace_timeout_ms": 100
+    });
+    let mut force_stop_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/stop"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&force_payload).expect("payload should serialize"))
+        .expect("forced stop should complete");
+    assert_eq!(force_stop_res.status(), ureq::http::StatusCode::OK);
+    let _ = force_stop_res
+        .body_mut()
+        .read_to_string()
+        .expect("force stop response should be readable");
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[cfg(unix)]
+#[test]
+fn serve_restart_default_keeps_force_behavior() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("ignore_term_default_restart.py");
+    fs::write(
+        &script_path,
+        "import signal\nimport time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('ready', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("python-restart-default")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let start_stdout = String::from_utf8(start_output.stdout).expect("start output utf8");
+    let session_id = parse_session_id(&start_stdout).expect("session id should be present");
+
+    let exe = assert_cmd::cargo::cargo_bin!("launch-code");
+    let mut child = Command::new(exe)
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("serve")
+        .arg("--bind")
+        .arg("127.0.0.1:0")
+        .arg("--token")
+        .arg("testtoken")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("serve should start");
+
+    let stdout = child.stdout.take().expect("stdout should be piped");
+    let mut reader = BufReader::new(stdout);
+    let line = wait_for_server_line(&mut reader);
+    let url = line
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix("listening="))
+        .expect("listening url should be printed")
+        .to_string();
+
+    let noerr_agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    std::thread::sleep(Duration::from_millis(300));
+
+    let mut restart_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/restart"))
+        .header("Authorization", "Bearer testtoken")
+        .send_empty()
+        .expect("restart should complete");
+    assert_eq!(restart_res.status(), ureq::http::StatusCode::OK);
+    let restart_body = restart_res
+        .body_mut()
+        .read_to_string()
+        .expect("restart response should be readable");
+    let restart_json: Value = serde_json::from_str(&restart_body).expect("restart response json");
+    assert_eq!(restart_json["ok"], true);
+    assert_eq!(restart_json["session"]["status"], "running");
+    assert_eq!(restart_json["session"]["restart_count"].as_u64(), Some(1));
+
+    let force_payload = serde_json::json!({
+        "force": true,
+        "grace_timeout_ms": 100
+    });
+    let mut stop_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/stop"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&force_payload).expect("payload should serialize"))
+        .expect("forced stop should complete");
+    assert_eq!(stop_res.status(), ureq::http::StatusCode::OK);
+    let _ = stop_res
+        .body_mut()
+        .read_to_string()
+        .expect("stop response should be readable");
+
+    let _ = child.kill();
+    let _ = child.wait();
+}

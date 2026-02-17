@@ -1,5 +1,6 @@
 mod dap_routes;
 mod debug_routes;
+mod session_routes;
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -10,8 +11,7 @@ use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::app::{
-    api_debug_session, api_get_session, api_inspect_session, api_list_sessions,
-    api_restart_session_with_options, api_resume_session, api_stop_session_with_options,
+    api_debug_session, api_get_session, api_inspect_session, api_list_sessions, api_resume_session,
     api_suspend_session,
 };
 use crate::dap::DapRegistry;
@@ -230,38 +230,10 @@ fn response_for_request_inner(
             dap_routes::handle_dap_request(store, serve_state, session_id, request)
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "stop"]) => {
-            let payload = match http_read_json_object_body(request) {
-                Ok(value) => value,
-                Err(err) => return http_json_body_error(err),
-            };
-            let (force, grace_timeout_ms) = match parse_force_and_grace(&payload) {
-                Ok(value) => value,
-                Err(response) => return response,
-            };
-            match api_stop_session_with_options(store, session_id, force, grace_timeout_ms) {
-                Ok(session) => http_json(
-                    tiny_http::StatusCode(200),
-                    json!({"ok": true, "session": session}),
-                ),
-                Err(err) => http_json_error(&err),
-            }
+            session_routes::handle_stop(store, session_id, request)
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "restart"]) => {
-            let payload = match http_read_json_object_body(request) {
-                Ok(value) => value,
-                Err(err) => return http_json_body_error(err),
-            };
-            let (force, grace_timeout_ms) = match parse_force_and_grace(&payload) {
-                Ok(value) => value,
-                Err(response) => return response,
-            };
-            match api_restart_session_with_options(store, session_id, force, grace_timeout_ms) {
-                Ok(session) => http_json(
-                    tiny_http::StatusCode(200),
-                    json!({"ok": true, "session": session}),
-                ),
-                Err(err) => http_json_error(&err),
-            }
+            session_routes::handle_restart(store, session_id, request)
         }
         (&tiny_http::Method::Post, ["v1", "sessions", session_id, "suspend"]) => {
             if let Err(response) = ensure_json_payload(request) {
@@ -372,36 +344,6 @@ fn log_http_access(method: &str, path: &str, status: u16, elapsed: Duration) {
         "http_access method={method} path={path} status={status} duration_ms={}",
         elapsed.as_millis()
     );
-}
-
-fn parse_force_and_grace(
-    payload: &serde_json::Value,
-) -> Result<(bool, u64), tiny_http::Response<std::io::Cursor<Vec<u8>>>> {
-    let force = match payload.get("force") {
-        None => true,
-        Some(value) => match value.as_bool() {
-            Some(value) => value,
-            None => {
-                return Err(http_json(
-                    tiny_http::StatusCode(400),
-                    json!({"ok": false, "error": "bad_request", "message": "force must be a boolean"}),
-                ));
-            }
-        },
-    };
-    let grace_timeout_ms = match payload.get("grace_timeout_ms") {
-        None => 150u64,
-        Some(value) => match value.as_u64() {
-            Some(value) => value.min(60_000),
-            None => {
-                return Err(http_json(
-                    tiny_http::StatusCode(400),
-                    json!({"ok": false, "error": "bad_request", "message": "grace_timeout_ms must be a non-negative integer"}),
-                ));
-            }
-        },
-    };
-    Ok((force, grace_timeout_ms))
 }
 
 fn ensure_json_payload(
