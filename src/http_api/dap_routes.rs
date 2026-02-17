@@ -11,6 +11,7 @@ use crate::http_utils::{
 };
 
 const MAX_DAP_BATCH_REQUESTS: usize = 128;
+const MAX_DAP_EVENTS_QUERY_MAX: usize = 1000;
 
 pub(super) fn handle_dap_request(
     store: &StateStore,
@@ -154,6 +155,12 @@ pub(super) fn handle_dap_events(
         return http_json(
             tiny_http::StatusCode(400),
             json!({"ok": false, "error": "bad_request", "message": "invalid query parameter: max should be >= 1"}),
+        );
+    }
+    if max > MAX_DAP_EVENTS_QUERY_MAX {
+        return http_json(
+            tiny_http::StatusCode(400),
+            json!({"ok": false, "error": "bad_request", "message": format!("invalid query parameter: max should be <= {MAX_DAP_EVENTS_QUERY_MAX}")}),
         );
     }
     let timeout_ms = match http_query_u64(query, "timeout_ms") {

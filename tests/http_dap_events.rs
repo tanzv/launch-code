@@ -385,3 +385,173 @@ fn serve_rejects_zero_max_events_and_allows_followup_event_poll() {
     let _ = child.wait();
     let _ = dap_thread.join();
 }
+
+#[test]
+fn serve_rejects_oversized_max_events_and_allows_followup_event_poll() {
+    let dap_listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let dap_port = dap_listener.local_addr().unwrap().port();
+
+    let dap_thread = thread::spawn(move || {
+        let (mut stream, _) = dap_listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+        let msg = read_dap_message(&mut reader);
+        assert_eq!(msg["type"], "request");
+        assert_eq!(msg["command"], "initialize");
+        let req_seq = msg["seq"].as_u64().expect("seq should be number");
+
+        let response = json!({
+            "seq": 1,
+            "type": "response",
+            "request_seq": req_seq,
+            "success": true,
+            "command": "initialize",
+            "body": {}
+        });
+        write_dap_message(&mut stream, &response);
+
+        let event = json!({
+            "seq": 2,
+            "type": "event",
+            "event": "stopped",
+            "body": {
+                "reason": "breakpoint",
+                "threadId": 1
+            }
+        });
+        write_dap_message(&mut stream, &event);
+    });
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+
+    let state_path = state_dir.join("state.json");
+    let state = json!({
+        "sessions": {
+            "session-1": {
+                "id": "session-1",
+                "spec": {
+                    "name": "py-debug",
+                    "runtime": "python",
+                    "entry": "app.py",
+                    "args": [],
+                    "cwd": ".",
+                    "env": {},
+                    "managed": false,
+                    "mode": "debug",
+                    "debug": {
+                        "host": "127.0.0.1",
+                        "port": dap_port,
+                        "wait_for_client": true
+                    },
+                    "prelaunch_task": null,
+                    "poststop_task": null
+                },
+                "status": "running",
+                "pid": null,
+                "supervisor_pid": null,
+                "log_path": null,
+                "debug_meta": {
+                    "host": "127.0.0.1",
+                    "requested_port": dap_port,
+                    "active_port": dap_port,
+                    "fallback_applied": false,
+                    "reconnect_policy": "auto-retry"
+                },
+                "created_at": 1,
+                "updated_at": 2,
+                "last_exit_code": null,
+                "restart_count": 0
+            }
+        }
+    });
+
+    fs::write(&state_path, serde_json::to_string_pretty(&state).unwrap())
+        .expect("state should be written");
+
+    let exe = assert_cmd::cargo::cargo_bin!("launch-code");
+    let mut child = Command::new(exe)
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("serve")
+        .arg("--bind")
+        .arg("127.0.0.1:0")
+        .arg("--token")
+        .arg("testtoken")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("serve should start");
+
+    let stdout = child.stdout.take().expect("stdout should be piped");
+    let mut reader = BufReader::new(stdout);
+    let line = wait_for_server_line(&mut reader);
+    let url = line
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix("listening="))
+        .expect("listening url should be printed")
+        .to_string();
+
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(2)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let mut bad_events_res = agent
+        .get(&format!(
+            "{url}/v1/sessions/session-1/debug/dap/events?timeout_ms=1000&max=1001"
+        ))
+        .header("Authorization", "Bearer testtoken")
+        .call()
+        .expect("oversized events request should complete");
+    assert_eq!(bad_events_res.status(), ureq::http::StatusCode::BAD_REQUEST);
+    let bad_events_body = bad_events_res
+        .body_mut()
+        .read_to_string()
+        .expect("invalid events response should be readable");
+    let bad_events_json: Value =
+        serde_json::from_str(&bad_events_body).expect("invalid events response json");
+    assert_eq!(bad_events_json["ok"], false);
+    assert_eq!(bad_events_json["error"], "bad_request");
+
+    let init_body = json!({
+        "command": "initialize",
+        "arguments": {}
+    });
+    let mut init_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/dap/request"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&init_body).unwrap())
+        .expect("dap initialize should succeed");
+    assert_eq!(init_res.status(), ureq::http::StatusCode::OK);
+    let _ = init_res
+        .body_mut()
+        .read_to_string()
+        .expect("init response readable");
+
+    let mut good_events_res = agent
+        .get(&format!(
+            "{url}/v1/sessions/session-1/debug/dap/events?timeout_ms=1000&max=10"
+        ))
+        .header("Authorization", "Bearer testtoken")
+        .call()
+        .expect("events should succeed");
+    assert_eq!(good_events_res.status(), ureq::http::StatusCode::OK);
+    let good_events_body = good_events_res
+        .body_mut()
+        .read_to_string()
+        .expect("events body readable");
+    let good_events_json: Value = serde_json::from_str(&good_events_body).expect("events json");
+    assert_eq!(good_events_json["ok"], true);
+    let events = good_events_json["events"]
+        .as_array()
+        .expect("events should be array");
+    assert!(
+        events.iter().any(|item| item["event"] == "stopped"),
+        "stopped event should be present after invalid oversized query"
+    );
+
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = dap_thread.join();
+}

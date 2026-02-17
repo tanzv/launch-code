@@ -22,6 +22,7 @@ use crate::http_utils::{
 
 static HTTP_SERVER_STARTED_AT: OnceLock<Instant> = OnceLock::new();
 static HTTP_METRICS: HttpMetrics = HttpMetrics::new();
+const MAX_HTTP_INSPECT_TAIL_LINES: usize = 5000;
 
 struct InflightGuard;
 
@@ -149,6 +150,16 @@ fn response_for_request_inner(
                     );
                 }
             };
+            if tail > MAX_HTTP_INSPECT_TAIL_LINES {
+                return http_json(
+                    tiny_http::StatusCode(400),
+                    json!({
+                        "ok": false,
+                        "error": "bad_request",
+                        "message": format!("invalid query parameter: tail should be <= {MAX_HTTP_INSPECT_TAIL_LINES}"),
+                    }),
+                );
+            }
 
             match api_inspect_session(store, session_id, tail) {
                 Ok(doc) => http_json(tiny_http::StatusCode(200), doc),

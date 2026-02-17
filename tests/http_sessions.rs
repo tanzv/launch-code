@@ -571,3 +571,111 @@ fn serve_suspend_resume_validate_payload_and_keep_connection_healthy() {
     let _ = child.kill();
     let _ = child.wait();
 }
+
+#[test]
+fn serve_inspect_validates_tail_upper_bound_and_allows_followup_inspect() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("app_inspect_tail_bound.py");
+    fs::write(
+        &script_path,
+        "import time\nprint('line-1', flush=True)\nprint('line-2', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("python-inspect-tail-bound")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let start_stdout = String::from_utf8(start_output.stdout).expect("start output utf8");
+    let session_id = parse_session_id(&start_stdout).expect("session id should be present");
+
+    let exe = assert_cmd::cargo::cargo_bin!("launch-code");
+    let mut child = Command::new(exe)
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("serve")
+        .arg("--bind")
+        .arg("127.0.0.1:0")
+        .arg("--token")
+        .arg("testtoken")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("serve should start");
+
+    let stdout = child.stdout.take().expect("stdout should be piped");
+    let mut reader = BufReader::new(stdout);
+    let line = wait_for_server_line(&mut reader);
+    let url = line
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix("listening="))
+        .expect("listening url should be printed")
+        .to_string();
+
+    let noerr_agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let mut bad_inspect_res = noerr_agent
+        .get(&format!("{url}/v1/sessions/{session_id}/inspect?tail=5001"))
+        .header("Authorization", "Bearer testtoken")
+        .call()
+        .expect("oversized inspect request should complete");
+    assert_eq!(
+        bad_inspect_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let bad_inspect_body = bad_inspect_res
+        .body_mut()
+        .read_to_string()
+        .expect("bad inspect response should be readable");
+    let bad_inspect_json: Value =
+        serde_json::from_str(&bad_inspect_body).expect("bad inspect response json");
+    assert_eq!(bad_inspect_json["ok"], false);
+    assert_eq!(bad_inspect_json["error"], "bad_request");
+
+    let mut good_inspect_res = noerr_agent
+        .get(&format!("{url}/v1/sessions/{session_id}/inspect?tail=10"))
+        .header("Authorization", "Bearer testtoken")
+        .call()
+        .expect("inspect should succeed");
+    assert_eq!(good_inspect_res.status(), ureq::http::StatusCode::OK);
+    let good_inspect_body = good_inspect_res
+        .body_mut()
+        .read_to_string()
+        .expect("good inspect response should be readable");
+    let good_inspect_json: Value =
+        serde_json::from_str(&good_inspect_body).expect("good inspect response json");
+    assert_eq!(good_inspect_json["ok"], true);
+    assert_eq!(good_inspect_json["log"]["tail_lines"], 10);
+
+    let mut stop_res = noerr_agent
+        .post(&format!("{url}/v1/sessions/{session_id}/stop"))
+        .header("Authorization", "Bearer testtoken")
+        .send("{}")
+        .expect("stop should succeed");
+    assert_eq!(stop_res.status(), ureq::http::StatusCode::OK);
+    let _ = stop_res
+        .body_mut()
+        .read_to_string()
+        .expect("stop response should be readable");
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
