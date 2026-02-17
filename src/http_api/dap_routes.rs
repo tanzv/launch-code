@@ -143,6 +143,12 @@ pub(super) fn handle_dap_events(
             );
         }
     };
+    if max == 0 {
+        return http_json(
+            tiny_http::StatusCode(400),
+            json!({"ok": false, "error": "bad_request", "message": "invalid query parameter: max should be >= 1"}),
+        );
+    }
     let timeout_ms = match http_query_u64(query, "timeout_ms") {
         Ok(value) => value.unwrap_or(0),
         Err(msg) => {
