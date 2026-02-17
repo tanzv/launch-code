@@ -331,7 +331,11 @@ pub struct DapStackTraceArgs {
     pub thread_id: Option<u64>,
     #[arg(long, help = "Optional start frame index.")]
     pub start_frame: Option<u64>,
-    #[arg(long, help = "Optional frame count limit.")]
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "Optional frame count limit."
+    )]
     pub levels: Option<u64>,
     #[arg(
         long,

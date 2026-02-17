@@ -427,3 +427,29 @@ fn cli_dap_breakpoints_rejects_whitespace_path() {
         "error should mention non-empty path requirement"
     );
 }
+
+#[test]
+fn cli_dap_stack_trace_rejects_zero_levels() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("stack-trace")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--thread-id")
+        .arg("7")
+        .arg("--levels")
+        .arg("0")
+        .output()
+        .expect("dap stack-trace should run");
+
+    assert!(
+        !output.status.success(),
+        "dap stack-trace should reject non-positive levels"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("--levels"),
+        "error should reference levels argument"
+    );
+}
