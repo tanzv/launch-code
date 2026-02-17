@@ -10,6 +10,8 @@ use crate::http_utils::{
     http_read_json_body,
 };
 
+const MAX_DAP_BATCH_REQUESTS: usize = 128;
+
 pub(super) fn handle_dap_request(
     store: &StateStore,
     serve_state: &Arc<Mutex<DapRegistry>>,
@@ -35,6 +37,11 @@ pub(super) fn handle_dap_request(
 
         if batch.is_empty() {
             return bad_request("batch must not be empty");
+        }
+        if batch.len() > MAX_DAP_BATCH_REQUESTS {
+            return bad_request(format!(
+                "batch must contain at most {MAX_DAP_BATCH_REQUESTS} requests"
+            ));
         }
 
         let mut requests = Vec::with_capacity(batch.len());
