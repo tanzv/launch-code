@@ -380,6 +380,23 @@ fn serve_rejects_invalid_expression_payload_types_and_allows_followup_requests()
     assert_eq!(bad_evaluate_doc["ok"], false);
     assert_eq!(bad_evaluate_doc["error"], "bad_request");
 
+    let mut zero_frame_evaluate_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/evaluate"))
+        .header("Authorization", "Bearer testtoken")
+        .send(serde_json::to_string(&json!({"expression":"counter + 1","frameId":0})).unwrap())
+        .expect("zero frameId evaluate request should complete");
+    assert_eq!(
+        zero_frame_evaluate_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let zero_frame_evaluate_doc = read_json_response(&mut zero_frame_evaluate_res);
+    assert_eq!(zero_frame_evaluate_doc["ok"], false);
+    assert_eq!(zero_frame_evaluate_doc["error"], "bad_request");
+    assert_eq!(
+        zero_frame_evaluate_doc["message"],
+        "frameId must be a positive integer"
+    );
+
     let mut good_evaluate_res = agent
         .post(&format!("{url}/v1/sessions/session-1/debug/evaluate"))
         .header("Authorization", "Bearer testtoken")

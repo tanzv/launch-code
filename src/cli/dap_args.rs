@@ -143,7 +143,11 @@ pub struct DapEvaluateArgs {
     pub id: String,
     #[arg(long, help = "Expression to evaluate.")]
     pub expression: String,
-    #[arg(long, help = "Optional stack frame id.")]
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "Optional stack frame id."
+    )]
     pub frame_id: Option<u64>,
     #[arg(long, value_enum, help = "Evaluation context.")]
     pub context: Option<DapEvaluateContextArg>,
@@ -337,7 +341,11 @@ pub struct DapStackTraceArgs {
 pub struct DapScopesArgs {
     #[arg(long, help = "Target session id.")]
     pub id: String,
-    #[arg(long, help = "Stack frame id from stackTrace.")]
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "Stack frame id from stackTrace."
+    )]
     pub frame_id: u64,
     #[arg(
         long,

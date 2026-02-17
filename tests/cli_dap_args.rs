@@ -216,3 +216,53 @@ fn cli_dap_variables_rejects_zero_variables_reference() {
         "error should reference variables-reference argument"
     );
 }
+
+#[test]
+fn cli_dap_evaluate_rejects_zero_frame_id() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("evaluate")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--expression")
+        .arg("counter + 1")
+        .arg("--frame-id")
+        .arg("0")
+        .output()
+        .expect("dap evaluate should run");
+
+    assert!(
+        !output.status.success(),
+        "dap evaluate should reject non-positive frame-id"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("--frame-id"),
+        "error should reference frame-id argument"
+    );
+}
+
+#[test]
+fn cli_dap_scopes_rejects_zero_frame_id() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("dap")
+        .arg("scopes")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--frame-id")
+        .arg("0")
+        .output()
+        .expect("dap scopes should run");
+
+    assert!(
+        !output.status.success(),
+        "dap scopes should reject non-positive frame-id"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("--frame-id"),
+        "error should reference frame-id argument"
+    );
+}

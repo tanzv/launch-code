@@ -36,11 +36,11 @@ pub(crate) fn handle_debug_evaluate(
     args.insert("expression".to_string(), json!(expression));
     if let Some(frame_id_value) = payload.get("frameId") {
         match frame_id_value.as_u64() {
-            Some(frame_id) => {
+            Some(frame_id) if frame_id > 0 => {
                 args.insert("frameId".to_string(), json!(frame_id));
             }
-            None => {
-                return bad_request("frameId must be a non-negative integer");
+            _ => {
+                return bad_request("frameId must be a positive integer");
             }
         }
     }
