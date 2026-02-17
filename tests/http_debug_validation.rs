@@ -289,10 +289,33 @@ fn serve_rejects_non_positive_breakpoint_line_and_allows_followup_request() {
     assert_eq!(bad_obj_doc["error"], "bad_request");
     assert_eq!(bad_obj_doc["message"], "line must be a positive integer");
 
+    let mut bad_timeout_res = agent
+        .post(&format!("{url}/v1/sessions/session-1/debug/breakpoints"))
+        .header("Authorization", "Bearer testtoken")
+        .send(
+            serde_json::to_string(&json!({"path":"app.py","lines":[12],"timeout_ms":"fast"}))
+                .unwrap(),
+        )
+        .expect("bad timeout breakpoints request should complete");
+    assert_eq!(
+        bad_timeout_res.status(),
+        ureq::http::StatusCode::BAD_REQUEST
+    );
+    let bad_timeout_doc = read_json_response(&mut bad_timeout_res);
+    assert_eq!(bad_timeout_doc["ok"], false);
+    assert_eq!(bad_timeout_doc["error"], "bad_request");
+    assert_eq!(
+        bad_timeout_doc["message"],
+        "timeout_ms must be a non-negative integer"
+    );
+
     let mut good_res = agent
         .post(&format!("{url}/v1/sessions/session-1/debug/breakpoints"))
         .header("Authorization", "Bearer testtoken")
-        .send(serde_json::to_string(&json!({"path":"app.py","lines":[12]})).unwrap())
+        .send(
+            serde_json::to_string(&json!({"path":"app.py","lines":[12],"timeout_ms":1200}))
+                .unwrap(),
+        )
         .expect("good breakpoints request should complete");
     assert_eq!(good_res.status(), ureq::http::StatusCode::OK);
     let good_doc = read_json_response(&mut good_res);

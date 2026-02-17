@@ -93,7 +93,19 @@ pub(crate) fn handle_debug_breakpoints(
         "breakpoints": breakpoints
     });
 
-    let timeout = Duration::from_millis(1500);
+    let timeout_ms = match payload.get("timeout_ms") {
+        None => 1500,
+        Some(value) => match value.as_u64() {
+            Some(value) => value,
+            None => {
+                return http_json(
+                    tiny_http::StatusCode(400),
+                    json!({"ok": false, "error": "bad_request", "message": "timeout_ms must be a non-negative integer"}),
+                );
+            }
+        },
+    };
+    let timeout = Duration::from_millis(timeout_ms.min(60_000));
     match send_request_with_retry(
         store,
         serve_state,
