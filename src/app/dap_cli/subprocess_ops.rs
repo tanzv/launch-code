@@ -5,10 +5,18 @@ use crate::cli::DapAdoptSubprocessArgs;
 use crate::dap::adopt_debugpy_subprocess;
 use crate::error::AppError;
 
+const MAX_DAP_ADOPT_EVENTS: usize = 1000;
+
 pub(super) fn handle_dap_adopt_subprocess(
     store: &StateStore,
     args: &DapAdoptSubprocessArgs,
 ) -> Result<(), AppError> {
+    if args.max_events == 0 || args.max_events > MAX_DAP_ADOPT_EVENTS {
+        return Err(AppError::Dap(format!(
+            "max-events must be between 1 and {MAX_DAP_ADOPT_EVENTS}"
+        )));
+    }
+
     let serve_state = super::shared::fresh_registry();
     let adopted = adopt_debugpy_subprocess(
         store,

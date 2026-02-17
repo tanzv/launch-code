@@ -8,7 +8,15 @@ use crate::cli::{
 use crate::dap::{proxy_for_session, send_request_with_retry};
 use crate::error::AppError;
 
+const MAX_DAP_EVENTS: usize = 1000;
+
 pub(super) fn handle_dap_events(store: &StateStore, args: &DapEventsArgs) -> Result<(), AppError> {
+    if args.max == 0 || args.max > MAX_DAP_EVENTS {
+        return Err(AppError::Dap(format!(
+            "max must be between 1 and {MAX_DAP_EVENTS}"
+        )));
+    }
+
     let serve_state = super::shared::fresh_registry();
     let timeout = super::shared::clamp_timeout(args.timeout_ms);
     let proxy = proxy_for_session(store, &serve_state, &args.id)?;
