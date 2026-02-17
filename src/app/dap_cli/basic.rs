@@ -6,6 +6,8 @@ use crate::dap::send_batch_with_retry;
 use crate::dap::send_request_with_retry;
 use crate::error::AppError;
 
+const MAX_DAP_BATCH_REQUESTS: usize = 128;
+
 pub(super) fn handle_dap_request(
     store: &StateStore,
     args: &DapRequestArgs,
@@ -41,18 +43,33 @@ pub(super) fn handle_dap_batch(store: &StateStore, args: &DapBatchArgs) -> Resul
             "batch file must include at least one request".to_string(),
         ));
     }
+    if items.len() > MAX_DAP_BATCH_REQUESTS {
+        return Err(AppError::Dap(format!(
+            "batch file must include at most {MAX_DAP_BATCH_REQUESTS} requests"
+        )));
+    }
 
     let mut requests = Vec::with_capacity(items.len());
     for item in items {
+        let Some(item_obj) = item.as_object() else {
+            return Err(AppError::Dap("batch item must be an object".to_string()));
+        };
+
         let command = item
             .get("command")
             .and_then(|v| v.as_str())
             .filter(|v| !v.trim().is_empty())
             .ok_or_else(|| AppError::Dap("batch item missing command".to_string()))?;
-        let mut arguments = item.get("arguments").cloned().unwrap_or_else(|| json!({}));
-        if arguments.is_null() {
-            arguments = json!({});
-        }
+        let arguments = match item_obj.get("arguments") {
+            None => json!({}),
+            Some(value) if value.is_null() => json!({}),
+            Some(value) if value.is_object() => value.clone(),
+            Some(_) => {
+                return Err(AppError::Dap(
+                    "batch item arguments must be a JSON object".to_string(),
+                ));
+            }
+        };
         requests.push((command.to_string(), arguments));
     }
 

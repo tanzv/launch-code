@@ -26,8 +26,10 @@ pub(super) fn parse_dap_arguments(input: Option<&str>) -> Result<serde_json::Val
             let value: serde_json::Value = serde_json::from_str(raw)?;
             if value.is_null() {
                 Ok(json!({}))
-            } else {
+            } else if value.is_object() {
                 Ok(value)
+            } else {
+                Err(AppError::Dap("arguments must be a JSON object".to_string()))
             }
         }
         _ => Ok(json!({})),
