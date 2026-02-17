@@ -13,6 +13,8 @@ use crate::cli::LogsArgs;
 use crate::error::AppError;
 use crate::output;
 
+pub(in crate::app) const MAX_LOG_TAIL_LINES: usize = 5000;
+
 pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), AppError> {
     let session_id = args.id.clone();
     let filter = LogFilter::new(
@@ -58,6 +60,7 @@ pub(in crate::app) fn read_log_tail(
     path: Option<&str>,
     max_lines: usize,
 ) -> Result<String, AppError> {
+    let max_lines = max_lines.min(MAX_LOG_TAIL_LINES);
     if max_lines == 0 {
         return Ok(String::new());
     }
@@ -330,5 +333,20 @@ mod tests {
         let path = file.path().to_string_lossy().to_string();
         let tail = read_log_tail(Some(&path), 50).expect("read tail should succeed");
         assert_eq!(tail, "line-1\nline-2\nline-3");
+    }
+
+    #[test]
+    fn read_log_tail_clamps_very_large_tail_requests() {
+        let mut file = NamedTempFile::new().expect("temp file should be created");
+        for line in 0..6000 {
+            writeln!(file, "line-{line}").expect("write line");
+        }
+
+        let path = file.path().to_string_lossy().to_string();
+        let tail = read_log_tail(Some(&path), 6000).expect("read tail should succeed");
+        let lines: Vec<&str> = tail.lines().collect();
+        assert_eq!(lines.len(), 5000);
+        assert_eq!(lines.first().copied(), Some("line-1000"));
+        assert_eq!(lines.last().copied(), Some("line-5999"));
     }
 }

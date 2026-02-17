@@ -46,6 +46,7 @@ pub(crate) fn api_inspect_session(
     tail: usize,
 ) -> Result<serde_json::Value, AppError> {
     let session_id = session_id.to_string();
+    let tail = tail.min(super::log_ops::MAX_LOG_TAIL_LINES);
     store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, &session_id)?;

@@ -221,7 +221,7 @@ fn handle_attach(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppErro
 
 fn handle_inspect(store: &StateStore, args: &InspectArgs) -> Result<(), AppError> {
     let session_id = args.id.clone();
-    let tail_lines = args.tail;
+    let tail_lines = args.tail.min(log_ops::MAX_LOG_TAIL_LINES);
     let doc = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = state
