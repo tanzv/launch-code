@@ -513,7 +513,7 @@ fn logs_follow_can_exclude_with_regex() {
     let script_path = tmp.path().join("exclude_regex_follow.py");
     fs::write(
         &script_path,
-        "import time\nprint('DEBUG warmup', flush=True)\ntime.sleep(0.2)\nprint('ERROR visible', flush=True)\n",
+        "import time\nprint('DEBUG warmup', flush=True)\ntime.sleep(0.6)\nprint('ERROR visible 1', flush=True)\ntime.sleep(0.2)\nprint('ERROR visible 2', flush=True)\n",
     )
     .expect("script should be written");
 
