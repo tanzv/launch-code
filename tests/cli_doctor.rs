@@ -43,7 +43,12 @@ fn write_dap_message(stream: &mut TcpStream, msg: &Value) {
     stream.flush().expect("flush");
 }
 
-fn write_state_with_debug_session(root: &std::path::Path, host: &str, port: u16) {
+fn write_state_with_debug_session_status(
+    root: &std::path::Path,
+    host: &str,
+    port: u16,
+    status: &str,
+) {
     let state_dir = root.join(".launch-code");
     fs::create_dir_all(&state_dir).expect("state dir should exist");
     let state_path = state_dir.join("state.json");
@@ -70,7 +75,7 @@ fn write_state_with_debug_session(root: &std::path::Path, host: &str, port: u16)
                     "prelaunch_task": null,
                     "poststop_task": null
                 },
-                "status": "running",
+                "status": status,
                 "pid": null,
                 "supervisor_pid": null,
                 "log_path": null,
@@ -91,6 +96,20 @@ fn write_state_with_debug_session(root: &std::path::Path, host: &str, port: u16)
 
     fs::write(&state_path, serde_json::to_string_pretty(&state).unwrap())
         .expect("state should be written");
+}
+
+fn write_state_with_debug_session(root: &std::path::Path, host: &str, port: u16) {
+    write_state_with_debug_session_status(root, host, port, "running");
+}
+
+fn reserve_unbound_local_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("ephemeral port should bind");
+    let port = listener
+        .local_addr()
+        .expect("local addr should exist")
+        .port();
+    drop(listener);
+    port
 }
 
 #[test]
@@ -169,6 +188,12 @@ fn cli_doctor_debug_collects_threads_and_events_in_json() {
             .is_some_and(|count| count >= 1),
         "doctor should collect at least one debug event"
     );
+    assert!(
+        doc["diagnostics"]
+            .as_array()
+            .is_some_and(|items| items.is_empty()),
+        "healthy session should not emit diagnostics"
+    );
 
     let _ = server.join();
 }
@@ -230,6 +255,67 @@ fn cli_doctor_debug_reports_dap_failure_without_crashing() {
             .as_str()
             .is_some_and(|message| message.contains("threads unavailable"))
     );
+    let diagnostics = doc["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array");
+    let d001 = diagnostics
+        .iter()
+        .find(|item| item["code"] == "D001")
+        .expect("D001 diagnostic should exist");
+    assert_eq!(d001["level"], "error");
+    assert_eq!(d001["summary"], "Failed to query debug threads");
+    assert!(
+        d001["suggested_actions"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty()),
+        "D001 should include recovery actions"
+    );
 
     let _ = server.join();
+}
+
+#[test]
+fn cli_doctor_debug_reports_event_channel_and_status_diagnostics() {
+    let port = reserve_unbound_local_port();
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state_with_debug_session_status(tmp.path(), "127.0.0.1", port, "stopped");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("doctor")
+        .arg("debug")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--timeout-ms")
+        .arg("300")
+        .output()
+        .expect("doctor debug should run");
+
+    assert!(
+        output.status.success(),
+        "doctor debug should still return diagnostics document"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["debug"]["threads"]["ok"], false);
+    assert_eq!(doc["debug"]["events"]["ok"], false);
+
+    let diagnostics = doc["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array");
+    assert!(
+        diagnostics.iter().any(|item| item["code"] == "D001"),
+        "D001 should be emitted when thread request fails"
+    );
+    assert!(
+        diagnostics.iter().any(|item| item["code"] == "D002"),
+        "D002 should be emitted when event stream fails"
+    );
+    assert!(
+        diagnostics.iter().any(|item| item["code"] == "D003"),
+        "D003 should be emitted when session is not running"
+    );
 }
