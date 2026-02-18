@@ -53,6 +53,7 @@ pub(super) fn handle_dap_breakpoints(
         arguments,
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
     let doc = json!({
         "ok": true,
         "session_id": args.id,
@@ -75,6 +76,7 @@ pub(super) fn handle_dap_exception_breakpoints(
         json!({ "filters": args.filters }),
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
 
     let doc = json!({
         "ok": true,
@@ -117,6 +119,7 @@ pub(super) fn handle_dap_evaluate(
         serde_json::Value::Object(arguments),
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
     let doc = json!({
         "ok": true,
         "session_id": args.id,
@@ -147,6 +150,7 @@ pub(super) fn handle_dap_set_variable(
         }),
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
     let doc = json!({
         "ok": true,
         "session_id": args.id,
@@ -253,6 +257,7 @@ pub(super) fn handle_dap_disconnect(
         }),
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
 
     let doc = json!({
         "ok": true,
@@ -276,6 +281,7 @@ pub(super) fn handle_dap_terminate(
         json!({ "restart": args.restart }),
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
 
     let doc = json!({
         "ok": true,

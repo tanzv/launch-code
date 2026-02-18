@@ -38,6 +38,7 @@ pub(super) fn handle_dap_threads(
     let timeout = super::shared::clamp_timeout(args.timeout_ms);
     let response =
         send_request_with_retry(store, &serve_state, &args.id, "threads", json!({}), timeout)?;
+    super::shared::ensure_dap_response_success(&response)?;
 
     let doc = json!({
         "ok": true,
@@ -65,6 +66,7 @@ pub(super) fn handle_dap_stack_trace(
                 json!({}),
                 timeout,
             )?;
+            super::shared::ensure_dap_response_success(&threads_response)?;
             super::shared::extract_first_thread_id(&threads_response)?
         }
     };
@@ -86,6 +88,7 @@ pub(super) fn handle_dap_stack_trace(
         serde_json::Value::Object(arguments),
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
 
     let doc = json!({
         "ok": true,
@@ -107,6 +110,7 @@ pub(super) fn handle_dap_scopes(store: &StateStore, args: &DapScopesArgs) -> Res
         json!({ "frameId": args.frame_id }),
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
 
     let doc = json!({
         "ok": true,
@@ -151,6 +155,7 @@ pub(super) fn handle_dap_variables(
         serde_json::Value::Object(arguments),
         timeout,
     )?;
+    super::shared::ensure_dap_response_success(&response)?;
 
     let doc = json!({
         "ok": true,

@@ -4,6 +4,9 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 mod config_args;
 mod dap_args;
+mod doctor_args;
+mod link_args;
+mod project_args;
 
 pub use config_args::{
     ConfigArgs, ConfigCommands, ConfigExportArgs, ConfigImportArgs, ConfigNameArgs, ConfigRunArgs,
@@ -16,14 +19,21 @@ pub use dap_args::{
     DapStackTraceArgs, DapStepArgs, DapTerminateArgs, DapThreadsArgs, DapVariablesArgs,
     DapVariablesFilterArg,
 };
+pub use doctor_args::{DoctorArgs, DoctorCommands, DoctorDebugArgs};
+pub use link_args::{LinkAddArgs, LinkArgs, LinkCommands, LinkNameArgs};
+pub use project_args::{
+    ProjectArgs, ProjectCommands, ProjectListArgs, ProjectListFieldArg, ProjectSetArgs,
+    ProjectUnsetArgs, ProjectUnsetFieldArg,
+};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "launch-code",
+    name = "lcode",
+    bin_name = "lcode",
     version,
     about = "IDE-like launch manager CLI",
     long_about = "IDE-like launch manager CLI for launching, supervising, and debugging local development programs.",
-    after_help = "Examples:\n  launch-code start --runtime python --entry app.py --cwd .\n  launch-code debug --runtime python --entry app.py --cwd .\n  launch-code dap evaluate --id <session_id> --expression \"counter + 1\"\n  launch-code serve --bind 127.0.0.1:8787 --token <token>"
+    after_help = "Examples:\n  lcode start --runtime python --entry app.py --cwd .\n  lcode debug --runtime python --entry app.py --cwd .\n  lcode dap evaluate --id <session_id> --expression \"counter + 1\"\n  lcode serve --bind 127.0.0.1:8787 --token <token>"
 )]
 pub struct Cli {
     #[arg(
@@ -33,6 +43,28 @@ pub struct Cli {
         help = "Emit structured JSON output for command results and errors."
     )]
     pub json: bool,
+    #[arg(
+        long = "global",
+        global = true,
+        default_value_t = false,
+        help = "Use global link scope (default behavior). Current workspace link is auto-created when missing."
+    )]
+    pub global: bool,
+    #[arg(
+        long = "local",
+        global = true,
+        default_value_t = false,
+        conflicts_with_all = ["global", "link"],
+        help = "Use workspace-local state scope (LAUNCH_CODE_HOME or current directory)."
+    )]
+    pub local: bool,
+    #[arg(
+        long,
+        global = true,
+        conflicts_with = "local",
+        help = "Route runtime commands to a linked workspace by link name."
+    )]
+    pub link: Option<String>,
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -69,14 +101,25 @@ pub enum Commands {
     Status(SessionIdArgs),
     #[command(about = "List known sessions with optional filters.")]
     List(ListArgs),
+    #[command(
+        about = "Remove stale session records from local state.",
+        long_about = "Remove session records from local state. By default cleanup targets stopped and unknown sessions. Use --status to narrow scope and --dry-run to preview matched records."
+    )]
+    Cleanup(CleanupArgs),
     #[command(about = "Manage saved run/debug profiles.")]
     Config(ConfigArgs),
+    #[command(about = "Manage workspace project metadata.")]
+    Project(ProjectArgs),
+    #[command(about = "Manage global workspace links.")]
+    Link(LinkArgs),
     #[command(about = "Run reconciliation loop for managed sessions.")]
     Daemon(DaemonArgs),
     #[command(about = "Expose an HTTP control plane for lifecycle and debug APIs.")]
     Serve(ServeArgs),
     #[command(about = "Send DAP (Debug Adapter Protocol) commands to a debug session.")]
     Dap(DapArgs),
+    #[command(about = "Run diagnostic checks for session lifecycle and debug channels.")]
+    Doctor(DoctorArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -163,6 +206,28 @@ pub struct ListArgs {
     pub runtime: Option<RuntimeArg>,
     #[arg(long, help = "Case-insensitive substring filter on session name.")]
     pub name_contains: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct CleanupArgs {
+    #[arg(
+        long = "status",
+        value_enum,
+        help = "Session status to clean. Repeat for multiple statuses. Defaults to stopped and unknown."
+    )]
+    pub status: Vec<CleanupStatusArg>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Preview matched sessions without removing them."
+    )]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CleanupStatusArg {
+    Stopped,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Args)]

@@ -1,6 +1,10 @@
 mod config_ops;
 mod dap_cli;
+mod doctor_ops;
+mod link_ops;
 mod log_ops;
+mod project_api;
+mod project_ops;
 mod serve_ops;
 mod session_api;
 mod session_cli;
@@ -25,15 +29,19 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::cli::{
-    Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, LogsArgs, SessionIdArgs,
+    Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, ListArgs, LogsArgs, SessionIdArgs,
 };
 use crate::error::AppError;
 use crate::output;
 
+pub(crate) use project_api::{
+    ProjectField, ProjectUpdate, api_get_project_info, api_unset_project_info_fields,
+    api_update_project_info,
+};
 pub(crate) use session_api::{
-    api_debug_session, api_get_session, api_inspect_session, api_list_sessions,
-    api_restart_session_with_options, api_resume_session, api_stop_session_with_options,
-    api_suspend_session,
+    api_cleanup_sessions, api_debug_session, api_get_session, api_inspect_session,
+    api_list_sessions, api_restart_session_with_options, api_resume_session,
+    api_stop_session_with_options, api_suspend_session,
 };
 
 pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppError> {
@@ -53,11 +61,23 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
         Commands::Resume(args) => session_cli::handle_resume(store, &args),
         Commands::Status(args) => session_cli::handle_status(store, &args),
         Commands::List(args) => session_cli::handle_list(store, &args),
+        Commands::Cleanup(args) => session_cli::handle_cleanup(store, &args),
         Commands::Config(args) => config_ops::handle_config(store, &args),
+        Commands::Project(args) => project_ops::handle_project(store, &args),
+        Commands::Link(args) => link_ops::handle_link(&args),
         Commands::Daemon(args) => handle_daemon(store, &args),
         Commands::Serve(args) => serve_ops::handle_serve(store, &args),
         Commands::Dap(args) => dap_cli::handle_dap(store, &args),
+        Commands::Doctor(args) => doctor_ops::handle_doctor(store, &args),
     }
+}
+
+pub(crate) fn execute_global_list(args: &ListArgs) -> Result<(), AppError> {
+    session_cli::handle_list_global_default(args)
+}
+
+pub(crate) fn execute_global_project_show() -> Result<(), AppError> {
+    project_ops::handle_project_show_global_default()
 }
 
 fn handle_debug(store: &StateStore, args: &DebugArgs) -> Result<(), AppError> {
@@ -99,36 +119,8 @@ fn handle_attach(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppErro
 }
 
 fn handle_inspect(store: &StateStore, args: &InspectArgs) -> Result<(), AppError> {
-    let session_id = args.id.clone();
     let tail_lines = args.tail.min(log_ops::MAX_LOG_TAIL_LINES);
-    let doc = store.update::<_, _, AppError>(|state| {
-        let now = unix_timestamp_secs();
-        let session = state
-            .sessions
-            .get_mut(&session_id)
-            .ok_or_else(|| AppError::SessionNotFound(session_id.clone()))?;
-
-        reconcile_session(store, session, now)?;
-        let pid = session.pid;
-        let alive = pid.map(is_process_alive).unwrap_or(false);
-        let command = build_command(&session.spec)?;
-        let log_tail =
-            log_ops::read_log_tail(session.log_path.as_deref(), tail_lines).unwrap_or_default();
-
-        Ok(json!({
-            "session": session.clone(),
-            "process": {
-                "pid": pid,
-                "alive": alive,
-                "command": command,
-            },
-            "log": {
-                "tail_lines": tail_lines,
-                "text": log_tail,
-            }
-        }))
-    })?;
-
+    let doc = api_inspect_session(store, &args.id, tail_lines)?;
     output::print_json_doc(&doc);
     Ok(())
 }

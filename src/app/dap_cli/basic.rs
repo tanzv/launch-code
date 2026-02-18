@@ -23,6 +23,7 @@ pub(super) fn handle_dap_request(
 
     let response =
         send_request_with_retry(store, &serve_state, &args.id, command, arguments, timeout)?;
+    super::shared::ensure_dap_response_success(&response)?;
     let doc = json!({
         "ok": true,
         "session_id": args.id,
@@ -76,6 +77,7 @@ pub(super) fn handle_dap_batch(store: &StateStore, args: &DapBatchArgs) -> Resul
     }
 
     let responses = send_batch_with_retry(store, &serve_state, &args.id, requests, timeout)?;
+    super::shared::ensure_dap_batch_success(&responses)?;
     let doc = json!({
         "ok": true,
         "session_id": args.id,

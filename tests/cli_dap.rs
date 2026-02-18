@@ -144,6 +144,145 @@ fn cli_dap_request_sends_command_and_prints_response() {
 }
 
 #[test]
+fn cli_dap_request_exits_non_zero_when_adapter_returns_failure_response() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let msg = read_dap_message(&mut reader);
+        assert_eq!(msg["type"], "request");
+        assert_eq!(msg["command"], "initialize");
+        let req_seq = msg["seq"].as_u64().expect("seq should be number");
+
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 1,
+                "type": "response",
+                "request_seq": req_seq,
+                "success": false,
+                "command": "initialize",
+                "message": "mock adapter failure"
+            }),
+        );
+    });
+
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state_with_debug_session(tmp.path(), "127.0.0.1", port);
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("dap")
+        .arg("request")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--command")
+        .arg("initialize")
+        .output()
+        .expect("dap request should run");
+
+    assert!(
+        !output.status.success(),
+        "dap request should fail when adapter response success=false"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(
+        stderr.contains("mock adapter failure"),
+        "stderr should include adapter failure message"
+    );
+
+    let _ = server.join();
+}
+
+#[test]
+fn cli_dap_batch_exits_non_zero_when_any_response_fails() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let first = read_dap_message(&mut reader);
+        assert_eq!(first["type"], "request");
+        assert_eq!(first["command"], "initialize");
+        let first_seq = first["seq"].as_u64().expect("seq should be number");
+
+        let second = read_dap_message(&mut reader);
+        assert_eq!(second["type"], "request");
+        assert_eq!(second["command"], "threads");
+        let second_seq = second["seq"].as_u64().expect("seq should be number");
+
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 1,
+                "type": "response",
+                "request_seq": first_seq,
+                "success": true,
+                "command": "initialize",
+                "body": {}
+            }),
+        );
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 2,
+                "type": "response",
+                "request_seq": second_seq,
+                "success": false,
+                "command": "threads",
+                "message": "threads failed"
+            }),
+        );
+    });
+
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state_with_debug_session(tmp.path(), "127.0.0.1", port);
+
+    let batch_path = tmp.path().join("batch.json");
+    fs::write(
+        &batch_path,
+        serde_json::to_string_pretty(&json!([
+            {"command": "initialize", "arguments": {}},
+            {"command": "threads", "arguments": {}}
+        ]))
+        .expect("serialize batch"),
+    )
+    .expect("batch file should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("dap")
+        .arg("batch")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--file")
+        .arg(batch_path)
+        .arg("--timeout-ms")
+        .arg("3000")
+        .output()
+        .expect("dap batch should run");
+
+    assert!(
+        !output.status.success(),
+        "dap batch should fail when any adapter response success=false"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(
+        stderr.contains("threads failed"),
+        "stderr should include failing response message"
+    );
+
+    let _ = server.join();
+}
+
+#[test]
 fn cli_dap_evaluate_auto_bootstraps_when_server_is_not_available() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
     let port = listener.local_addr().unwrap().port();

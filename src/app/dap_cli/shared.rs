@@ -20,6 +20,34 @@ pub(super) fn print_json_doc(doc: &serde_json::Value) -> Result<(), AppError> {
     Ok(())
 }
 
+pub(super) fn ensure_dap_response_success(response: &serde_json::Value) -> Result<(), AppError> {
+    if matches!(
+        response.get("success").and_then(|value| value.as_bool()),
+        Some(false)
+    ) {
+        let message = response
+            .get("message")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string())
+            .or_else(|| {
+                response
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .map(|command| format!("dap command failed: {command}"))
+            })
+            .unwrap_or_else(|| "dap command failed".to_string());
+        return Err(AppError::Dap(message));
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_dap_batch_success(responses: &[serde_json::Value]) -> Result<(), AppError> {
+    for response in responses {
+        ensure_dap_response_success(response)?;
+    }
+    Ok(())
+}
+
 pub(super) fn parse_dap_arguments(input: Option<&str>) -> Result<serde_json::Value, AppError> {
     match input {
         Some(raw) if !raw.trim().is_empty() => {
@@ -53,6 +81,7 @@ pub(super) fn send_thread_command(
         json!({ "threadId": thread_id }),
         timeout,
     )?;
+    ensure_dap_response_success(&response)?;
     Ok((thread_id, response))
 }
 
@@ -95,6 +124,7 @@ fn resolve_thread_id(
                 json!({}),
                 timeout,
             )?;
+            ensure_dap_response_success(&threads_response)?;
             extract_first_thread_id(&threads_response)
         }
     }

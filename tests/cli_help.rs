@@ -23,6 +23,34 @@ fn top_level_help_includes_command_descriptions() {
         stdout.contains("Manage saved run/debug profiles"),
         "top-level help should explain the config command"
     );
+    assert!(
+        stdout.contains("Manage workspace project metadata"),
+        "top-level help should explain the project command"
+    );
+    assert!(
+        stdout.contains("Manage global workspace links"),
+        "top-level help should explain the link command"
+    );
+    assert!(
+        stdout.contains("Run diagnostic checks for session lifecycle and debug channels"),
+        "top-level help should explain the doctor command"
+    );
+    assert!(
+        stdout.contains("Remove stale session records from local state"),
+        "top-level help should explain the cleanup command"
+    );
+    assert!(
+        stdout.contains("--global"),
+        "top-level help should expose global scope flag"
+    );
+    assert!(
+        stdout.contains("--local"),
+        "top-level help should expose local scope flag"
+    );
+    assert!(
+        stdout.contains("--link"),
+        "top-level help should expose link scope flag"
+    );
 }
 
 #[test]
@@ -267,6 +295,97 @@ fn config_help_lists_profile_subcommands() {
 }
 
 #[test]
+fn project_help_lists_metadata_subcommands() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("project")
+        .arg("--help")
+        .output()
+        .expect("project help should run");
+    assert!(output.status.success(), "project help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("show"),
+        "project help should include show subcommand"
+    );
+    assert!(
+        stdout.contains("list"),
+        "project help should include list subcommand"
+    );
+    assert!(
+        stdout.contains("set"),
+        "project help should include set subcommand"
+    );
+    assert!(
+        stdout.contains("unset"),
+        "project help should include unset subcommand"
+    );
+    assert!(
+        stdout.contains("clear"),
+        "project help should include clear subcommand"
+    );
+}
+
+#[test]
+fn link_help_lists_link_subcommands() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("link")
+        .arg("--help")
+        .output()
+        .expect("link help should run");
+    assert!(output.status.success(), "link help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("list"),
+        "link help should include list subcommand"
+    );
+    assert!(
+        stdout.contains("show"),
+        "link help should include show subcommand"
+    );
+    assert!(
+        stdout.contains("add"),
+        "link help should include add subcommand"
+    );
+    assert!(
+        stdout.contains("remove"),
+        "link help should include remove subcommand"
+    );
+}
+
+#[test]
+fn cleanup_help_exposes_status_and_dry_run_flags() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("cleanup")
+        .arg("--help")
+        .output()
+        .expect("cleanup help should run");
+    assert!(output.status.success(), "cleanup help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("--status"),
+        "cleanup help should expose --status"
+    );
+    assert!(
+        stdout.contains("--dry-run"),
+        "cleanup help should expose --dry-run"
+    );
+    assert!(
+        stdout.contains("stopped"),
+        "cleanup help should list stopped status value"
+    );
+    assert!(
+        stdout.contains("unknown"),
+        "cleanup help should list unknown status value"
+    );
+}
+
+#[test]
 fn config_validate_help_exposes_all_flag() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd
@@ -328,7 +447,7 @@ fn config_run_help_exposes_runtime_override_flags() {
         "config run help should explain env precedence"
     );
     assert!(
-        stdout.contains("launch-code config run --name"),
+        stdout.contains("lcode config run --name"),
         "config run help should include command examples"
     );
 }
