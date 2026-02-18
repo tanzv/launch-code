@@ -1,12 +1,13 @@
 # Python Debug Manual
 
-本文档给出 `launch-code` 的 Python 调试完整操作流程，覆盖：
+本文档给出 `lcode`（兼容命令 `launch-code`）的 Python 调试完整操作流程，覆盖：
 
 - 调试启动
 - 断点设置（含条件断点）
 - 单步执行（pause/next/step-in/step-out）
 - 变量与调用栈查看
 - 继续执行与会话结束
+- `doctor debug` 一键诊断
 - 常见故障排查
 
 ## 1. Prerequisites
@@ -17,7 +18,7 @@
 python -m pip install debugpy
 ```
 
-2. 确认 `launch-code` 可执行：
+2. 确认 `lcode` 可执行：
 
 ```bash
 cargo build
@@ -26,7 +27,7 @@ cargo build
 ## 2. Start a Debug Session
 
 ```bash
-launch-code debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
+lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
 ```
 
 启动成功后会输出类似：
@@ -44,13 +45,13 @@ session_id=<id> pid=<pid> status=running debug_endpoint=127.0.0.1:5678
 普通断点：
 
 ```bash
-launch-code dap breakpoints --id <session_id> --path ./app.py --line 12 --line 34
+lcode dap breakpoints --id <session_id> --path ./app.py --line 12 --line 34
 ```
 
 条件断点 / 命中次数 / 日志断点：
 
 ```bash
-launch-code dap breakpoints \
+lcode dap breakpoints \
   --id <session_id> \
   --path ./app.py \
   --line 12 \
@@ -62,28 +63,28 @@ launch-code dap breakpoints \
 ### 3.2 Inspect runtime state
 
 ```bash
-launch-code dap threads --id <session_id>
-launch-code dap stack-trace --id <session_id> --thread-id 1 --levels 20
-launch-code dap scopes --id <session_id> --frame-id 301
-launch-code dap variables --id <session_id> --variables-reference 7001 --filter named --start 0 --count 20
-launch-code dap evaluate --id <session_id> --expression "counter + 1" --frame-id 301 --context watch
-launch-code dap set-variable --id <session_id> --variables-reference 7001 --name counter --value 42
+lcode dap threads --id <session_id>
+lcode dap stack-trace --id <session_id> --thread-id 1 --levels 20
+lcode dap scopes --id <session_id> --frame-id 301
+lcode dap variables --id <session_id> --variables-reference 7001 --filter named --start 0 --count 20
+lcode dap evaluate --id <session_id> --expression "counter + 1" --frame-id 301 --context watch
+lcode dap set-variable --id <session_id> --variables-reference 7001 --name counter --value 42
 ```
 
 异常断点（例如 raised/uncaught）：
 
 ```bash
-launch-code dap exception-breakpoints --id <session_id> --filter raised --filter uncaught
+lcode dap exception-breakpoints --id <session_id> --filter raised --filter uncaught
 ```
 
 ### 3.3 Control execution
 
 ```bash
-launch-code dap pause --id <session_id> --thread-id 1
-launch-code dap next --id <session_id> --thread-id 1
-launch-code dap step-in --id <session_id> --thread-id 1
-launch-code dap step-out --id <session_id> --thread-id 1
-launch-code dap continue --id <session_id> --thread-id 1
+lcode dap pause --id <session_id> --thread-id 1
+lcode dap next --id <session_id> --thread-id 1
+lcode dap step-in --id <session_id> --thread-id 1
+lcode dap step-out --id <session_id> --thread-id 1
+lcode dap continue --id <session_id> --thread-id 1
 ```
 
 如果省略 `--thread-id`，工具会自动使用 `threads` 返回的第一个线程。
@@ -91,7 +92,7 @@ launch-code dap continue --id <session_id> --thread-id 1
 ### 3.4 Read async events
 
 ```bash
-launch-code dap events --id <session_id> --max 50 --timeout-ms 1000
+lcode dap events --id <session_id> --max 50 --timeout-ms 1000
 ```
 
 ### 3.5 Multiprocess: adopt child debug sessions
@@ -100,31 +101,52 @@ launch-code dap events --id <session_id> --max 50 --timeout-ms 1000
 使用以下命令把子进程收编为新的 `session_id`，并自动完成 `initialize/attach/configurationDone`：
 
 ```bash
-launch-code dap adopt-subprocess --id <session_id> --timeout-ms 2000 --max-events 50
+lcode dap adopt-subprocess --id <session_id> --timeout-ms 2000 --max-events 50
 ```
 
 成功后会输出 `child_session_id`。后续可直接用该子会话执行常规调试命令：
 
 ```bash
-launch-code dap threads --id <child_session_id>
-launch-code dap breakpoints --id <child_session_id> --path ./worker.py --line 20
-launch-code dap continue --id <child_session_id>
+lcode dap threads --id <child_session_id>
+lcode dap breakpoints --id <child_session_id> --path ./worker.py --line 20
+lcode dap continue --id <child_session_id>
 ```
 
 ### 3.6 End debug session
 
 ```bash
-launch-code dap disconnect --id <session_id> --terminate-debuggee
-launch-code dap terminate --id <session_id>
-launch-code stop --id <session_id>
+lcode dap disconnect --id <session_id> --terminate-debuggee
+lcode dap terminate --id <session_id>
+lcode stop --id <session_id>
 ```
+
+### 3.7 Run one-shot debug diagnostics
+
+当你需要快速判断“会话状态 + 线程请求 + 事件通道 + 日志告警”是否健康时，执行：
+
+```bash
+lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500 --json
+```
+
+返回会包含：
+
+- `debug.threads`：线程探测结果
+- `debug.events`：事件通道探测结果
+- `diagnostics[]`：结构化诊断建议（`code/level/summary/detail/suggested_actions`）
+
+诊断码说明：
+
+- `D001`：线程探测失败（常见于 DAP 超时、未连接、通道断开）
+- `D002`：事件通道不可用
+- `D003`：会话非 running 且调试探测失败
+- `D004`：日志尾部发现 debugpy warning/exception 线索
 
 ## 4. HTTP Debug Workflow
 
 先启动控制平面：
 
 ```bash
-launch-code serve --bind 127.0.0.1:8787 --token testtoken
+lcode serve --bind 127.0.0.1:8787 --token testtoken
 ```
 
 以下请求都需要 Header：
@@ -248,6 +270,18 @@ curl -sS -H "Authorization: Bearer testtoken" -H "Content-Type: application/json
    - 含义：当前还没有收到子进程 attach 事件。
    - 处理：继续轮询 `dap events`（或 HTTP events），确认子进程已创建后再执行 `adopt-subprocess`。
 
+6. `doctor debug` 返回 `D001`
+   - 含义：线程请求失败，通常是 debug adapter 尚未可用或连接中断。
+   - 处理：先执行 `lcode dap threads --id <session_id>` 复核；必要时 `lcode restart --id <session_id>` 并适当增大 `--timeout-ms`。
+
+7. `doctor debug` 返回 `D002`
+   - 含义：事件通道读取失败。
+   - 处理：执行 `lcode dap events --id <session_id> --max 20 --timeout-ms 1500` 验证；失败则重启会话并重试。
+
+8. `doctor debug` 返回 `D003`
+   - 含义：当前会话不是 running，导致调试探测失败概率升高。
+   - 处理：先 `lcode status --id <session_id>`，再 `lcode restart --id <session_id>`。
+
 ## 6. Minimal Reproducible Demo
 
 本节提供一个可直接复制的最小示例，用于验证断点命中、单步和变量读取。
@@ -285,7 +319,7 @@ if __name__ == "__main__":
 ### 6.2 Start debug session
 
 ```bash
-launch-code debug --runtime python --entry app.py --cwd .
+lcode debug --runtime python --entry app.py --cwd .
 ```
 
 从输出里记录 `session_id`。
@@ -295,14 +329,14 @@ launch-code debug --runtime python --entry app.py --cwd .
 在 `current = compute(counter)` 这一行设置断点（示例按第 12 行）：
 
 ```bash
-launch-code dap breakpoints --id <session_id> --path ./app.py --line 12
+lcode dap breakpoints --id <session_id> --path ./app.py --line 12
 ```
 
 继续执行并轮询事件：
 
 ```bash
-launch-code dap continue --id <session_id>
-launch-code dap events --id <session_id> --max 20 --timeout-ms 2000
+lcode dap continue --id <session_id>
+lcode dap events --id <session_id> --max 20 --timeout-ms 2000
 ```
 
 预期：返回 `event=stopped`，原因通常为 `breakpoint`。
@@ -310,15 +344,15 @@ launch-code dap events --id <session_id> --max 20 --timeout-ms 2000
 ### 6.4 Inspect stack and variables
 
 ```bash
-launch-code dap threads --id <session_id>
-launch-code dap stack-trace --id <session_id> --levels 20
+lcode dap threads --id <session_id>
+lcode dap stack-trace --id <session_id> --levels 20
 ```
 
 从 `stackTrace` 结果中取 `frameId`，再查询作用域和变量：
 
 ```bash
-launch-code dap scopes --id <session_id> --frame-id <frame_id>
-launch-code dap variables --id <session_id> --variables-reference <variables_reference> --filter named
+lcode dap scopes --id <session_id> --frame-id <frame_id>
+lcode dap variables --id <session_id> --variables-reference <variables_reference> --filter named
 ```
 
 预期：可以看到 `counter`、`current`、`value` 等变量。
@@ -326,15 +360,15 @@ launch-code dap variables --id <session_id> --variables-reference <variables_ref
 ### 6.5 Step and resume
 
 ```bash
-launch-code dap next --id <session_id>
-launch-code dap step-in --id <session_id>
-launch-code dap step-out --id <session_id>
-launch-code dap continue --id <session_id>
+lcode dap next --id <session_id>
+lcode dap step-in --id <session_id>
+lcode dap step-out --id <session_id>
+lcode dap continue --id <session_id>
 ```
 
 ### 6.6 End session
 
 ```bash
-launch-code dap disconnect --id <session_id> --terminate-debuggee
-launch-code stop --id <session_id>
+lcode dap disconnect --id <session_id> --terminate-debuggee
+lcode stop --id <session_id>
 ```

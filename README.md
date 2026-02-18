@@ -1,6 +1,7 @@
 # launch-code
 
-`launch-code` is a Rust CLI that provides IDE-like run management for local development workflows.
+`launch-code` is a Rust CLI that provides IDE-like run management for local development workflows.  
+Recommended command: `lcode` (compatibility command: `launch-code`).
 
 ## Features
 
@@ -9,21 +10,47 @@
 - Workspace session persistence (`.launch-code/state.json`)
 - Atomic state updates for concurrent CLI/HTTP writers (multi-process safe persistence)
 - Process lifecycle controls (`stop`, `restart`, `suspend`, `resume`)
+- Session state cleanup for stale records (`cleanup`)
 - Graceful/forced stop strategy (`stop --grace-timeout-ms`, optional `--force`)
 - Managed sessions with automatic restart after worker exit
 - Reconciliation daemon (`daemon`)
 - HTTP control plane (`serve`) for status, lifecycle commands, and debug proxying
 - VS Code `launch.json` compatibility (`launch` command)
 - Saved profile management (`config save/list/show/run/delete`)
+- Workspace project metadata management (`project show/list/set/unset/clear`)
+- Global workspace link registry (`link add/list/show/remove`) with `--link <name>` routing
+- Default global session listing (`lcode list`) aggregated across registered links
 - `preLaunchTask` and `postStopTask` hooks for launch configurations
 - Debug port conflict fallback with session metadata output
 - Structured CLI output (`--json`) with stable machine-readable error codes
+- Doctor debug diagnostics with structured remediation codes (`D001`-`D004`)
 
 ## Install and Build
 
 ```bash
 cargo build
 ```
+
+Install to local cargo bin path:
+
+```bash
+cargo install --path . --force
+```
+
+Installed commands:
+
+- `lcode` (recommended short command)
+- `launch-code` (compatibility command)
+
+State scope:
+
+- Global link metadata is stored at `$HOME/.launch-code/links.json`
+- Runtime writes (start/debug/launch/config/project/session actions) default to the current workspace link
+- `lcode list` defaults to global aggregation across all registered links (unless `--local`/`--link` is used)
+- `lcode project show` defaults to global project metadata aggregation across links
+- Use `lcode link add --name <name> --path <workspace>` to register a workspace explicitly
+- Use `--link <name>` to route commands to one linked workspace
+- Use `--local` to force current workspace scope (`LAUNCH_CODE_HOME` or current directory)
 
 ## Documentation
 
@@ -41,66 +68,81 @@ python -m pip install debugpy
 Optional interpreter override for run/debug sessions:
 
 ```bash
-launch-code debug --runtime python --entry app.py --cwd . --env PYTHON_BIN=/path/to/python
-launch-code debug --runtime python --entry app.py --cwd . --subprocess true
+lcode debug --runtime python --entry app.py --cwd . --env PYTHON_BIN=/path/to/python
+lcode debug --runtime python --entry app.py --cwd . --subprocess true
 ```
 
 ## CLI Commands
 
 ```bash
-launch-code start --runtime python --entry app.py --cwd .
-launch-code start --runtime python --entry app.py --cwd . --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
-launch-code debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
-launch-code debug --runtime python --entry app.py --cwd . --env-file ./.env.base --env DEBUG=1
-launch-code launch --name "Python Demo" --mode run
-launch-code config save --name "Python Profile" --runtime python --entry app.py --cwd . --mode debug
-launch-code config list
-launch-code config show --name "Python Profile"
-launch-code config validate --name "Python Profile"
-launch-code config validate --all
-launch-code config run --name "Python Profile"
-launch-code config run --name "Python Profile" --arg "--feature" --env API_URL=http://127.0.0.1:9000
-launch-code config run --name "Python Profile" --clear-args --clear-env --env-file ./run.env
-launch-code config run --name "Python Profile" --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
-launch-code config export --file ./.launch-code/profiles.json
-launch-code config import --file ./.launch-code/profiles.json
-launch-code config delete --name "Python Profile"
-launch-code attach --id <session_id>
-launch-code dap request --id <session_id> --command initialize --arguments '{"clientID":"launch-code"}'
-launch-code dap batch --id <session_id> --file ./dap-batch.json --timeout-ms 3000
-launch-code dap breakpoints --id <session_id> --path ./app.py --line 12 --line 34 --condition "x > 10" --hit-condition "==2" --log-message "value={x}"
-launch-code dap exception-breakpoints --id <session_id> --filter raised --filter uncaught
-launch-code dap evaluate --id <session_id> --expression "counter + 1" --frame-id 301 --context watch
-launch-code dap set-variable --id <session_id> --variables-reference 7001 --name counter --value 42
-launch-code dap continue --id <session_id> --thread-id 1
-launch-code dap pause --id <session_id> --thread-id 1
-launch-code dap next --id <session_id> --thread-id 1
-launch-code dap step-in --id <session_id> --thread-id 1
-launch-code dap step-out --id <session_id> --thread-id 1
-launch-code dap disconnect --id <session_id> --terminate-debuggee
-launch-code dap terminate --id <session_id> --restart
-launch-code dap adopt-subprocess --id <session_id> --timeout-ms 2000 --max-events 50
-launch-code dap threads --id <session_id>
-launch-code dap stack-trace --id <session_id> --thread-id 1 --levels 20
-launch-code dap scopes --id <session_id> --frame-id 301
-launch-code dap variables --id <session_id> --variables-reference 7001 --filter named --start 0 --count 20
-launch-code dap events --id <session_id> --max 50 --timeout-ms 1000
-launch-code inspect --id <session_id> --tail 50
-launch-code logs --id <session_id> --tail 200 --follow
-launch-code logs --id <session_id> --tail 500 --contains "ERROR" --contains "Traceback"
-launch-code logs --id <session_id> --tail 500 --exclude "heartbeat"
-launch-code logs --id <session_id> --follow --contains "timeout" --ignore-case
-launch-code logs --id <session_id> --tail 500 --regex "^ERROR\\s+E(100|200)$"
-launch-code logs --id <session_id> --tail 500 --exclude-regex "^(DEBUG|TRACE)"
-launch-code serve --bind 127.0.0.1:8787 --token <token>
-launch-code status --id <session_id>
-launch-code list
-launch-code suspend --id <session_id>
-launch-code resume --id <session_id>
-launch-code restart --id <session_id>
-launch-code stop --id <session_id> --grace-timeout-ms 1500
-launch-code stop --id <session_id> --grace-timeout-ms 100 --force
-launch-code daemon --once
+lcode start --runtime python --entry app.py --cwd .
+lcode start --runtime python --entry app.py --cwd . --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
+lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
+lcode debug --runtime python --entry app.py --cwd . --env-file ./.env.base --env DEBUG=1
+lcode launch --name "Python Demo" --mode run
+lcode config save --name "Python Profile" --runtime python --entry app.py --cwd . --mode debug
+lcode config list
+lcode config show --name "Python Profile"
+lcode config validate --name "Python Profile"
+lcode config validate --all
+lcode config run --name "Python Profile"
+lcode config run --name "Python Profile" --arg "--feature" --env API_URL=http://127.0.0.1:9000
+lcode config run --name "Python Profile" --clear-args --clear-env --env-file ./run.env
+lcode config run --name "Python Profile" --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
+lcode config export --file ./.launch-code/profiles.json
+lcode config import --file ./.launch-code/profiles.json
+lcode config delete --name "Python Profile"
+lcode link add --name demo --path /path/to/workspace
+lcode link list
+lcode list
+lcode --link demo list
+lcode --local list
+lcode project show
+lcode project list
+lcode project list --field name --field repository --all
+lcode --link demo project show
+lcode project set --name "launch-code" --description "IDE-like launch manager" --repository "https://example.com/org/launch-code" --language rust --language python --runtime python --tool debugpy --tag cli
+lcode project unset --field tags --field tools
+lcode project clear
+lcode attach --id <session_id>
+lcode dap request --id <session_id> --command initialize --arguments '{"clientID":"launch-code"}'
+lcode dap batch --id <session_id> --file ./dap-batch.json --timeout-ms 3000
+lcode dap breakpoints --id <session_id> --path ./app.py --line 12 --line 34 --condition "x > 10" --hit-condition "==2" --log-message "value={x}"
+lcode dap exception-breakpoints --id <session_id> --filter raised --filter uncaught
+lcode dap evaluate --id <session_id> --expression "counter + 1" --frame-id 301 --context watch
+lcode dap set-variable --id <session_id> --variables-reference 7001 --name counter --value 42
+lcode dap continue --id <session_id> --thread-id 1
+lcode dap pause --id <session_id> --thread-id 1
+lcode dap next --id <session_id> --thread-id 1
+lcode dap step-in --id <session_id> --thread-id 1
+lcode dap step-out --id <session_id> --thread-id 1
+lcode dap disconnect --id <session_id> --terminate-debuggee
+lcode dap terminate --id <session_id> --restart
+lcode dap adopt-subprocess --id <session_id> --timeout-ms 2000 --max-events 50
+lcode dap threads --id <session_id>
+lcode dap stack-trace --id <session_id> --thread-id 1 --levels 20
+lcode dap scopes --id <session_id> --frame-id 301
+lcode dap variables --id <session_id> --variables-reference 7001 --filter named --start 0 --count 20
+lcode dap events --id <session_id> --max 50 --timeout-ms 1000
+lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
+lcode inspect --id <session_id> --tail 50
+lcode logs --id <session_id> --tail 200 --follow
+lcode logs --id <session_id> --tail 500 --contains "ERROR" --contains "Traceback"
+lcode logs --id <session_id> --tail 500 --exclude "heartbeat"
+lcode logs --id <session_id> --follow --contains "timeout" --ignore-case
+lcode logs --id <session_id> --tail 500 --regex "^ERROR\\s+E(100|200)$"
+lcode logs --id <session_id> --tail 500 --exclude-regex "^(DEBUG|TRACE)"
+lcode serve --bind 127.0.0.1:8787 --token <token>
+lcode status --id <session_id>
+lcode list
+lcode cleanup
+lcode cleanup --dry-run --status stopped
+lcode suspend --id <session_id>
+lcode resume --id <session_id>
+lcode restart --id <session_id>
+lcode stop --id <session_id> --grace-timeout-ms 1500
+lcode stop --id <session_id> --grace-timeout-ms 100 --force
+lcode daemon --once
 ```
 
 Debug output includes endpoint metadata:
@@ -161,12 +203,33 @@ Session lifecycle operations (`stop` / `restart`) include bounded internal retri
 state races in concurrent CLI/HTTP workflows. If all retries still observe conflicting state, APIs
 return `session_state_changed` with HTTP 409.
 
+### Doctor Debug Diagnostics
+
+Run:
+
+```bash
+lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500 --json
+```
+
+The response contains:
+
+- `session` and `inspect` snapshots
+- `debug.threads` and `debug.events` probe results
+- `diagnostics[]` entries with `code`, `level`, `summary`, `detail`, and `suggested_actions`
+
+Diagnostic codes:
+
+- `D001`: Failed to query debug threads.
+- `D002`: Failed to read debug events.
+- `D003`: Session is not running during failed debug checks.
+- `D004`: Debugger warning signature detected in recent log tail.
+
 ## HTTP Control Plane
 
 Run the HTTP server:
 
 ```bash
-launch-code serve --bind 127.0.0.1:8787 --token testtoken
+lcode serve --bind 127.0.0.1:8787 --token testtoken
 ```
 
 All endpoints require:
@@ -180,6 +243,11 @@ Core endpoints:
 - `GET /v1/sessions/{id}`
 - `GET /v1/sessions/{id}/inspect?tail=50`
 - `GET /v1/sessions/{id}/debug`
+- `POST /v1/sessions/cleanup`
+- `GET /v1/project`
+- `PUT /v1/project`
+- `PATCH /v1/project`
+- `DELETE /v1/project`
 - `POST /v1/sessions/{id}/stop`
 - `POST /v1/sessions/{id}/restart`
 - `POST /v1/sessions/{id}/suspend`
@@ -250,6 +318,13 @@ curl -sS \
   -H "Authorization: Bearer testtoken" \
   -H "Content-Type: application/json" \
   -X POST \
+  -d '{"dry_run":true,"statuses":["stopped"]}' \
+  http://127.0.0.1:8787/v1/sessions/cleanup
+
+curl -sS \
+  -H "Authorization: Bearer testtoken" \
+  -H "Content-Type: application/json" \
+  -X POST \
   -d '{"threadId":1}' \
   http://127.0.0.1:8787/v1/sessions/<session_id>/debug/next
 
@@ -293,25 +368,25 @@ curl -sS \
 
 You can issue DAP commands directly without the HTTP control plane:
 
-- `launch-code dap request --id <session_id> --command <dap_command> --arguments '{"key":"value"}' --timeout-ms 1500`
-- `launch-code dap batch --id <session_id> --file ./dap-batch.json --timeout-ms 1500`
-- `launch-code dap breakpoints --id <session_id> --path ./app.py --line 12 --line 34 [--condition "x > 10"] [--hit-condition "==2"] [--log-message "value={x}"] --timeout-ms 1500`
-- `launch-code dap exception-breakpoints --id <session_id> [--filter raised --filter uncaught] --timeout-ms 1500`
-- `launch-code dap evaluate --id <session_id> --expression "counter + 1" [--frame-id 301] [--context watch|repl|hover] --timeout-ms 1500`
-- `launch-code dap set-variable --id <session_id> --variables-reference 7001 --name counter --value 42 --timeout-ms 1500`
-- `launch-code dap continue --id <session_id> [--thread-id 1] --timeout-ms 1500`
-- `launch-code dap pause --id <session_id> [--thread-id 1] --timeout-ms 1500`
-- `launch-code dap next --id <session_id> [--thread-id 1] --timeout-ms 1500`
-- `launch-code dap step-in --id <session_id> [--thread-id 1] --timeout-ms 1500`
-- `launch-code dap step-out --id <session_id> [--thread-id 1] --timeout-ms 1500`
-- `launch-code dap disconnect --id <session_id> [--terminate-debuggee] [--suspend-debuggee] --timeout-ms 1500`
-- `launch-code dap terminate --id <session_id> [--restart] --timeout-ms 1500`
-- `launch-code dap adopt-subprocess --id <session_id> [--timeout-ms 1500] [--max-events 50] [--bootstrap-timeout-ms 5000] [--child-session-id child-id]`
-- `launch-code dap threads --id <session_id> --timeout-ms 1500`
-- `launch-code dap stack-trace --id <session_id> [--thread-id 1] [--start-frame 0] [--levels 20] --timeout-ms 1500`
-- `launch-code dap scopes --id <session_id> --frame-id 301 --timeout-ms 1500`
-- `launch-code dap variables --id <session_id> --variables-reference 7001 [--filter named|indexed] [--start 0] [--count 20] --timeout-ms 1500`
-- `launch-code dap events --id <session_id> --max 50 --timeout-ms 1000`
+- `lcode dap request --id <session_id> --command <dap_command> --arguments '{"key":"value"}' --timeout-ms 1500`
+- `lcode dap batch --id <session_id> --file ./dap-batch.json --timeout-ms 1500`
+- `lcode dap breakpoints --id <session_id> --path ./app.py --line 12 --line 34 [--condition "x > 10"] [--hit-condition "==2"] [--log-message "value={x}"] --timeout-ms 1500`
+- `lcode dap exception-breakpoints --id <session_id> [--filter raised --filter uncaught] --timeout-ms 1500`
+- `lcode dap evaluate --id <session_id> --expression "counter + 1" [--frame-id 301] [--context watch|repl|hover] --timeout-ms 1500`
+- `lcode dap set-variable --id <session_id> --variables-reference 7001 --name counter --value 42 --timeout-ms 1500`
+- `lcode dap continue --id <session_id> [--thread-id 1] --timeout-ms 1500`
+- `lcode dap pause --id <session_id> [--thread-id 1] --timeout-ms 1500`
+- `lcode dap next --id <session_id> [--thread-id 1] --timeout-ms 1500`
+- `lcode dap step-in --id <session_id> [--thread-id 1] --timeout-ms 1500`
+- `lcode dap step-out --id <session_id> [--thread-id 1] --timeout-ms 1500`
+- `lcode dap disconnect --id <session_id> [--terminate-debuggee] [--suspend-debuggee] --timeout-ms 1500`
+- `lcode dap terminate --id <session_id> [--restart] --timeout-ms 1500`
+- `lcode dap adopt-subprocess --id <session_id> [--timeout-ms 1500] [--max-events 50] [--bootstrap-timeout-ms 5000] [--child-session-id child-id]`
+- `lcode dap threads --id <session_id> --timeout-ms 1500`
+- `lcode dap stack-trace --id <session_id> [--thread-id 1] [--start-frame 0] [--levels 20] --timeout-ms 1500`
+- `lcode dap scopes --id <session_id> --frame-id 301 --timeout-ms 1500`
+- `lcode dap variables --id <session_id> --variables-reference 7001 [--filter named|indexed] [--start 0] [--count 20] --timeout-ms 1500`
+- `lcode dap events --id <session_id> --max 50 --timeout-ms 1000`
 
 If `--thread-id` is omitted in `dap continue`, the first thread from `threads` is used automatically.
 If `--thread-id` is omitted in `dap pause`, the first thread from `threads` is used automatically.
@@ -348,13 +423,13 @@ Start a session with `--managed` to auto-restart a dead worker on reconciliation
 Example:
 
 ```bash
-launch-code start --runtime python --entry app.py --cwd . --managed
-launch-code status --id <session_id>
+lcode start --runtime python --entry app.py --cwd . --managed
+lcode status --id <session_id>
 ```
 
 ## Launch Configuration Support
 
-`launch-code launch` can read `.vscode/launch.json` by default.
+`lcode launch` can read `.vscode/launch.json` by default.
 
 Supported configuration fields:
 
@@ -402,26 +477,26 @@ Example `launch.json`:
 
 ## Saved Profile Management
 
-Use `launch-code config` to manage reusable run/debug profiles without editing `launch.json`.
+Use `lcode config` to manage reusable run/debug profiles without editing `launch.json`.
 
 Examples:
 
 ```bash
-launch-code config save --name "Python Run" --runtime python --entry app.py --cwd . --mode run
-launch-code config save --name "Python Debug" --runtime python --entry app.py --cwd . --mode debug --port 5678
-launch-code config list
-launch-code config show --name "Python Debug"
-launch-code config validate --name "Python Debug"
-launch-code config validate --all
-launch-code config run --name "Python Debug"
-launch-code config run --name "Python Run" --mode debug
-launch-code config run --name "Python Run" --managed
-launch-code config run --name "Python Run" --arg "--feature" --env API_URL=http://127.0.0.1:9000
-launch-code config run --name "Python Run" --clear-args --clear-env --env-file ./run.env
-launch-code config export --file ./profiles.json
-launch-code config import --file ./profiles.json
-launch-code config import --file ./profiles.json --replace
-launch-code config delete --name "Python Run"
+lcode config save --name "Python Run" --runtime python --entry app.py --cwd . --mode run
+lcode config save --name "Python Debug" --runtime python --entry app.py --cwd . --mode debug --port 5678
+lcode config list
+lcode config show --name "Python Debug"
+lcode config validate --name "Python Debug"
+lcode config validate --all
+lcode config run --name "Python Debug"
+lcode config run --name "Python Run" --mode debug
+lcode config run --name "Python Run" --managed
+lcode config run --name "Python Run" --arg "--feature" --env API_URL=http://127.0.0.1:9000
+lcode config run --name "Python Run" --clear-args --clear-env --env-file ./run.env
+lcode config export --file ./profiles.json
+lcode config import --file ./profiles.json
+lcode config import --file ./profiles.json --replace
+lcode config delete --name "Python Run"
 ```
 
 Export/import bundle format:
