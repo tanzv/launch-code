@@ -23,7 +23,7 @@
 ```rust
 #[test]
 fn binary_shows_help() {
-    let mut cmd = assert_cmd::Command::cargo_bin("launch-code").unwrap();
+    let mut cmd = assert_cmd::Command::cargo_bin("lcode").unwrap();
     cmd.arg("--help");
     cmd.assert().success();
 }

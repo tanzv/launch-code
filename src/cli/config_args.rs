@@ -23,7 +23,7 @@ pub enum ConfigCommands {
     #[command(
         about = "Run a saved profile.",
         long_about = "Run a saved profile with optional one-off overrides. Env merge order: saved profile env, then --env-file values (in declaration order), then --env overrides.",
-        after_help = "Examples:\n  launch-code config run --name \"Python Profile\"\n  launch-code config run --name \"Python Profile\" --clear-args --clear-env --env-file ./.env\n  launch-code config run --name \"Python Profile\" --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000"
+        after_help = "Examples:\n  lcode config run --name \"Python Profile\"\n  lcode config run --name \"Python Profile\" --clear-args --clear-env --env-file ./.env\n  lcode config run --name \"Python Profile\" --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000"
     )]
     Run(ConfigRunArgs),
     #[command(about = "Validate one profile or all saved profiles.")]

@@ -62,6 +62,250 @@ fn json_list_output_is_structured() {
 }
 
 #[test]
+fn json_project_show_returns_structured_payload() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("project")
+        .arg("show")
+        .output()
+        .expect("project show should run");
+
+    assert!(output.status.success(), "project show should succeed");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert!(
+        doc["project"].is_null(),
+        "project should be null when metadata has not been set"
+    );
+}
+
+#[test]
+fn json_project_set_and_unset_return_message_payloads() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut set_cmd = cargo_bin_cmd!("launch-code");
+    let set_output = set_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("project")
+        .arg("set")
+        .arg("--name")
+        .arg("launch-code")
+        .arg("--language")
+        .arg("rust")
+        .output()
+        .expect("project set should run");
+    assert!(set_output.status.success(), "project set should succeed");
+    let set_stdout = String::from_utf8(set_output.stdout).expect("stdout should be utf8");
+    let set_doc: Value = serde_json::from_str(&set_stdout).expect("stdout should be valid json");
+    assert_eq!(set_doc["ok"], true);
+    assert!(
+        set_doc["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("project_info_updated=true")),
+        "project set should return a stable confirmation message"
+    );
+
+    let mut unset_cmd = cargo_bin_cmd!("launch-code");
+    let unset_output = unset_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("project")
+        .arg("unset")
+        .arg("--field")
+        .arg("all")
+        .output()
+        .expect("project unset should run");
+    assert!(
+        unset_output.status.success(),
+        "project unset should succeed"
+    );
+    let unset_stdout = String::from_utf8(unset_output.stdout).expect("stdout should be utf8");
+    let unset_doc: Value =
+        serde_json::from_str(&unset_stdout).expect("stdout should be valid json");
+    assert_eq!(unset_doc["ok"], true);
+    assert!(
+        unset_doc["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("project_info_unset=true")),
+        "project unset should return a stable confirmation message"
+    );
+}
+
+#[test]
+fn json_project_list_returns_structured_items() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut set_cmd = cargo_bin_cmd!("launch-code");
+    let set_output = set_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("project")
+        .arg("set")
+        .arg("--name")
+        .arg("launch-code")
+        .arg("--language")
+        .arg("rust")
+        .output()
+        .expect("project set should run");
+    assert!(set_output.status.success(), "project set should succeed");
+
+    let mut list_cmd = cargo_bin_cmd!("launch-code");
+    let list_output = list_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("project")
+        .arg("list")
+        .output()
+        .expect("project list should run");
+    assert!(list_output.status.success(), "project list should succeed");
+
+    let list_stdout = String::from_utf8(list_output.stdout).expect("stdout should be utf8");
+    let list_doc: Value = serde_json::from_str(&list_stdout).expect("stdout should be valid json");
+    assert_eq!(list_doc["ok"], true);
+    assert!(
+        list_doc["items"].is_array(),
+        "project list should return an items array"
+    );
+}
+
+#[test]
+fn json_project_list_honors_field_filter_and_all_flag() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut set_cmd = cargo_bin_cmd!("launch-code");
+    let set_output = set_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("project")
+        .arg("set")
+        .arg("--name")
+        .arg("launch-code")
+        .output()
+        .expect("project set should run");
+    assert!(set_output.status.success(), "project set should succeed");
+
+    let mut list_cmd = cargo_bin_cmd!("launch-code");
+    let list_output = list_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("project")
+        .arg("list")
+        .arg("--field")
+        .arg("name")
+        .arg("--field")
+        .arg("repository")
+        .arg("--all")
+        .output()
+        .expect("project list should run");
+    assert!(list_output.status.success(), "project list should succeed");
+
+    let stdout = String::from_utf8(list_output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    let items = doc["items"].as_array().expect("items should be an array");
+    assert_eq!(
+        items.len(),
+        2,
+        "filtered field list should include two rows"
+    );
+    assert_eq!(items[0]["field"], "name");
+    assert_eq!(items[0]["value"], "launch-code");
+    assert_eq!(items[1]["field"], "repository");
+    assert!(items[1]["value"].is_null());
+}
+
+#[test]
+fn json_link_show_missing_link_has_stable_error_code() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("HOME", tmp.path())
+        .arg("--json")
+        .arg("link")
+        .arg("show")
+        .arg("--name")
+        .arg("missing-link")
+        .output()
+        .expect("link show should run");
+
+    assert!(!output.status.success(), "link show should fail");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "link_not_found");
+    assert!(doc["message"].as_str().is_some());
+}
+
+#[test]
+fn json_cleanup_dry_run_returns_structured_payload() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    let state = json!({
+        "schema_version": 1,
+        "profiles": {},
+        "sessions": {
+            "cleanup-session": {
+                "id": "cleanup-session",
+                "spec": {
+                    "name": "cleanup",
+                    "runtime": "python",
+                    "entry": "app.py",
+                    "args": [],
+                    "cwd": ".",
+                    "env": {},
+                    "managed": false,
+                    "mode": "run",
+                    "debug": null,
+                    "prelaunch_task": null,
+                    "poststop_task": null
+                },
+                "status": "stopped",
+                "pid": null,
+                "supervisor_pid": null,
+                "log_path": null,
+                "debug_meta": null,
+                "created_at": 1,
+                "updated_at": 1,
+                "last_exit_code": null,
+                "restart_count": 0
+            }
+        },
+        "project_info": null
+    });
+    fs::write(
+        &state_path,
+        serde_json::to_string_pretty(&state).expect("state json"),
+    )
+    .expect("state should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("cleanup")
+        .arg("--dry-run")
+        .output()
+        .expect("cleanup should run");
+    assert!(output.status.success(), "cleanup should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["dry_run"], true);
+    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["removed_count"], 0);
+    assert_eq!(doc["kept_count"], 1);
+}
+
+#[test]
 fn json_list_output_includes_session_objects() {
     let tmp = tempdir().expect("temp dir should exist");
     let state_dir = tmp.path().join(".launch-code");
