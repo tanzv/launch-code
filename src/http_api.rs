@@ -1,5 +1,6 @@
 mod dap_routes;
 mod debug_routes;
+mod project_routes;
 mod session_routes;
 
 use std::sync::OnceLock;
@@ -124,6 +125,16 @@ fn response_for_request_inner(
         (&tiny_http::Method::Get, ["v1", "metrics"]) => {
             http_json(tiny_http::StatusCode(200), build_metrics_doc())
         }
+        (&tiny_http::Method::Get, ["v1", "project"]) => project_routes::handle_project_get(store),
+        (&tiny_http::Method::Put, ["v1", "project"]) => {
+            project_routes::handle_project_put_or_patch(store, request)
+        }
+        (&tiny_http::Method::Patch, ["v1", "project"]) => {
+            project_routes::handle_project_put_or_patch(store, request)
+        }
+        (&tiny_http::Method::Delete, ["v1", "project"]) => {
+            project_routes::handle_project_delete(store, request)
+        }
         (&tiny_http::Method::Get, ["v1", "sessions"]) => match api_list_sessions(store) {
             Ok(sessions) => http_json(
                 tiny_http::StatusCode(200),
@@ -131,6 +142,9 @@ fn response_for_request_inner(
             ),
             Err(err) => http_json_error(&err),
         },
+        (&tiny_http::Method::Post, ["v1", "sessions", "cleanup"]) => {
+            session_routes::handle_cleanup(store, request)
+        }
         (&tiny_http::Method::Get, ["v1", "sessions", session_id]) => {
             match api_get_session(store, session_id) {
                 Ok(session) => http_json(

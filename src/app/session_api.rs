@@ -16,6 +16,14 @@ use crate::error::AppError;
 type ShellTaskSpec = (String, String, BTreeMap<String, String>, String);
 const SESSION_CONTROL_MAX_RETRIES: usize = 3;
 
+#[derive(Debug, Clone)]
+pub(crate) struct SessionCleanupResult {
+    pub dry_run: bool,
+    pub matched_session_ids: Vec<String>,
+    pub removed_session_ids: Vec<String>,
+    pub kept_count: usize,
+}
+
 #[derive(Clone)]
 struct RestartPlan {
     session_id: String,
@@ -37,6 +45,54 @@ pub(crate) fn api_list_sessions(store: &StateStore) -> Result<Vec<SessionRecord>
         }
 
         Ok(state.sessions.values().cloned().collect())
+    })
+}
+
+pub(crate) fn api_cleanup_sessions(
+    store: &StateStore,
+    statuses: &[SessionStatus],
+    dry_run: bool,
+) -> Result<SessionCleanupResult, AppError> {
+    let statuses: Vec<SessionStatus> = statuses.to_vec();
+    store.update::<_, _, AppError>(|state| {
+        let now = unix_timestamp_secs();
+        let ids: Vec<String> = state.sessions.keys().cloned().collect();
+        for id in ids {
+            let session = state
+                .sessions
+                .get_mut(&id)
+                .ok_or_else(|| AppError::SessionNotFound(id.clone()))?;
+            super::reconcile_session(store, session, now)?;
+        }
+
+        let mut matched_session_ids: Vec<String> = state
+            .sessions
+            .iter()
+            .filter_map(|(id, session)| {
+                if statuses.iter().any(|value| value == &session.status) {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        matched_session_ids.sort();
+
+        let removed_session_ids = if dry_run {
+            Vec::new()
+        } else {
+            for id in &matched_session_ids {
+                state.sessions.remove(id);
+            }
+            matched_session_ids.clone()
+        };
+
+        Ok(SessionCleanupResult {
+            dry_run,
+            matched_session_ids,
+            removed_session_ids,
+            kept_count: state.sessions.len(),
+        })
     })
 }
 
@@ -64,19 +120,26 @@ pub(crate) fn api_inspect_session(
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, &session_id)?;
         super::reconcile_session(store, session, now)?;
-        let pid = session.pid;
+        let session_snapshot = session.clone();
+        let pid = session_snapshot.pid;
         let alive = pid.map(is_process_alive).unwrap_or(false);
-        let command = build_command(&session.spec)?;
-        let log_tail =
-            super::log_ops::read_log_tail(session.log_path.as_deref(), tail).unwrap_or_default();
+        let command = build_command(&session_snapshot.spec)?;
+        let log_tail = super::log_ops::read_log_tail(session_snapshot.log_path.as_deref(), tail)
+            .unwrap_or_default();
+        let parent_session_id = infer_parent_session_id(&session_snapshot, &state.sessions);
+        let child_session_ids = collect_child_session_ids(&session_snapshot, &state.sessions);
 
         Ok(json!({
             "ok": true,
-            "session": session.clone(),
+            "session": session_snapshot,
             "process": {
                 "pid": pid,
                 "alive": alive,
                 "command": command,
+            },
+            "topology": {
+                "parent_session_id": parent_session_id,
+                "child_session_ids": child_session_ids,
             },
             "log": {
                 "tail_lines": tail,
@@ -84,6 +147,55 @@ pub(crate) fn api_inspect_session(
             }
         }))
     })
+}
+
+pub(super) fn collect_child_session_ids(
+    session: &SessionRecord,
+    sessions: &BTreeMap<String, SessionRecord>,
+) -> Vec<String> {
+    let mut children = Vec::new();
+    let id_prefix = format!("{}-subprocess-", session.id);
+
+    for (candidate_id, candidate) in sessions {
+        if candidate_id == &session.id {
+            continue;
+        }
+
+        let id_based_match = candidate_id.starts_with(&id_prefix);
+        let pid_based_match = session.pid.is_some() && candidate.supervisor_pid == session.pid;
+        if id_based_match || pid_based_match {
+            children.push(candidate_id.clone());
+        }
+    }
+
+    children.sort();
+    children.dedup();
+    children
+}
+
+pub(super) fn infer_parent_session_id(
+    session: &SessionRecord,
+    sessions: &BTreeMap<String, SessionRecord>,
+) -> Option<String> {
+    if let Some((candidate_parent_id, _)) = session.id.split_once("-subprocess-") {
+        if sessions.contains_key(candidate_parent_id) {
+            return Some(candidate_parent_id.to_string());
+        }
+    }
+
+    let supervisor_pid = session.supervisor_pid?;
+    let mut matched_ids = sessions.iter().filter_map(|(candidate_id, candidate)| {
+        if candidate_id != &session.id && candidate.pid == Some(supervisor_pid) {
+            Some(candidate_id.clone())
+        } else {
+            None
+        }
+    });
+    let first = matched_ids.next()?;
+    if matched_ids.next().is_some() {
+        return None;
+    }
+    Some(first)
 }
 
 pub(crate) fn api_debug_session(

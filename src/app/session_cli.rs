@@ -1,9 +1,14 @@
-use launch_code::model::SessionStatus;
+use std::collections::{BTreeMap, BTreeSet};
+
+use launch_code::model::{RuntimeKind, SessionRecord, SessionStatus};
 use launch_code::state::StateStore;
 use serde_json::json;
 
-use crate::cli::{ListArgs, ListStatusArg, RestartArgs, SessionIdArgs, StopArgs};
+use crate::cli::{
+    CleanupArgs, CleanupStatusArg, ListArgs, ListStatusArg, RestartArgs, SessionIdArgs, StopArgs,
+};
 use crate::error::AppError;
+use crate::link_registry::load_registry;
 use crate::output;
 
 #[derive(Debug, Clone)]
@@ -17,6 +22,30 @@ struct SessionListRow {
     name: String,
     entry: String,
     debug_endpoint: Option<String>,
+    parent_session_id: Option<String>,
+    child_session_ids: Vec<String>,
+    link_name: Option<String>,
+    link_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ListFilters {
+    status_filter: Option<ListStatusArg>,
+    runtime_filter: Option<RuntimeKind>,
+    name_filter: Option<String>,
+}
+
+impl ListFilters {
+    fn from_args(args: &ListArgs) -> Self {
+        Self {
+            status_filter: args.status.clone(),
+            runtime_filter: args.runtime.as_ref().map(super::spec_ops::to_runtime_kind),
+            name_filter: args
+                .name_contains
+                .as_ref()
+                .map(|value| value.to_lowercase()),
+        }
+    }
 }
 
 pub(super) fn handle_stop(store: &StateStore, args: &StopArgs) -> Result<(), AppError> {
@@ -127,92 +156,68 @@ pub(super) fn handle_status(store: &StateStore, args: &SessionIdArgs) -> Result<
 }
 
 pub(super) fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
-    let runtime_filter = args.runtime.as_ref().map(super::spec_ops::to_runtime_kind);
-    let name_filter = args
-        .name_contains
-        .as_ref()
-        .map(|value| value.to_lowercase());
-    let status_filter = args.status.clone();
+    let filters = ListFilters::from_args(args);
+    let rows = collect_rows_from_store(store, &filters, None, None)?;
+    print_list_rows(&rows);
+    Ok(())
+}
 
-    let rows = store.update::<_, _, AppError>(|state| {
-        if state.sessions.is_empty() {
-            return Ok(Vec::<SessionListRow>::new());
+pub(super) fn handle_list_global_default(args: &ListArgs) -> Result<(), AppError> {
+    let filters = ListFilters::from_args(args);
+    let registry = load_registry()?;
+    let mut seen_paths = BTreeSet::new();
+    let mut rows = Vec::new();
+
+    for item in registry.list() {
+        if !seen_paths.insert(item.path.clone()) {
+            continue;
         }
+        let store = StateStore::new(&item.path);
+        let mut scoped_rows =
+            collect_rows_from_store(&store, &filters, Some(item.name), Some(item.path))?;
+        rows.append(&mut scoped_rows);
+    }
 
-        let now = launch_code::model::unix_timestamp_secs();
-        let mut rows = Vec::new();
-        let ids: Vec<String> = state.sessions.keys().cloned().collect();
+    rows.sort_by(|left, right| {
+        left.id
+            .cmp(&right.id)
+            .then_with(|| left.link_name.cmp(&right.link_name))
+    });
 
-        for id in ids {
-            let session = state
-                .sessions
-                .get_mut(&id)
-                .ok_or_else(|| AppError::SessionNotFound(id.clone()))?;
-            super::reconcile_session(store, session, now)?;
+    print_list_rows(&rows);
+    Ok(())
+}
 
-            if let Some(status) = &status_filter {
-                if !matches_list_status(status, &session.status) {
-                    continue;
-                }
-            }
-            if let Some(runtime) = &runtime_filter {
-                if &session.spec.runtime != runtime {
-                    continue;
-                }
-            }
-            if let Some(filter) = &name_filter {
-                if !session.spec.name.to_lowercase().contains(filter) {
-                    continue;
-                }
-            }
-
-            let debug_endpoint = session
-                .debug_meta
-                .as_ref()
-                .map(|meta| format!("{}:{}", meta.host, meta.active_port));
-
-            rows.push(SessionListRow {
-                id: id.clone(),
-                status: status_label(&session.status),
-                runtime: super::spec_ops::runtime_label(&session.spec.runtime),
-                mode: super::spec_ops::mode_label(&session.spec.mode),
-                pid: session.pid,
-                restart_count: session.restart_count,
-                name: session.spec.name.clone(),
-                entry: session.spec.entry.clone(),
-                debug_endpoint,
-            });
-        }
-
-        Ok(rows)
-    })?;
+pub(super) fn handle_cleanup(store: &StateStore, args: &CleanupArgs) -> Result<(), AppError> {
+    let statuses = resolve_cleanup_statuses(args);
+    let result = super::api_cleanup_sessions(store, &statuses, args.dry_run)?;
+    let matched_count = result.matched_session_ids.len();
+    let removed_count = result.removed_session_ids.len();
 
     if output::is_json_mode() {
-        let items: Vec<serde_json::Value> = rows
-            .iter()
-            .map(|row| {
-                json!({
-                    "id": row.id,
-                    "status": row.status,
-                    "runtime": row.runtime,
-                    "mode": row.mode,
-                    "pid": row.pid,
-                    "restart_count": row.restart_count,
-                    "name": row.name,
-                    "entry": row.entry,
-                    "debug_endpoint": row.debug_endpoint,
-                })
-            })
-            .collect();
         output::print_json_doc(&json!({
             "ok": true,
-            "items": items,
+            "dry_run": result.dry_run,
+            "matched_count": matched_count,
+            "removed_count": removed_count,
+            "kept_count": result.kept_count,
+            "matched_session_ids": result.matched_session_ids,
+            "removed_session_ids": result.removed_session_ids,
         }));
         return Ok(());
     }
 
-    let lines: Vec<String> = rows.iter().map(format_session_list_row).collect();
-    output::print_lines(&lines);
+    let mut message = format!(
+        "session_cleanup_dry_run={} matched={} removed={} kept={}",
+        result.dry_run, matched_count, removed_count, result.kept_count
+    );
+    if !result.removed_session_ids.is_empty() {
+        message.push_str(&format!(
+            " removed_ids={}",
+            result.removed_session_ids.join(",")
+        ));
+    }
+    output::print_message(&message);
     Ok(())
 }
 
@@ -229,9 +234,19 @@ fn format_session_list_row(row: &SessionListRow) -> String {
     let pid_display = row
         .pid
         .map(|value| value.to_string())
-        .unwrap_or_else(|| "none".to_string());
-    let mut line = format!(
-        "{}\t{}\t{}\t{}\tpid={}\trestarts={}\tname={}\tentry={}",
+        .unwrap_or_else(|| "-".to_string());
+    let debug_display = row
+        .debug_endpoint
+        .clone()
+        .unwrap_or_else(|| "-".to_string());
+    let parent_display = row
+        .parent_session_id
+        .clone()
+        .unwrap_or_else(|| "-".to_string());
+    let link_display = row.link_name.clone().unwrap_or_else(|| "-".to_string());
+
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
         row.id,
         row.status,
         row.runtime,
@@ -240,11 +255,125 @@ fn format_session_list_row(row: &SessionListRow) -> String {
         row.restart_count,
         row.name,
         row.entry,
-    );
-    if let Some(endpoint) = &row.debug_endpoint {
-        line.push_str(&format!(" debug_endpoint={endpoint}"));
+        debug_display,
+        row.child_session_ids.len(),
+        parent_display,
+        link_display,
+    )
+}
+
+fn collect_rows_from_store(
+    store: &StateStore,
+    filters: &ListFilters,
+    link_name: Option<String>,
+    link_path: Option<String>,
+) -> Result<Vec<SessionListRow>, AppError> {
+    let sessions = super::api_list_sessions(store)?;
+    if sessions.is_empty() {
+        return Ok(Vec::new());
     }
-    line
+
+    let session_map: BTreeMap<String, SessionRecord> = sessions
+        .into_iter()
+        .map(|session| (session.id.clone(), session))
+        .collect();
+    let mut rows = Vec::new();
+
+    for (id, session) in &session_map {
+        if !matches_list_filters(filters, session) {
+            continue;
+        }
+
+        let debug_endpoint = session
+            .debug_meta
+            .as_ref()
+            .map(|meta| format!("{}:{}", meta.host, meta.active_port));
+        let parent_session_id = super::session_api::infer_parent_session_id(session, &session_map);
+        let child_session_ids =
+            super::session_api::collect_child_session_ids(session, &session_map);
+
+        rows.push(SessionListRow {
+            id: id.clone(),
+            status: status_label(&session.status),
+            runtime: super::spec_ops::runtime_label(&session.spec.runtime),
+            mode: super::spec_ops::mode_label(&session.spec.mode),
+            pid: session.pid,
+            restart_count: session.restart_count,
+            name: session.spec.name.clone(),
+            entry: session.spec.entry.clone(),
+            debug_endpoint,
+            parent_session_id,
+            child_session_ids,
+            link_name: link_name.clone(),
+            link_path: link_path.clone(),
+        });
+    }
+
+    Ok(rows)
+}
+
+fn matches_list_filters(filters: &ListFilters, session: &SessionRecord) -> bool {
+    if let Some(status) = &filters.status_filter {
+        if !matches_list_status(status, &session.status) {
+            return false;
+        }
+    }
+    if let Some(runtime) = &filters.runtime_filter {
+        if &session.spec.runtime != runtime {
+            return false;
+        }
+    }
+    if let Some(name_filter) = &filters.name_filter {
+        if !session.spec.name.to_lowercase().contains(name_filter) {
+            return false;
+        }
+    }
+    true
+}
+
+fn print_list_rows(rows: &[SessionListRow]) {
+    if output::is_json_mode() {
+        let items: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                json!({
+                    "id": row.id,
+                    "status": row.status,
+                    "runtime": row.runtime,
+                    "mode": row.mode,
+                    "pid": row.pid,
+                    "restart_count": row.restart_count,
+                    "name": row.name,
+                    "entry": row.entry,
+                    "debug_endpoint": row.debug_endpoint,
+                    "parent_session_id": row.parent_session_id,
+                    "child_session_ids": row.child_session_ids,
+                    "child_session_count": row.child_session_ids.len(),
+                    "link_name": row.link_name,
+                    "link_path": row.link_path,
+                })
+            })
+            .collect();
+        output::print_json_doc(&json!({
+            "ok": true,
+            "items": items,
+        }));
+        return;
+    }
+
+    let lines: Vec<String> = rows.iter().map(format_session_list_row).collect();
+    if lines.is_empty() {
+        output::print_lines(&lines);
+        return;
+    }
+
+    let mut all_lines = Vec::with_capacity(lines.len() + 1);
+    all_lines.push(
+        "ID\tSTATUS\tRUNTIME\tMODE\tPID\tRESTARTS\tNAME\tENTRY\tDEBUG\tCHILDREN\tPARENT\tLINK"
+            .to_string(),
+    );
+    all_lines.extend(lines);
+    output::print_lines(&all_lines);
 }
 
 fn matches_list_status(filter: &ListStatusArg, status: &SessionStatus) -> bool {
@@ -255,4 +384,18 @@ fn matches_list_status(filter: &ListStatusArg, status: &SessionStatus) -> bool {
             | (ListStatusArg::Suspended, SessionStatus::Suspended)
             | (ListStatusArg::Unknown, SessionStatus::Unknown)
     )
+}
+
+fn resolve_cleanup_statuses(args: &CleanupArgs) -> Vec<SessionStatus> {
+    if args.status.is_empty() {
+        return vec![SessionStatus::Stopped, SessionStatus::Unknown];
+    }
+
+    args.status
+        .iter()
+        .map(|value| match value {
+            CleanupStatusArg::Stopped => SessionStatus::Stopped,
+            CleanupStatusArg::Unknown => SessionStatus::Unknown,
+        })
+        .collect()
 }

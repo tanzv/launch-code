@@ -259,16 +259,27 @@ fn list_supports_combined_filters_and_rich_columns() {
         "combined filter should exclude worker session"
     );
     assert!(
-        list_text.contains("\trunning\tpython\trun\tpid="),
-        "list line should include status/runtime/mode/pid fields"
+        list_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("ID") && line.contains("STATUS")),
+        "list output should include a readable header row"
     );
     assert!(
-        list_text.contains("name=api-session"),
-        "list line should include session name field"
+        list_text.contains("api-session"),
+        "list line should include session name"
     );
     assert!(
-        list_text.contains("entry="),
-        "list line should include entry field"
+        list_text.contains("ENTRY"),
+        "list output should include entry column header"
+    );
+    assert!(
+        list_text.contains("DEBUG"),
+        "list output should include debug column header"
+    );
+    assert!(
+        list_text.contains("LINK"),
+        "list output should include link column header"
     );
 
     for session_id in [api_id, worker_id] {
@@ -449,12 +460,14 @@ fn list_shows_debug_endpoint_for_debug_sessions() {
         "list should include debug session id"
     );
     assert!(
-        text.contains("\tdebug\t"),
-        "list should include debug mode column"
+        text.lines()
+            .next()
+            .is_some_and(|line| line.contains("MODE") && line.contains("DEBUG")),
+        "list output should include mode and debug headers"
     );
     assert!(
-        text.contains("debug_endpoint=127.0.0.1:"),
-        "list should include debug endpoint field"
+        text.contains("127.0.0.1:"),
+        "list should include debug endpoint value in the debug column"
     );
 
     let mut stop_cmd = cargo_bin_cmd!("launch-code");
