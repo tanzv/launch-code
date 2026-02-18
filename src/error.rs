@@ -48,6 +48,10 @@ pub enum AppError {
     Http(String),
     #[error("dap error: {0}")]
     Dap(String),
+    #[error("link not found: {0}")]
+    LinkNotFound(String),
+    #[error("invalid link path: {0}")]
+    InvalidLinkPath(String),
 }
 
 impl AppError {
@@ -75,6 +79,8 @@ impl AppError {
             Self::PythonDebugpyUnavailable => "python_debugpy_unavailable",
             Self::Http(_) => "http_error",
             Self::Dap(_) => "dap_error",
+            Self::LinkNotFound(_) => "link_not_found",
+            Self::InvalidLinkPath(_) => "invalid_link_path",
         }
     }
 
@@ -90,10 +96,12 @@ impl AppError {
             | Self::SessionMissingDebugMeta(_)
             | Self::SessionMissingLogPath(_)
             | Self::SessionStateChanged(_)
-            | Self::ProfileNotFound(_) => 3,
+            | Self::ProfileNotFound(_)
+            | Self::LinkNotFound(_) => 3,
             Self::PythonDebugpyUnavailable => 4,
             Self::Dap(_) => 5,
             Self::Http(_) => 6,
+            Self::InvalidLinkPath(_) => 2,
             _ => 1,
         }
     }
