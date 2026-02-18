@@ -40,6 +40,18 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - `--local` forces workspace-local scope.
 - `--global` forces global-link behavior when environment variables would otherwise force local scope.
 
+### Install / Upgrade / Verify
+
+```bash
+# Install or upgrade both commands from current repository
+cargo install --path . --force
+
+# Verify binaries
+which lcode
+which launch-code
+lcode --help
+```
+
 ## Core Workflows
 
 ### 1. Ad-hoc run/debug session
