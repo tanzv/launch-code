@@ -46,6 +46,9 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 
 ```bash
 lcode start --runtime python --entry app.py --cwd .
+lcode start --runtime python --entry app.py --cwd . --foreground --log-mode stdout
+lcode start --runtime python --entry app.py --cwd . --foreground --log-mode tee
+lcode start --runtime python --entry app.py --cwd . --tail
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
 ```
 
@@ -218,6 +221,7 @@ curl -sS -X DELETE \
 | `attach` fails for a running debug session | Debug metadata missing | `lcode inspect --id <session_id> --tail 20` | Start with `debug` mode or use `launch --mode debug` |
 | `stop` or `restart` reports state conflict | Concurrent actor changed PID/state | Re-run once after `lcode status --id <session_id>` | Serialize lifecycle actions per session id |
 | `stop` times out | Worker ignores graceful signal | `lcode inspect --id <session_id> --tail 100` | `lcode stop --id <session_id> --force --grace-timeout-ms 100` |
+| `start` fails with `invalid_start_options` | Incompatible startup flags | Check `--foreground`, `--tail`, and `--log-mode` combination | Use `--tail` only for background mode; use `--log-mode stdout|tee` only with `--foreground` |
 | `list` shows `no sessions` unexpectedly | No linked workspace contains sessions, or links are missing | `lcode link list` then `lcode --link <name> list` | Register correct workspace links, or run from the project once to bootstrap link metadata |
 | No useful log lines | Wrong filters or log path not present | Remove filters and retry `logs --tail 500` | Use `inspect` `log.text` and simplify regex/include filters |
 | Child debug process not visible | Subprocess event not adopted | `lcode dap events --id <session_id> --max 50` | `lcode dap adopt-subprocess --id <session_id>` |
@@ -252,6 +256,7 @@ Use `--json` and inspect `error` in stderr payloads:
 - `invalid_env_pair`: `--env` value is not `KEY=VALUE`.
 - `invalid_env_file_line`: Env file contains malformed lines.
 - `invalid_log_regex`: `logs` regex or exclude-regex is invalid.
+- `invalid_start_options`: Startup flag combination is invalid (`--tail` with `--foreground`, or non-file log mode without foreground).
 - `python_debugpy_unavailable`: `debugpy` not importable in selected Python.
 - `dap_error`: DAP transport or adapter request failed.
 - `http_error`: HTTP client/server side request handling failed.
@@ -261,6 +266,8 @@ Use `--json` and inspect `error` in stderr payloads:
 ## Validation Rules
 
 - `launch` reads named configurations from `launch.json`; use `start`/`debug` for direct runtime/entry launches.
+- `--log-mode stdout|tee` requires `--foreground`.
+- `--tail` cannot be combined with `--foreground`.
 - Empty update payloads are rejected for `PUT` and `PATCH`.
 - List fields must be arrays of strings or `null`.
 - `DELETE /v1/project` accepts `{"fields":[...]}`.

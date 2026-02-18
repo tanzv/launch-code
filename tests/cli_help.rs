@@ -164,6 +164,23 @@ fn start_help_exposes_env_file_flag() {
         stdout.contains("Env merge order"),
         "start help should explain env merge precedence"
     );
+    assert!(
+        stdout.contains("--foreground"),
+        "start help should expose --foreground"
+    );
+    assert!(stdout.contains("--tail"), "start help should expose --tail");
+    assert!(
+        stdout.contains("--log-mode"),
+        "start help should expose --log-mode"
+    );
+    assert!(
+        stdout.contains("stdout"),
+        "start help should describe stdout log mode value"
+    );
+    assert!(
+        stdout.contains("tee"),
+        "start help should describe tee log mode value"
+    );
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -30,7 +31,65 @@ pub enum ProcessError {
     UnsupportedOperation(&'static str),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessLogMode {
+    File,
+    Stdout,
+    Tee,
+}
+
 pub fn spawn_process(
+    command: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    log_path: &Path,
+) -> Result<u32, ProcessError> {
+    spawn_process_with_file_log(command, cwd, env, log_path)
+}
+
+pub fn run_process_foreground(
+    command: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    log_path: &Path,
+    log_mode: ProcessLogMode,
+) -> Result<(u32, Option<i32>), ProcessError> {
+    if command.is_empty() {
+        return Err(ProcessError::EmptyCommand);
+    }
+
+    match log_mode {
+        ProcessLogMode::Stdout => {
+            let mut cmd = base_process_command(command, cwd, env);
+            cmd.stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit());
+            let mut child = cmd.spawn()?;
+            let pid = child.id();
+            let status = child.wait()?;
+            Ok((pid, status.code()))
+        }
+        ProcessLogMode::File => {
+            ensure_log_parent(log_path)?;
+            let stdout_log = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)?;
+            let stderr_log = stdout_log.try_clone()?;
+            let mut cmd = base_process_command(command, cwd, env);
+            cmd.stdin(Stdio::inherit())
+                .stdout(Stdio::from(stdout_log))
+                .stderr(Stdio::from(stderr_log));
+            let mut child = cmd.spawn()?;
+            let pid = child.id();
+            let status = child.wait()?;
+            Ok((pid, status.code()))
+        }
+        ProcessLogMode::Tee => run_process_foreground_tee(command, cwd, env, log_path),
+    }
+}
+
+fn spawn_process_with_file_log(
     command: &[String],
     cwd: &Path,
     env: &BTreeMap<String, String>,
@@ -40,9 +99,7 @@ pub fn spawn_process(
         return Err(ProcessError::EmptyCommand);
     }
 
-    if let Some(parent) = log_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    ensure_log_parent(log_path)?;
 
     let stdout_log = OpenOptions::new()
         .create(true)
@@ -50,11 +107,8 @@ pub fn spawn_process(
         .open(log_path)?;
     let stderr_log = stdout_log.try_clone()?;
 
-    let mut cmd = Command::new(&command[0]);
-    cmd.args(&command[1..])
-        .current_dir(cwd)
-        .envs(env.iter())
-        .stdin(Stdio::null())
+    let mut cmd = base_process_command(command, cwd, env);
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log));
 
@@ -71,6 +125,93 @@ pub fn spawn_process(
 
     let child = cmd.spawn()?;
     Ok(child.id())
+}
+
+fn base_process_command(command: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Command {
+    let mut cmd = Command::new(&command[0]);
+    cmd.args(&command[1..]).current_dir(cwd).envs(env.iter());
+    cmd
+}
+
+fn ensure_log_parent(log_path: &Path) -> Result<(), ProcessError> {
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    Ok(())
+}
+
+fn run_process_foreground_tee(
+    command: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    log_path: &Path,
+) -> Result<(u32, Option<i32>), ProcessError> {
+    ensure_log_parent(log_path)?;
+    let stdout_log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)?;
+    let stderr_log = stdout_log.try_clone()?;
+
+    let mut cmd = base_process_command(command, cwd, env);
+    cmd.stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn()?;
+    let pid = child.id();
+
+    let stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("failed to capture child stdout"))?;
+    let stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| std::io::Error::other("failed to capture child stderr"))?;
+
+    let stdout_join =
+        thread::spawn(move || pump_tee_stream(stdout_pipe, stdout_log, std::io::stdout()));
+    let stderr_join =
+        thread::spawn(move || pump_tee_stream(stderr_pipe, stderr_log, std::io::stderr()));
+
+    let status = child.wait()?;
+
+    match stdout_join.join() {
+        Ok(result) => result?,
+        Err(_) => return Err(std::io::Error::other("stdout tee thread panicked").into()),
+    }
+    match stderr_join.join() {
+        Ok(result) => result?,
+        Err(_) => return Err(std::io::Error::other("stderr tee thread panicked").into()),
+    }
+
+    Ok((pid, status.code()))
+}
+
+fn pump_tee_stream<R, W1, W2>(
+    mut reader: R,
+    mut log: W1,
+    mut stream: W2,
+) -> Result<(), ProcessError>
+where
+    R: Read,
+    W1: Write,
+    W2: Write,
+{
+    let mut buf = [0u8; 8192];
+    loop {
+        let read_bytes = reader.read(&mut buf)?;
+        if read_bytes == 0 {
+            break;
+        }
+        let chunk = &buf[..read_bytes];
+        log.write_all(chunk)?;
+        stream.write_all(chunk)?;
+    }
+    log.flush()?;
+    stream.flush()?;
+    Ok(())
 }
 
 pub fn is_process_alive(pid: u32) -> bool {

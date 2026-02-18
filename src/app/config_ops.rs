@@ -161,7 +161,7 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
         spec.env.extend(overrides);
     }
 
-    super::handle_start_spec(store, spec)
+    super::handle_start_spec(store, spec, super::StartExecutionOptions::default())
 }
 
 fn handle_config_validate(store: &StateStore, args: &ConfigValidateArgs) -> Result<(), AppError> {

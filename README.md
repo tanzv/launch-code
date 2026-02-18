@@ -77,6 +77,9 @@ lcode debug --runtime python --entry app.py --cwd . --subprocess true
 ```bash
 lcode start --runtime python --entry app.py --cwd .
 lcode start --runtime python --entry app.py --cwd . --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
+lcode start --runtime python --entry app.py --cwd . --foreground --log-mode stdout
+lcode start --runtime python --entry app.py --cwd . --foreground --log-mode tee
+lcode start --runtime python --entry app.py --cwd . --tail
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
 lcode debug --runtime python --entry app.py --cwd . --env-file ./.env.base --env DEBUG=1
 lcode launch --name "Python Demo" --mode run
@@ -168,6 +171,16 @@ Debug output includes endpoint metadata:
 - `--env-file` values are applied in declaration order (`--env-file a --env-file b`, so `b` overrides `a`).
 - `--env KEY=VALUE` values are applied last and override both saved env and env-file values.
 
+`start` / `debug` startup log behavior:
+
+- Default mode is background + file log (`--log-mode file`).
+- `--tail` keeps background mode but immediately follows the session log until process exit.
+- `--foreground --log-mode stdout` streams process output to terminal only.
+- `--foreground --log-mode tee` streams to terminal and writes the same output to session log file.
+- `--foreground --log-mode file` runs in foreground while writing output to file only.
+- `--log-mode stdout|tee` requires `--foreground`.
+- `--tail` cannot be combined with `--foreground`.
+
 ### Structured CLI Output
 
 Pass `--json` on any command to get machine-readable results.
@@ -195,6 +208,7 @@ Representative error codes:
 - `invalid_env_pair`
 - `invalid_env_file_line`
 - `invalid_log_regex`
+- `invalid_start_options`
 - `python_debugpy_unavailable`
 - `dap_error`
 - `http_error`

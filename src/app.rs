@@ -21,7 +21,9 @@ use launch_code::model::{
     AppState, DebugConfig, DebugSessionMeta, LaunchMode, LaunchSpec, RuntimeKind, SessionRecord,
     SessionStatus, unix_timestamp_secs,
 };
-use launch_code::process::{is_process_alive, run_shell_task, spawn_process};
+use launch_code::process::{
+    ProcessLogMode, is_process_alive, run_process_foreground, run_shell_task, spawn_process,
+};
 use launch_code::runtime::build_command;
 use launch_code::runtime::python_executable;
 use launch_code::state::StateStore;
@@ -30,6 +32,7 @@ use uuid::Uuid;
 
 use crate::cli::{
     Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, ListArgs, LogsArgs, SessionIdArgs,
+    StartArgs, StartLogModeArg,
 };
 use crate::error::AppError;
 use crate::output;
@@ -47,8 +50,9 @@ pub(crate) use session_api::{
 pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppError> {
     match command {
         Commands::Start(args) => {
+            let options = start_options_from_args(&args)?;
             let spec = spec_ops::build_launch_spec(&args, LaunchMode::Run, None)?;
-            handle_start_spec(store, spec)
+            handle_start_spec(store, spec, options)
         }
         Commands::Debug(args) => handle_debug(store, &args),
         Commands::Launch(args) => handle_launch(store, &args),
@@ -81,7 +85,56 @@ pub(crate) fn execute_global_project_show() -> Result<(), AppError> {
     project_ops::handle_project_show_global_default()
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct StartExecutionOptions {
+    foreground: bool,
+    tail: bool,
+    log_mode: ProcessLogMode,
+}
+
+impl Default for StartExecutionOptions {
+    fn default() -> Self {
+        Self {
+            foreground: false,
+            tail: false,
+            log_mode: ProcessLogMode::File,
+        }
+    }
+}
+
+fn start_options_from_args(args: &StartArgs) -> Result<StartExecutionOptions, AppError> {
+    let log_mode = match args.log_mode {
+        StartLogModeArg::File => ProcessLogMode::File,
+        StartLogModeArg::Stdout => ProcessLogMode::Stdout,
+        StartLogModeArg::Tee => ProcessLogMode::Tee,
+    };
+    let options = StartExecutionOptions {
+        foreground: args.foreground,
+        tail: args.tail,
+        log_mode,
+    };
+    validate_start_options(options)?;
+    Ok(options)
+}
+
+fn validate_start_options(options: StartExecutionOptions) -> Result<(), AppError> {
+    if options.foreground && options.tail {
+        return Err(AppError::InvalidStartOptions(
+            "`--tail` cannot be used with `--foreground`.".to_string(),
+        ));
+    }
+
+    if !options.foreground && !matches!(options.log_mode, ProcessLogMode::File) {
+        return Err(AppError::InvalidStartOptions(
+            "`--log-mode stdout|tee` requires `--foreground`.".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn handle_debug(store: &StateStore, args: &DebugArgs) -> Result<(), AppError> {
+    let options = start_options_from_args(&args.start)?;
     let debug = DebugConfig {
         host: args.host.clone(),
         port: args.port,
@@ -89,7 +142,7 @@ fn handle_debug(store: &StateStore, args: &DebugArgs) -> Result<(), AppError> {
         subprocess: args.subprocess,
     };
     let spec = spec_ops::build_launch_spec(&args.start, LaunchMode::Debug, Some(debug))?;
-    handle_start_spec(store, spec)
+    handle_start_spec(store, spec, options)
 }
 
 fn handle_launch(store: &StateStore, args: &LaunchArgs) -> Result<(), AppError> {
@@ -100,7 +153,7 @@ fn handle_launch(store: &StateStore, args: &LaunchArgs) -> Result<(), AppError> 
         launch_file: args.launch_file.clone(),
     };
     let spec = load_launch_spec(store.root_path(), &request)?;
-    handle_start_spec(store, spec)
+    handle_start_spec(store, spec, StartExecutionOptions::default())
 }
 
 fn handle_attach(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppError> {
@@ -130,14 +183,59 @@ fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), AppError> {
     log_ops::handle_logs(store, args)
 }
 
-pub(super) fn handle_start_spec(store: &StateStore, mut spec: LaunchSpec) -> Result<(), AppError> {
+pub(super) fn handle_start_spec(
+    store: &StateStore,
+    mut spec: LaunchSpec,
+    options: StartExecutionOptions,
+) -> Result<(), AppError> {
+    validate_start_options(options)?;
     let session_id = Uuid::new_v4().simple().to_string();
     let log_path = default_log_path(store, &session_id);
     let debug_meta = prepare_debug_spec(&mut spec)?;
     run_prelaunch_task_if_any(&spec, &log_path)?;
-    let pid = spawn_session_worker(store, &session_id, &spec, Some(log_path.clone()))?;
     let now = unix_timestamp_secs();
 
+    if options.foreground {
+        ensure_debug_runtime_ready(&spec)?;
+        let command = build_command(&spec)?;
+        let (pid, exit_code) = run_process_foreground(
+            &command,
+            Path::new(&spec.cwd),
+            &spec.env,
+            &log_path,
+            options.log_mode,
+        )?;
+
+        let record = SessionRecord {
+            id: session_id.clone(),
+            spec,
+            status: SessionStatus::Stopped,
+            pid: None,
+            supervisor_pid: None,
+            log_path: Some(log_path.to_string_lossy().to_string()),
+            debug_meta,
+            created_at: now,
+            updated_at: now,
+            last_exit_code: exit_code,
+            restart_count: 0,
+        };
+        let debug_meta_output = record.debug_meta.clone();
+        store.update::<_, _, AppError>(|state| {
+            state.sessions.insert(session_id.clone(), record);
+            Ok(())
+        })?;
+
+        let mut output =
+            format!("session_id={session_id} pid={pid} status=stopped mode=foreground");
+        if let Some(code) = exit_code {
+            output.push_str(&format!(" exit_code={code}"));
+        }
+        append_debug_meta_output(&mut output, debug_meta_output.as_ref());
+        output::print_message(&output);
+        return Ok(());
+    }
+
+    let pid = spawn_session_worker(store, &session_id, &spec, Some(log_path.clone()))?;
     let record = SessionRecord {
         id: session_id.clone(),
         spec,
@@ -151,7 +249,6 @@ pub(super) fn handle_start_spec(store: &StateStore, mut spec: LaunchSpec) -> Res
         last_exit_code: None,
         restart_count: 0,
     };
-
     let debug_meta_output = record.debug_meta.clone();
     store.update::<_, _, AppError>(|state| {
         state.sessions.insert(session_id.clone(), record);
@@ -159,19 +256,24 @@ pub(super) fn handle_start_spec(store: &StateStore, mut spec: LaunchSpec) -> Res
     })?;
 
     let mut output = format!("session_id={session_id} pid={pid} status=running");
-    if let Some(meta) = &debug_meta_output {
-        output.push_str(&format!(
-            " debug_host={} debug_port={} requested_debug_port={} debug_fallback={} debug_endpoint={}:{}",
-            meta.host,
-            meta.active_port,
-            meta.requested_port,
-            meta.fallback_applied,
-            meta.host,
-            meta.active_port
-        ));
+    append_debug_meta_output(&mut output, debug_meta_output.as_ref());
+    output::print_message(&output);
+
+    if options.tail {
+        let follow_args = LogsArgs {
+            id: session_id,
+            tail: 100,
+            follow: true,
+            poll_ms: 200,
+            contains: Vec::new(),
+            exclude: Vec::new(),
+            regex: None,
+            exclude_regex: None,
+            ignore_case: false,
+        };
+        log_ops::handle_logs(store, &follow_args)?;
     }
 
-    output::print_message(&output);
     Ok(())
 }
 
@@ -332,6 +434,20 @@ fn default_log_path(store: &StateStore, session_id: &str) -> PathBuf {
         .state_dir_path()
         .join("logs")
         .join(format!("{session_id}.log"))
+}
+
+fn append_debug_meta_output(output: &mut String, meta: Option<&DebugSessionMeta>) {
+    if let Some(meta) = meta {
+        output.push_str(&format!(
+            " debug_host={} debug_port={} requested_debug_port={} debug_fallback={} debug_endpoint={}:{}",
+            meta.host,
+            meta.active_port,
+            meta.requested_port,
+            meta.fallback_applied,
+            meta.host,
+            meta.active_port
+        ));
+    }
 }
 
 fn find_session_mut<'a>(

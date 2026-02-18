@@ -161,6 +161,25 @@ pub struct StartArgs {
         help = "Enable managed restart on unexpected exit."
     )]
     pub managed: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Run process in foreground and stream output according to --log-mode."
+    )]
+    pub foreground: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "After background start, follow this session log stream immediately."
+    )]
+    pub tail: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = StartLogModeArg::File,
+        help = "Startup log mode. file=background log file only, stdout=foreground terminal only, tee=foreground terminal and file."
+    )]
+    pub log_mode: StartLogModeArg,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -403,6 +422,13 @@ pub enum ListStatusArg {
     Stopped,
     Suspended,
     Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum StartLogModeArg {
+    File,
+    Stdout,
+    Tee,
 }
 
 fn default_serve_workers() -> usize {

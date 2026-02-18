@@ -52,6 +52,8 @@ pub enum AppError {
     LinkNotFound(String),
     #[error("invalid link path: {0}")]
     InvalidLinkPath(String),
+    #[error("invalid start options: {0}")]
+    InvalidStartOptions(String),
 }
 
 impl AppError {
@@ -81,6 +83,7 @@ impl AppError {
             Self::Dap(_) => "dap_error",
             Self::LinkNotFound(_) => "link_not_found",
             Self::InvalidLinkPath(_) => "invalid_link_path",
+            Self::InvalidStartOptions(_) => "invalid_start_options",
         }
     }
 
@@ -102,6 +105,7 @@ impl AppError {
             Self::Dap(_) => 5,
             Self::Http(_) => 6,
             Self::InvalidLinkPath(_) => 2,
+            Self::InvalidStartOptions(_) => 2,
             _ => 1,
         }
     }
