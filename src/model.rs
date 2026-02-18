@@ -3,6 +3,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+pub const APP_STATE_SCHEMA_VERSION: u32 = 1;
+
+fn default_app_state_schema_version() -> u32 {
+    APP_STATE_SCHEMA_VERSION
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeKind {
@@ -97,11 +103,56 @@ pub struct SessionRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ProjectInfo {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub languages: Option<Vec<String>>,
+    #[serde(default)]
+    pub runtimes: Option<Vec<String>>,
+    #[serde(default)]
+    pub tools: Option<Vec<String>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
+
+impl ProjectInfo {
+    pub fn is_empty(&self) -> bool {
+        self.name.is_none()
+            && self.description.is_none()
+            && self.repository.is_none()
+            && self.languages.is_none()
+            && self.runtimes.is_none()
+            && self.tools.is_none()
+            && self.tags.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppState {
+    #[serde(default = "default_app_state_schema_version")]
+    pub schema_version: u32,
     #[serde(default)]
     pub profiles: BTreeMap<String, LaunchSpec>,
     #[serde(default)]
     pub sessions: BTreeMap<String, SessionRecord>,
+    #[serde(default)]
+    pub project_info: Option<ProjectInfo>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            schema_version: APP_STATE_SCHEMA_VERSION,
+            profiles: BTreeMap::new(),
+            sessions: BTreeMap::new(),
+            project_info: None,
+        }
+    }
 }
 
 pub fn unix_timestamp_secs() -> u64 {

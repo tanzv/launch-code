@@ -9,7 +9,7 @@ use fs2::FileExt;
 use launch_code::model::{
     AppState, LaunchMode, LaunchSpec, RuntimeKind, SessionRecord, SessionStatus,
 };
-use launch_code::state::StateStore;
+use launch_code::state::{StateError, StateStore};
 use tempfile::tempdir;
 
 #[test]
@@ -50,6 +50,10 @@ fn state_store_persists_sessions_to_disk() {
     store.save(&state).expect("state save should succeed");
 
     let loaded = store.load().expect("state load should succeed");
+    assert_eq!(
+        loaded.schema_version,
+        launch_code::model::APP_STATE_SCHEMA_VERSION
+    );
     let restored = loaded
         .sessions
         .get("session-1")
@@ -62,6 +66,63 @@ fn state_store_persists_sessions_to_disk() {
     assert!(
         !tmp_state_path.exists(),
         "temporary state file should be cleaned up after save"
+    );
+}
+
+#[test]
+fn state_store_loads_legacy_state_without_schema_version() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    fs::write(
+        &state_path,
+        r#"{
+  "profiles": {},
+  "sessions": {}
+}
+"#,
+    )
+    .expect("legacy state should be written");
+
+    let store = StateStore::new(tmp.path());
+    let loaded = store.load().expect("legacy state should load");
+    assert_eq!(
+        loaded.schema_version,
+        launch_code::model::APP_STATE_SCHEMA_VERSION
+    );
+}
+
+#[test]
+fn state_store_rejects_future_schema_version() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    fs::write(
+        &state_path,
+        r#"{
+  "schema_version": 999,
+  "profiles": {},
+  "sessions": {}
+}
+"#,
+    )
+    .expect("future state should be written");
+
+    let store = StateStore::new(tmp.path());
+    let err = store
+        .load()
+        .expect_err("future schema version should be rejected");
+    assert!(
+        matches!(
+            err,
+            StateError::UnsupportedStateSchemaVersion {
+                found: 999,
+                supported: launch_code::model::APP_STATE_SCHEMA_VERSION
+            }
+        ),
+        "unexpected error: {err:?}"
     );
 }
 
@@ -162,4 +223,23 @@ fn state_store_update_serializes_concurrent_writes() {
     for idx in 0..worker_count {
         assert!(loaded.sessions.contains_key(&format!("session-{idx}")));
     }
+}
+
+#[test]
+fn state_store_normalizes_launch_code_directory_root() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_root = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_root).expect("state root should exist");
+
+    let store = StateStore::new(&state_root);
+    assert_eq!(
+        store.root_path(),
+        tmp.path(),
+        "state store root should normalize to workspace root when input points to .launch-code"
+    );
+    assert_eq!(
+        store.state_dir_path(),
+        state_root,
+        "state directory should remain the canonical .launch-code path"
+    );
 }

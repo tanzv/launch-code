@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -5,7 +6,7 @@ use std::path::{Path, PathBuf};
 use fs2::FileExt;
 use thiserror::Error;
 
-use crate::model::AppState;
+use crate::model::{APP_STATE_SCHEMA_VERSION, AppState};
 
 const STATE_DIR: &str = ".launch-code";
 const STATE_FILE: &str = "state.json";
@@ -17,6 +18,8 @@ pub enum StateError {
     Io(#[from] std::io::Error),
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
+    #[error("unsupported state schema version: found {found}, supported {supported}")]
+    UnsupportedStateSchemaVersion { found: u32, supported: u32 },
 }
 
 #[derive(Debug, Clone)]
@@ -26,8 +29,9 @@ pub struct StateStore {
 
 impl StateStore {
     pub fn new(root: impl AsRef<Path>) -> Self {
+        let normalized_root = normalize_state_root(root.as_ref());
         Self {
-            root: root.as_ref().to_path_buf(),
+            root: normalized_root,
         }
     }
 
@@ -65,7 +69,9 @@ impl StateStore {
         if data.trim().is_empty() {
             return Ok(AppState::default());
         }
-        Ok(serde_json::from_str(&data)?)
+        let mut state: AppState = serde_json::from_str(&data)?;
+        migrate_state(&mut state)?;
+        Ok(state)
     }
 
     pub fn save(&self, state: &AppState) -> Result<(), StateError> {
@@ -102,7 +108,10 @@ impl StateStore {
         fs::create_dir_all(&state_dir)?;
         let state_path = self.state_file_path();
         let tmp_path = state_path.with_extension("json.tmp");
-        let payload = serde_json::to_string_pretty(state)?;
+        let mut persisted = state.clone();
+        migrate_state(&mut persisted)?;
+        persisted.schema_version = APP_STATE_SCHEMA_VERSION;
+        let payload = serde_json::to_string_pretty(&persisted)?;
         {
             let mut tmp_file = OpenOptions::new()
                 .create(true)
@@ -129,6 +138,29 @@ impl StateStore {
     }
 }
 
+fn migrate_state(state: &mut AppState) -> Result<(), StateError> {
+    if state.schema_version > APP_STATE_SCHEMA_VERSION {
+        return Err(StateError::UnsupportedStateSchemaVersion {
+            found: state.schema_version,
+            supported: APP_STATE_SCHEMA_VERSION,
+        });
+    }
+
+    if state
+        .project_info
+        .as_ref()
+        .is_some_and(|value| value.is_empty())
+    {
+        state.project_info = None;
+    }
+
+    if state.schema_version < APP_STATE_SCHEMA_VERSION {
+        state.schema_version = APP_STATE_SCHEMA_VERSION;
+    }
+
+    Ok(())
+}
+
 fn sync_state_dir(path: &Path) -> Result<(), StateError> {
     #[cfg(unix)]
     {
@@ -142,4 +174,13 @@ fn sync_state_dir(path: &Path) -> Result<(), StateError> {
     }
 
     Ok(())
+}
+
+fn normalize_state_root(path: &Path) -> PathBuf {
+    if path.file_name() == Some(OsStr::new(STATE_DIR)) {
+        if let Some(parent) = path.parent() {
+            return parent.to_path_buf();
+        }
+    }
+    path.to_path_buf()
 }
