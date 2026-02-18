@@ -22,8 +22,8 @@ pub use dap_args::{
 pub use doctor_args::{DoctorArgs, DoctorCommands, DoctorDebugArgs};
 pub use link_args::{LinkAddArgs, LinkArgs, LinkCommands, LinkNameArgs};
 pub use project_args::{
-    ProjectArgs, ProjectCommands, ProjectListArgs, ProjectListFieldArg, ProjectSetArgs,
-    ProjectUnsetArgs, ProjectUnsetFieldArg,
+    ProjectArgs, ProjectClearArgs, ProjectCommands, ProjectListArgs, ProjectListFieldArg,
+    ProjectSetArgs, ProjectUnsetArgs, ProjectUnsetFieldArg,
 };
 
 #[derive(Debug, Parser)]

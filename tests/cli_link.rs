@@ -249,3 +249,44 @@ fn link_registry_initial_write_sets_schema_version() {
         "newly persisted link registry should use schema version 1"
     );
 }
+
+#[test]
+fn global_list_auto_registers_current_workspace_link() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace = home_root.path().join("workspace-current");
+    std::fs::create_dir_all(&workspace).expect("workspace should exist");
+
+    let mut list_cmd = cargo_bin_cmd!("launch-code");
+    let list_output = list_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace)
+        .arg("--json")
+        .arg("list")
+        .output()
+        .expect("list should run");
+    assert!(list_output.status.success(), "list should succeed");
+
+    let registry_path = home_root.path().join(".launch-code").join("links.json");
+    let payload = std::fs::read_to_string(&registry_path).expect("links registry should exist");
+    let doc: Value = serde_json::from_str(&payload).expect("registry should be valid json");
+    let links = doc["links"].as_object().expect("links should be an object");
+    assert_eq!(
+        links.len(),
+        1,
+        "global list should bootstrap one link for the current workspace"
+    );
+    let expected_workspace_path = std::fs::canonicalize(&workspace)
+        .expect("workspace path should be canonicalizable")
+        .to_string_lossy()
+        .to_string();
+    let linked_path = links
+        .values()
+        .next()
+        .and_then(|value| value.get("path"))
+        .and_then(|value| value.as_str())
+        .expect("linked path should exist");
+    assert_eq!(
+        linked_path, expected_workspace_path,
+        "bootstrapped link should target current workspace"
+    );
+}

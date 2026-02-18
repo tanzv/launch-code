@@ -560,3 +560,244 @@ fn project_commands_support_local_scope_override() {
         "local scope should not share metadata across workspaces"
     );
 }
+
+#[test]
+fn project_list_all_links_aggregates_metadata_rows() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace_a = home_root.path().join("workspace-a");
+    let workspace_b = home_root.path().join("workspace-b");
+    let workspace_c = home_root.path().join("workspace-c");
+    fs::create_dir_all(&workspace_a).expect("workspace a should exist");
+    fs::create_dir_all(&workspace_b).expect("workspace b should exist");
+    fs::create_dir_all(&workspace_c).expect("workspace c should exist");
+
+    let mut set_a_cmd = cargo_bin_cmd!("launch-code");
+    let set_a_output = set_a_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_a)
+        .arg("project")
+        .arg("set")
+        .arg("--name")
+        .arg("project-a")
+        .output()
+        .expect("project set should run");
+    assert!(set_a_output.status.success(), "project set should succeed");
+
+    let mut set_b_cmd = cargo_bin_cmd!("launch-code");
+    let set_b_output = set_b_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_b)
+        .arg("project")
+        .arg("set")
+        .arg("--name")
+        .arg("project-b")
+        .output()
+        .expect("project set should run");
+    assert!(set_b_output.status.success(), "project set should succeed");
+
+    let mut list_cmd = cargo_bin_cmd!("launch-code");
+    let list_output = list_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_c)
+        .arg("--json")
+        .arg("project")
+        .arg("list")
+        .arg("--all-links")
+        .arg("--field")
+        .arg("name")
+        .output()
+        .expect("project list should run");
+    assert!(list_output.status.success(), "project list should succeed");
+
+    let stdout = String::from_utf8(list_output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["scope"], "global");
+    let items = doc["items"].as_array().expect("items should be an array");
+    assert!(
+        items.iter().any(|item| {
+            item["project"]["name"] == "project-a"
+                && item["fields"]
+                    .as_array()
+                    .is_some_and(|fields| fields.iter().any(|field| field["field"] == "name"))
+        }),
+        "global list should include project-a rows"
+    );
+    assert!(
+        items.iter().any(|item| {
+            item["project"]["name"] == "project-b"
+                && item["fields"]
+                    .as_array()
+                    .is_some_and(|fields| fields.iter().any(|field| field["field"] == "name"))
+        }),
+        "global list should include project-b rows"
+    );
+}
+
+#[test]
+fn project_set_unset_clear_support_all_links_batch_mode() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace_a = home_root.path().join("workspace-a");
+    let workspace_b = home_root.path().join("workspace-b");
+    let workspace_c = home_root.path().join("workspace-c");
+    fs::create_dir_all(&workspace_a).expect("workspace a should exist");
+    fs::create_dir_all(&workspace_b).expect("workspace b should exist");
+    fs::create_dir_all(&workspace_c).expect("workspace c should exist");
+
+    let mut set_a_cmd = cargo_bin_cmd!("launch-code");
+    let set_a_output = set_a_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_a)
+        .arg("project")
+        .arg("set")
+        .arg("--name")
+        .arg("project-a")
+        .output()
+        .expect("project set should run");
+    assert!(set_a_output.status.success(), "project set should succeed");
+
+    let mut set_b_cmd = cargo_bin_cmd!("launch-code");
+    let set_b_output = set_b_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_b)
+        .arg("project")
+        .arg("set")
+        .arg("--name")
+        .arg("project-b")
+        .output()
+        .expect("project set should run");
+    assert!(set_b_output.status.success(), "project set should succeed");
+
+    let mut global_set_cmd = cargo_bin_cmd!("launch-code");
+    let global_set_output = global_set_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_c)
+        .arg("--json")
+        .arg("project")
+        .arg("set")
+        .arg("--all-links")
+        .arg("--tag")
+        .arg("shared")
+        .output()
+        .expect("project set should run");
+    assert!(
+        global_set_output.status.success(),
+        "global project set should succeed"
+    );
+    let set_doc: Value =
+        serde_json::from_slice(&global_set_output.stdout).expect("stdout should be valid json");
+    assert_eq!(set_doc["scope"], "global");
+
+    let mut show_a_cmd = cargo_bin_cmd!("launch-code");
+    let show_a_output = show_a_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_a)
+        .arg("--local")
+        .arg("--json")
+        .arg("project")
+        .arg("show")
+        .output()
+        .expect("project show should run");
+    assert!(
+        show_a_output.status.success(),
+        "project show should succeed"
+    );
+    let show_a_doc: Value =
+        serde_json::from_slice(&show_a_output.stdout).expect("stdout should be valid json");
+    assert_eq!(show_a_doc["project"]["tags"][0], "shared");
+
+    let mut show_b_cmd = cargo_bin_cmd!("launch-code");
+    let show_b_output = show_b_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_b)
+        .arg("--local")
+        .arg("--json")
+        .arg("project")
+        .arg("show")
+        .output()
+        .expect("project show should run");
+    assert!(
+        show_b_output.status.success(),
+        "project show should succeed"
+    );
+    let show_b_doc: Value =
+        serde_json::from_slice(&show_b_output.stdout).expect("stdout should be valid json");
+    assert_eq!(show_b_doc["project"]["tags"][0], "shared");
+
+    let mut global_unset_cmd = cargo_bin_cmd!("launch-code");
+    let global_unset_output = global_unset_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_c)
+        .arg("--json")
+        .arg("project")
+        .arg("unset")
+        .arg("--all-links")
+        .arg("--field")
+        .arg("tags")
+        .output()
+        .expect("project unset should run");
+    assert!(
+        global_unset_output.status.success(),
+        "global project unset should succeed"
+    );
+
+    let mut show_after_unset_cmd = cargo_bin_cmd!("launch-code");
+    let show_after_unset_output = show_after_unset_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_a)
+        .arg("--local")
+        .arg("--json")
+        .arg("project")
+        .arg("show")
+        .output()
+        .expect("project show should run");
+    assert!(
+        show_after_unset_output.status.success(),
+        "project show should succeed"
+    );
+    let show_after_unset_doc: Value =
+        serde_json::from_slice(&show_after_unset_output.stdout).expect("stdout should be json");
+    assert!(
+        show_after_unset_doc["project"]["tags"].is_null(),
+        "global unset should clear tag field on each linked workspace"
+    );
+
+    let mut global_clear_cmd = cargo_bin_cmd!("launch-code");
+    let global_clear_output = global_clear_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_c)
+        .arg("--json")
+        .arg("project")
+        .arg("clear")
+        .arg("--all-links")
+        .output()
+        .expect("project clear should run");
+    assert!(
+        global_clear_output.status.success(),
+        "global project clear should succeed"
+    );
+    let clear_doc: Value =
+        serde_json::from_slice(&global_clear_output.stdout).expect("stdout should be valid json");
+    assert_eq!(clear_doc["scope"], "global");
+
+    let mut show_after_clear_cmd = cargo_bin_cmd!("launch-code");
+    let show_after_clear_output = show_after_clear_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_b)
+        .arg("--local")
+        .arg("--json")
+        .arg("project")
+        .arg("show")
+        .output()
+        .expect("project show should run");
+    assert!(
+        show_after_clear_output.status.success(),
+        "project show should succeed"
+    );
+    let show_after_clear_doc: Value =
+        serde_json::from_slice(&show_after_clear_output.stdout).expect("stdout should be json");
+    assert!(
+        show_after_clear_doc["project"].is_null(),
+        "global clear should clear metadata on each linked workspace"
+    );
+}

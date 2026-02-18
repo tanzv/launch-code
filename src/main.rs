@@ -42,7 +42,8 @@ fn main() {
 fn run(cli: Cli) -> Result<(), AppError> {
     if should_use_global_link_list(&cli) {
         if let Commands::List(args) = &cli.command {
-            return app::execute_global_list(args);
+            let workspace_root = resolve_workspace_root()?;
+            return app::execute_global_list(args, &workspace_root);
         }
     }
     if should_use_global_project_show(&cli)

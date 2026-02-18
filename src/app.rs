@@ -72,7 +72,8 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
     }
 }
 
-pub(crate) fn execute_global_list(args: &ListArgs) -> Result<(), AppError> {
+pub(crate) fn execute_global_list(args: &ListArgs, workspace_root: &Path) -> Result<(), AppError> {
+    crate::link_registry::ensure_link_for_workspace(workspace_root)?;
     session_cli::handle_list_global_default(args)
 }
 

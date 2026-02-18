@@ -17,7 +17,7 @@ pub enum ProjectCommands {
     #[command(about = "Unset selected project metadata fields.")]
     Unset(ProjectUnsetArgs),
     #[command(about = "Clear all workspace project metadata.")]
-    Clear,
+    Clear(ProjectClearArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -34,6 +34,12 @@ pub struct ProjectListArgs {
         help = "Include fields without values (shown as null)."
     )]
     pub all: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Aggregate metadata rows across all linked workspaces."
+    )]
+    pub all_links: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ValueEnum)]
@@ -81,6 +87,12 @@ pub struct ProjectSetArgs {
         help = "Arbitrary project tag. Repeat for multiple values."
     )]
     pub tag: Vec<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Apply updates to all linked workspaces."
+    )]
+    pub all_links: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -92,6 +104,22 @@ pub struct ProjectUnsetArgs {
         help = "Project metadata field to clear. Repeat for multiple fields."
     )]
     pub fields: Vec<ProjectUnsetFieldArg>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Apply field clear operation to all linked workspaces."
+    )]
+    pub all_links: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ProjectClearArgs {
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Clear project metadata across all linked workspaces."
+    )]
+    pub all_links: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

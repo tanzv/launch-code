@@ -9,8 +9,8 @@ use super::{
     api_update_project_info,
 };
 use crate::cli::{
-    ProjectArgs, ProjectCommands, ProjectListArgs, ProjectListFieldArg, ProjectSetArgs,
-    ProjectUnsetArgs, ProjectUnsetFieldArg,
+    ProjectArgs, ProjectClearArgs, ProjectCommands, ProjectListArgs, ProjectListFieldArg,
+    ProjectSetArgs, ProjectUnsetArgs, ProjectUnsetFieldArg,
 };
 use crate::error::AppError;
 use crate::link_registry::load_registry;
@@ -30,13 +30,34 @@ struct GlobalProjectRow {
     project: ProjectInfo,
 }
 
+#[derive(Debug, Clone)]
+struct GlobalLinkTarget {
+    link_name: String,
+    link_path: String,
+}
+
+#[derive(Debug, Clone)]
+struct GlobalProjectListRow {
+    link_name: String,
+    link_path: String,
+    project: Option<ProjectInfo>,
+    fields: Vec<ProjectFieldRow>,
+}
+
+#[derive(Debug, Clone)]
+struct GlobalProjectMutationRow {
+    link_name: String,
+    link_path: String,
+    project: Option<ProjectInfo>,
+}
+
 pub(super) fn handle_project(store: &StateStore, args: &ProjectArgs) -> Result<(), AppError> {
     match &args.command {
         ProjectCommands::Show => handle_project_show(store),
         ProjectCommands::List(args) => handle_project_list(store, args),
         ProjectCommands::Set(args) => handle_project_set(store, args),
         ProjectCommands::Unset(args) => handle_project_unset(store, args),
-        ProjectCommands::Clear => handle_project_clear(store),
+        ProjectCommands::Clear(args) => handle_project_clear(store, args),
     }
 }
 
@@ -133,6 +154,10 @@ fn handle_project_show(store: &StateStore) -> Result<(), AppError> {
 }
 
 fn handle_project_list(store: &StateStore, args: &ProjectListArgs) -> Result<(), AppError> {
+    if args.all_links {
+        return handle_project_list_global(args);
+    }
+
     let project = api_get_project_info(store)?;
     let rows = build_project_field_rows(project.as_ref(), &args.fields, args.all);
 
@@ -170,17 +195,12 @@ fn handle_project_list(store: &StateStore, args: &ProjectListArgs) -> Result<(),
 }
 
 fn handle_project_set(store: &StateStore, args: &ProjectSetArgs) -> Result<(), AppError> {
-    let update = ProjectUpdate {
-        name: args.name.as_ref().map(|value| Some(value.clone())),
-        description: args.description.as_ref().map(|value| Some(value.clone())),
-        repository: args.repository.as_ref().map(|value| Some(value.clone())),
-        languages: (!args.language.is_empty()).then_some(Some(args.language.clone())),
-        runtimes: (!args.runtime.is_empty()).then_some(Some(args.runtime.clone())),
-        tools: (!args.tool.is_empty()).then_some(Some(args.tool.clone())),
-        tags: (!args.tag.is_empty()).then_some(Some(args.tag.clone())),
-    };
-
+    let update = build_project_update(args);
     let fields = collect_set_fields(args);
+    if args.all_links {
+        return handle_project_set_global(&update, &fields);
+    }
+
     let project = api_update_project_info(store, &update)?;
 
     if output::is_json_mode() {
@@ -203,6 +223,9 @@ fn handle_project_set(store: &StateStore, args: &ProjectSetArgs) -> Result<(), A
 fn handle_project_unset(store: &StateStore, args: &ProjectUnsetArgs) -> Result<(), AppError> {
     let fields: Vec<ProjectField> = args.fields.iter().map(map_unset_field).collect();
     let field_labels = collect_unset_fields(args);
+    if args.all_links {
+        return handle_project_unset_global(&fields, &field_labels);
+    }
     let project = api_unset_project_info_fields(store, &fields)?;
 
     if output::is_json_mode() {
@@ -222,7 +245,11 @@ fn handle_project_unset(store: &StateStore, args: &ProjectUnsetArgs) -> Result<(
     Ok(())
 }
 
-fn handle_project_clear(store: &StateStore) -> Result<(), AppError> {
+fn handle_project_clear(store: &StateStore, args: &ProjectClearArgs) -> Result<(), AppError> {
+    if args.all_links {
+        return handle_project_clear_global();
+    }
+
     let project = api_unset_project_info_fields(store, &[ProjectField::All])?;
 
     if output::is_json_mode() {
@@ -235,6 +262,174 @@ fn handle_project_clear(store: &StateStore) -> Result<(), AppError> {
     }
 
     output::print_message("project_info_cleared=true");
+    Ok(())
+}
+
+fn handle_project_list_global(args: &ProjectListArgs) -> Result<(), AppError> {
+    let mut rows = Vec::new();
+    for target in collect_global_link_targets()? {
+        let store = StateStore::new(&target.link_path);
+        let project = api_get_project_info(&store)?;
+        let fields = build_project_field_rows(project.as_ref(), &args.fields, args.all);
+        if project.is_none() && fields.is_empty() {
+            continue;
+        }
+        rows.push(GlobalProjectListRow {
+            link_name: target.link_name,
+            link_path: target.link_path,
+            project,
+            fields,
+        });
+    }
+
+    if output::is_json_mode() {
+        let items: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                json!({
+                    "link": {
+                        "name": row.link_name,
+                        "path": row.link_path,
+                    },
+                    "project": row.project,
+                    "fields": project_field_rows_to_json(&row.fields),
+                })
+            })
+            .collect();
+        output::print_json_doc(&json!({
+            "ok": true,
+            "scope": "global",
+            "items": items,
+        }));
+        return Ok(());
+    }
+
+    if rows.is_empty() {
+        output::print_message("no project metadata");
+        return Ok(());
+    }
+
+    let mut lines = Vec::new();
+    lines.push("LINK\tFIELD\tVALUE".to_string());
+    for row in rows {
+        for field in row.fields {
+            let value = field.value.unwrap_or_else(|| "null".to_string());
+            lines.push(format!("{}\t{}\t{}", row.link_name, field.field, value));
+        }
+    }
+    output::print_text_block(&format!("{}\n", lines.join("\n")));
+    Ok(())
+}
+
+fn handle_project_set_global(
+    update: &ProjectUpdate,
+    fields: &[&'static str],
+) -> Result<(), AppError> {
+    let rows = mutate_global_projects(|store| api_update_project_info(store, update))?;
+
+    if output::is_json_mode() {
+        let items: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                json!({
+                    "link": {
+                        "name": row.link_name,
+                        "path": row.link_path,
+                    },
+                    "project": row.project,
+                })
+            })
+            .collect();
+        output::print_json_doc(&json!({
+            "ok": true,
+            "scope": "global",
+            "message": "project_info_updated=true",
+            "fields": fields,
+            "updated_count": rows.len(),
+            "items": items,
+        }));
+        return Ok(());
+    }
+
+    output::print_message(&format!(
+        "project_info_updated=true scope=global links={} fields={}",
+        rows.len(),
+        fields.join(",")
+    ));
+    Ok(())
+}
+
+fn handle_project_unset_global(
+    fields: &[ProjectField],
+    field_labels: &[&'static str],
+) -> Result<(), AppError> {
+    let rows = mutate_global_projects(|store| api_unset_project_info_fields(store, fields))?;
+
+    if output::is_json_mode() {
+        let items: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                json!({
+                    "link": {
+                        "name": row.link_name,
+                        "path": row.link_path,
+                    },
+                    "project": row.project,
+                })
+            })
+            .collect();
+        output::print_json_doc(&json!({
+            "ok": true,
+            "scope": "global",
+            "message": "project_info_unset=true",
+            "fields": field_labels,
+            "updated_count": rows.len(),
+            "items": items,
+        }));
+        return Ok(());
+    }
+
+    output::print_message(&format!(
+        "project_info_unset=true scope=global links={} fields={}",
+        rows.len(),
+        field_labels.join(",")
+    ));
+    Ok(())
+}
+
+fn handle_project_clear_global() -> Result<(), AppError> {
+    let fields = [ProjectField::All];
+    let labels = ["all"];
+    let rows = mutate_global_projects(|store| api_unset_project_info_fields(store, &fields))?;
+
+    if output::is_json_mode() {
+        let items: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                json!({
+                    "link": {
+                        "name": row.link_name,
+                        "path": row.link_path,
+                    },
+                    "project": row.project,
+                })
+            })
+            .collect();
+        output::print_json_doc(&json!({
+            "ok": true,
+            "scope": "global",
+            "message": "project_info_cleared=true",
+            "fields": labels,
+            "updated_count": rows.len(),
+            "items": items,
+        }));
+        return Ok(());
+    }
+
+    output::print_message(&format!(
+        "project_info_cleared=true scope=global links={}",
+        rows.len()
+    ));
     Ok(())
 }
 
@@ -290,6 +485,18 @@ fn collect_set_fields(args: &ProjectSetArgs) -> Vec<&'static str> {
     fields
 }
 
+fn build_project_update(args: &ProjectSetArgs) -> ProjectUpdate {
+    ProjectUpdate {
+        name: args.name.as_ref().map(|value| Some(value.clone())),
+        description: args.description.as_ref().map(|value| Some(value.clone())),
+        repository: args.repository.as_ref().map(|value| Some(value.clone())),
+        languages: (!args.language.is_empty()).then_some(Some(args.language.clone())),
+        runtimes: (!args.runtime.is_empty()).then_some(Some(args.runtime.clone())),
+        tools: (!args.tool.is_empty()).then_some(Some(args.tool.clone())),
+        tags: (!args.tag.is_empty()).then_some(Some(args.tag.clone())),
+    }
+}
+
 fn collect_unset_fields(args: &ProjectUnsetArgs) -> Vec<&'static str> {
     let mut seen = HashSet::new();
     let mut fields = Vec::new();
@@ -316,6 +523,18 @@ fn format_project_show_text(project: &ProjectInfo) -> String {
 fn format_project_list_row(row: &ProjectFieldRow) -> String {
     let value = row.value.clone().unwrap_or_else(|| "null".to_string());
     format!("{}\t{}", row.field, value)
+}
+
+fn project_field_rows_to_json(rows: &[ProjectFieldRow]) -> Vec<serde_json::Value> {
+    rows.iter()
+        .map(|row| {
+            json!({
+                "field": row.field,
+                "value": row.value,
+                "is_set": row.is_set,
+            })
+        })
+        .collect()
 }
 
 fn build_project_field_rows(
@@ -399,25 +618,59 @@ fn join_string_list(values: Option<&[String]>) -> Option<String> {
 }
 
 fn collect_global_project_rows() -> Result<Vec<GlobalProjectRow>, AppError> {
-    let registry = load_registry()?;
-    let mut seen_paths = BTreeSet::new();
     let mut rows = Vec::new();
 
-    for link in registry.list() {
-        if !seen_paths.insert(link.path.clone()) {
-            continue;
-        }
-        let store = StateStore::new(&link.path);
+    for target in collect_global_link_targets()? {
+        let store = StateStore::new(&target.link_path);
         let Some(project) = api_get_project_info(&store)? else {
             continue;
         };
         rows.push(GlobalProjectRow {
-            link_name: link.name,
-            link_path: link.path,
+            link_name: target.link_name,
+            link_path: target.link_path,
             project,
         });
     }
 
     rows.sort_by(|left, right| left.link_name.cmp(&right.link_name));
+    Ok(rows)
+}
+
+fn collect_global_link_targets() -> Result<Vec<GlobalLinkTarget>, AppError> {
+    let registry = load_registry()?;
+    let mut seen_paths = BTreeSet::new();
+    let mut targets = Vec::new();
+
+    for link in registry.list() {
+        if !seen_paths.insert(link.path.clone()) {
+            continue;
+        }
+        targets.push(GlobalLinkTarget {
+            link_name: link.name,
+            link_path: link.path,
+        });
+    }
+
+    targets.sort_by(|left, right| left.link_name.cmp(&right.link_name));
+    Ok(targets)
+}
+
+fn mutate_global_projects<F>(mutate: F) -> Result<Vec<GlobalProjectMutationRow>, AppError>
+where
+    F: Fn(&StateStore) -> Result<Option<ProjectInfo>, AppError>,
+{
+    let targets = collect_global_link_targets()?;
+    let mut rows = Vec::with_capacity(targets.len());
+
+    for target in targets {
+        let store = StateStore::new(&target.link_path);
+        let project = mutate(&store)?;
+        rows.push(GlobalProjectMutationRow {
+            link_name: target.link_name,
+            link_path: target.link_path,
+            project,
+        });
+    }
+
     Ok(rows)
 }
