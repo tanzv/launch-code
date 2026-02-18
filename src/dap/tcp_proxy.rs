@@ -26,8 +26,8 @@ impl TcpDapProxy {
     pub(super) fn connect(host: String, port: u16) -> Result<Arc<Self>, AppError> {
         let addr = format!("{host}:{port}");
         // Debug adapters (e.g. debugpy) might take a short moment to open the TCP port.
-        // Retry briefly to avoid flaky "connection refused" errors right after launch.
-        let deadline = Instant::now() + Duration::from_millis(1200);
+        // Keep retrying for a while to tolerate managed restarts and port rebind windows.
+        let deadline = Instant::now() + Duration::from_millis(5000);
         let stream = loop {
             match TcpStream::connect(&addr) {
                 Ok(stream) => break stream,

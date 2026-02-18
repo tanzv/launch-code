@@ -8,10 +8,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use launch_code::model::RuntimeKind;
 use serde_json::json;
 
 use launch_code::state::StateStore;
 
+use crate::app::api_get_session;
 use crate::error::AppError;
 
 use python_adapter_proxy::PythonAdapterDapProxy;
@@ -40,14 +42,80 @@ pub(crate) fn send_request_with_retry(
     arguments: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, AppError> {
+    let retry_arguments = arguments.clone();
+    let bootstrap_timeout = effective_bootstrap_timeout(timeout);
+    let response = match send_request_transport_with_retry(
+        store, registry, session_id, command, arguments, timeout,
+    ) {
+        Ok(response) => response,
+        Err(initial_err) => {
+            let retried = if is_retryable_transport_error(&initial_err) {
+                std::thread::sleep(Duration::from_millis(250));
+                send_request_transport_with_retry(
+                    store,
+                    registry,
+                    session_id,
+                    command,
+                    retry_arguments.clone(),
+                    timeout,
+                )
+            } else {
+                Err(initial_err)
+            };
+
+            match retried {
+                Ok(response) => response,
+                Err(err) => {
+                    if should_bootstrap_after_error(command, &err) {
+                        send_bootstrap_sequence(store, registry, session_id, bootstrap_timeout)?;
+                        return send_request_transport_with_retry(
+                            store,
+                            registry,
+                            session_id,
+                            command,
+                            retry_arguments,
+                            timeout,
+                        );
+                    }
+                    return Err(err);
+                }
+            }
+        }
+    };
+    if should_bootstrap_after_response(command, &response) {
+        send_bootstrap_sequence(store, registry, session_id, bootstrap_timeout)?;
+        return send_request_transport_with_retry(
+            store,
+            registry,
+            session_id,
+            command,
+            retry_arguments,
+            timeout,
+        );
+    }
+    Ok(response)
+}
+
+fn effective_bootstrap_timeout(timeout: Duration) -> Duration {
+    timeout.max(Duration::from_millis(1500))
+}
+
+fn send_request_transport_with_retry(
+    store: &StateStore,
+    registry: &Arc<Mutex<DapRegistry>>,
+    session_id: &str,
+    command: &str,
+    arguments: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, AppError> {
     let proxy = proxy_for_session(store, registry, session_id)?;
     let retry_arguments = arguments.clone();
     match proxy.send_request(command, arguments, timeout) {
         Ok(response) => Ok(response),
         Err(err) => {
-            let should_retry = proxy.is_closed();
-            drop_session(registry, session_id);
+            let should_retry = proxy.is_closed() || is_retryable_transport_error(&err);
             if should_retry {
+                drop_session(registry, session_id);
                 let proxy = proxy_for_session(store, registry, session_id)?;
                 match proxy.send_request(command, retry_arguments, timeout) {
                     Ok(response) => Ok(response),
@@ -63,6 +131,158 @@ pub(crate) fn send_request_with_retry(
     }
 }
 
+fn should_bootstrap_after_response(command: &str, response: &serde_json::Value) -> bool {
+    if is_bootstrap_command(command) {
+        return false;
+    }
+
+    if !matches!(
+        response.get("success").and_then(|v| v.as_bool()),
+        Some(false)
+    ) {
+        return false;
+    }
+
+    response
+        .get("message")
+        .and_then(|v| v.as_str())
+        .map(|value| {
+            value
+                .to_ascii_lowercase()
+                .contains("server is not available")
+        })
+        .unwrap_or(false)
+}
+
+fn should_bootstrap_after_error(command: &str, err: &AppError) -> bool {
+    if is_bootstrap_command(command) {
+        return false;
+    }
+
+    match err {
+        AppError::Dap(message) => message
+            .to_ascii_lowercase()
+            .contains("timeout waiting for response"),
+        _ => false,
+    }
+}
+
+fn is_retryable_transport_error(err: &AppError) -> bool {
+    match err {
+        AppError::Dap(message) => {
+            let lower = message.to_ascii_lowercase();
+            lower.contains("connection refused")
+                || lower.contains("connection reset")
+                || lower.contains("broken pipe")
+                || lower.contains("not connected")
+                || lower.contains("channel disconnected")
+        }
+        _ => false,
+    }
+}
+
+fn is_bootstrap_command(command: &str) -> bool {
+    matches!(command, "initialize" | "attach" | "configurationDone")
+}
+
+fn send_bootstrap_sequence(
+    store: &StateStore,
+    registry: &Arc<Mutex<DapRegistry>>,
+    session_id: &str,
+    timeout: Duration,
+) -> Result<(), AppError> {
+    let requests = build_bootstrap_requests(store, session_id)?;
+    let responses = send_batch_with_retry(store, registry, session_id, requests, timeout)?;
+    validate_bootstrap_responses(&responses)
+}
+
+fn build_bootstrap_requests(
+    store: &StateStore,
+    session_id: &str,
+) -> Result<Vec<(String, serde_json::Value)>, AppError> {
+    let state = store.load()?;
+    let session = state
+        .sessions
+        .get(session_id)
+        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
+    let meta = session
+        .debug_meta
+        .as_ref()
+        .ok_or_else(|| AppError::SessionMissingDebugMeta(session.id.clone()))?;
+
+    if !matches!(session.spec.runtime, RuntimeKind::Python) {
+        return Err(AppError::Dap(
+            "auto-bootstrap currently supports python debug sessions only".to_string(),
+        ));
+    }
+
+    let fallback_host = session
+        .spec
+        .debug
+        .as_ref()
+        .map(|debug| debug.host.as_str())
+        .unwrap_or("127.0.0.1");
+    let host = if meta.host.trim().is_empty() {
+        fallback_host
+    } else {
+        meta.host.as_str()
+    };
+    let port = meta.active_port;
+
+    Ok(vec![
+        (
+            "initialize".to_string(),
+            json!({
+                "clientID": "launch-code",
+                "adapterID": "python",
+                "pathFormat": "path",
+                "linesStartAt1": true,
+                "columnsStartAt1": true
+            }),
+        ),
+        (
+            "attach".to_string(),
+            json!({
+                "connect": {
+                    "host": host,
+                    "port": port
+                },
+                "justMyCode": false
+            }),
+        ),
+        ("configurationDone".to_string(), json!({})),
+    ])
+}
+
+fn validate_bootstrap_responses(responses: &[serde_json::Value]) -> Result<(), AppError> {
+    for response in responses {
+        if matches!(
+            response.get("success").and_then(|v| v.as_bool()),
+            Some(false)
+        ) {
+            let command = response
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let message = response
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("bootstrap request failed");
+            if command == "attach" && is_attach_already_debugged_message(message) {
+                continue;
+            }
+            return Err(AppError::Dap(message.to_string()));
+        }
+    }
+    Ok(())
+}
+
+fn is_attach_already_debugged_message(message: &str) -> bool {
+    message
+        .to_ascii_lowercase()
+        .contains("already being debugged")
+}
+
 pub(crate) fn send_batch_with_retry(
     store: &StateStore,
     registry: &Arc<Mutex<DapRegistry>>,
@@ -75,9 +295,9 @@ pub(crate) fn send_batch_with_retry(
     match proxy.send_batch(requests, timeout) {
         Ok(responses) => Ok(responses),
         Err(err) => {
-            let should_retry = proxy.is_closed();
-            drop_session(registry, session_id);
+            let should_retry = proxy.is_closed() || is_retryable_transport_error(&err);
             if should_retry {
+                drop_session(registry, session_id);
                 let proxy = proxy_for_session(store, registry, session_id)?;
                 match proxy.send_batch(retry_requests, timeout) {
                     Ok(responses) => Ok(responses),
@@ -163,10 +383,17 @@ pub(crate) fn proxy_for_session(
     session_id: &str,
 ) -> Result<Arc<DapProxy>, AppError> {
     let state = store.load()?;
-    let session = state
+    let base_session = state
         .sessions
         .get(session_id)
-        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
+        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?
+        .clone();
+    // Managed sessions may restart and rotate debug ports; refresh before dialing.
+    let session = if base_session.spec.managed {
+        api_get_session(store, session_id)?
+    } else {
+        base_session
+    };
     let meta = session
         .debug_meta
         .as_ref()

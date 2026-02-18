@@ -144,6 +144,395 @@ fn cli_dap_request_sends_command_and_prints_response() {
 }
 
 #[test]
+fn cli_dap_evaluate_auto_bootstraps_when_server_is_not_available() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let evaluate_first = read_dap_message(&mut reader);
+        assert_eq!(evaluate_first["type"], "request");
+        assert_eq!(evaluate_first["command"], "evaluate");
+        assert_eq!(evaluate_first["arguments"]["expression"], "counter + 1");
+        assert_eq!(evaluate_first["arguments"]["context"], "repl");
+        let first_seq = evaluate_first["seq"]
+            .as_u64()
+            .expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 1,
+                "type": "response",
+                "request_seq": first_seq,
+                "success": false,
+                "command": "evaluate",
+                "message": "Server is not available"
+            }),
+        );
+
+        let initialize = read_dap_message(&mut reader);
+        assert_eq!(initialize["type"], "request");
+        assert_eq!(initialize["command"], "initialize");
+        let initialize_seq = initialize["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 2,
+                "type": "response",
+                "request_seq": initialize_seq,
+                "success": true,
+                "command": "initialize",
+                "body": {}
+            }),
+        );
+
+        let attach = read_dap_message(&mut reader);
+        assert_eq!(attach["type"], "request");
+        assert_eq!(attach["command"], "attach");
+        assert_eq!(attach["arguments"]["connect"]["host"], "127.0.0.1");
+        assert_eq!(attach["arguments"]["connect"]["port"], port);
+        assert_eq!(attach["arguments"]["justMyCode"], false);
+        let attach_seq = attach["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 3,
+                "type": "response",
+                "request_seq": attach_seq,
+                "success": true,
+                "command": "attach",
+                "body": {}
+            }),
+        );
+
+        let configured = read_dap_message(&mut reader);
+        assert_eq!(configured["type"], "request");
+        assert_eq!(configured["command"], "configurationDone");
+        let configured_seq = configured["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 4,
+                "type": "response",
+                "request_seq": configured_seq,
+                "success": true,
+                "command": "configurationDone",
+                "body": {}
+            }),
+        );
+
+        let evaluate_second = read_dap_message(&mut reader);
+        assert_eq!(evaluate_second["type"], "request");
+        assert_eq!(evaluate_second["command"], "evaluate");
+        let second_seq = evaluate_second["seq"]
+            .as_u64()
+            .expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 5,
+                "type": "response",
+                "request_seq": second_seq,
+                "success": true,
+                "command": "evaluate",
+                "body": {
+                    "result": "2",
+                    "type": "int"
+                }
+            }),
+        );
+    });
+
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state_with_debug_session(tmp.path(), "127.0.0.1", port);
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("dap")
+        .arg("evaluate")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--expression")
+        .arg("counter + 1")
+        .arg("--context")
+        .arg("repl")
+        .arg("--timeout-ms")
+        .arg("3000")
+        .output()
+        .expect("dap evaluate should run");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(
+        output.status.success(),
+        "dap evaluate should succeed, stdout: {stdout}, stderr: {stderr}"
+    );
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["response"]["command"], "evaluate");
+    assert_eq!(doc["response"]["success"], true);
+    assert_eq!(doc["response"]["body"]["result"], "2");
+
+    let _ = server.join();
+}
+
+#[test]
+fn cli_dap_evaluate_auto_bootstraps_after_timeout() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let evaluate_first = read_dap_message(&mut reader);
+        assert_eq!(evaluate_first["type"], "request");
+        assert_eq!(evaluate_first["command"], "evaluate");
+        assert_eq!(evaluate_first["arguments"]["expression"], "counter + 1");
+        assert_eq!(evaluate_first["arguments"]["context"], "repl");
+
+        thread::sleep(Duration::from_millis(350));
+
+        let initialize = read_dap_message(&mut reader);
+        assert_eq!(initialize["type"], "request");
+        assert_eq!(initialize["command"], "initialize");
+        let initialize_seq = initialize["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 2,
+                "type": "response",
+                "request_seq": initialize_seq,
+                "success": true,
+                "command": "initialize",
+                "body": {}
+            }),
+        );
+
+        let attach = read_dap_message(&mut reader);
+        assert_eq!(attach["type"], "request");
+        assert_eq!(attach["command"], "attach");
+        assert_eq!(attach["arguments"]["connect"]["host"], "127.0.0.1");
+        assert_eq!(attach["arguments"]["connect"]["port"], port);
+        assert_eq!(attach["arguments"]["justMyCode"], false);
+        let attach_seq = attach["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 3,
+                "type": "response",
+                "request_seq": attach_seq,
+                "success": true,
+                "command": "attach",
+                "body": {}
+            }),
+        );
+
+        let configured = read_dap_message(&mut reader);
+        assert_eq!(configured["type"], "request");
+        assert_eq!(configured["command"], "configurationDone");
+        let configured_seq = configured["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 4,
+                "type": "response",
+                "request_seq": configured_seq,
+                "success": true,
+                "command": "configurationDone",
+                "body": {}
+            }),
+        );
+
+        let evaluate_second = read_dap_message(&mut reader);
+        assert_eq!(evaluate_second["type"], "request");
+        assert_eq!(evaluate_second["command"], "evaluate");
+        let second_seq = evaluate_second["seq"]
+            .as_u64()
+            .expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 5,
+                "type": "response",
+                "request_seq": second_seq,
+                "success": true,
+                "command": "evaluate",
+                "body": {
+                    "result": "2",
+                    "type": "int"
+                }
+            }),
+        );
+    });
+
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state_with_debug_session(tmp.path(), "127.0.0.1", port);
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("dap")
+        .arg("evaluate")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--expression")
+        .arg("counter + 1")
+        .arg("--context")
+        .arg("repl")
+        .arg("--timeout-ms")
+        .arg("200")
+        .output()
+        .expect("dap evaluate should run");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(
+        output.status.success(),
+        "dap evaluate should succeed, stdout: {stdout}, stderr: {stderr}"
+    );
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["response"]["command"], "evaluate");
+    assert_eq!(doc["response"]["success"], true);
+    assert_eq!(doc["response"]["body"]["result"], "2");
+
+    let _ = server.join();
+}
+
+#[test]
+fn cli_dap_bootstrap_tolerates_attach_already_debugged_error() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("dap accept");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+
+        let evaluate_first = read_dap_message(&mut reader);
+        assert_eq!(evaluate_first["type"], "request");
+        assert_eq!(evaluate_first["command"], "evaluate");
+        let first_seq = evaluate_first["seq"]
+            .as_u64()
+            .expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 1,
+                "type": "response",
+                "request_seq": first_seq,
+                "success": false,
+                "command": "evaluate",
+                "message": "Server is not available"
+            }),
+        );
+
+        let initialize = read_dap_message(&mut reader);
+        assert_eq!(initialize["command"], "initialize");
+        let initialize_seq = initialize["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 2,
+                "type": "response",
+                "request_seq": initialize_seq,
+                "success": true,
+                "command": "initialize",
+                "body": {}
+            }),
+        );
+
+        let attach = read_dap_message(&mut reader);
+        assert_eq!(attach["command"], "attach");
+        assert_eq!(attach["arguments"]["connect"]["host"], "127.0.0.1");
+        assert_eq!(attach["arguments"]["connect"]["port"], port);
+        let attach_seq = attach["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 3,
+                "type": "response",
+                "request_seq": attach_seq,
+                "success": false,
+                "command": "attach",
+                "message": "Server[pid=1234] is already being debugged."
+            }),
+        );
+
+        let configured = read_dap_message(&mut reader);
+        assert_eq!(configured["command"], "configurationDone");
+        let configured_seq = configured["seq"].as_u64().expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 4,
+                "type": "response",
+                "request_seq": configured_seq,
+                "success": true,
+                "command": "configurationDone",
+                "body": {}
+            }),
+        );
+
+        let evaluate_second = read_dap_message(&mut reader);
+        assert_eq!(evaluate_second["command"], "evaluate");
+        let second_seq = evaluate_second["seq"]
+            .as_u64()
+            .expect("seq should be number");
+        write_dap_message(
+            &mut stream,
+            &json!({
+                "seq": 5,
+                "type": "response",
+                "request_seq": second_seq,
+                "success": true,
+                "command": "evaluate",
+                "body": {
+                    "result": "3",
+                    "type": "int"
+                }
+            }),
+        );
+    });
+
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state_with_debug_session(tmp.path(), "127.0.0.1", port);
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("dap")
+        .arg("evaluate")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--expression")
+        .arg("1+2")
+        .arg("--context")
+        .arg("repl")
+        .arg("--timeout-ms")
+        .arg("3000")
+        .output()
+        .expect("dap evaluate should run");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(
+        output.status.success(),
+        "dap evaluate should succeed, stdout: {stdout}, stderr: {stderr}"
+    );
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["response"]["command"], "evaluate");
+    assert_eq!(doc["response"]["success"], true);
+    assert_eq!(doc["response"]["body"]["result"], "3");
+
+    let _ = server.join();
+}
+
+#[test]
 fn cli_dap_batch_can_complete_attach_sequence_without_deadlock() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("dap listener should bind");
     let port = listener.local_addr().unwrap().port();
