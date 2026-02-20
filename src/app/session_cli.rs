@@ -41,6 +41,7 @@ struct ListFilters {
 struct ListRenderOptions {
     view: ListRenderView,
     no_trunc: bool,
+    short_id_len: usize,
     no_headers: bool,
 }
 
@@ -325,6 +326,7 @@ fn list_render_options_from_list_args(args: &ListArgs) -> ListRenderOptions {
     ListRenderOptions {
         view,
         no_trunc: args.no_trunc,
+        short_id_len: args.short_id_len,
         no_headers: args.no_headers,
     }
 }
@@ -343,6 +345,7 @@ fn list_render_options_from_running_args(args: &RunningArgs) -> ListRenderOption
     ListRenderOptions {
         view,
         no_trunc: args.no_trunc,
+        short_id_len: args.short_id_len,
         no_headers: args.no_headers,
     }
 }
@@ -617,7 +620,11 @@ fn format_session_list_row_wide(row: &SessionListRow) -> String {
     )
 }
 
-fn format_session_list_row_compact(row: &SessionListRow, no_trunc: bool) -> String {
+fn format_session_list_row_compact(
+    row: &SessionListRow,
+    no_trunc: bool,
+    short_id_len: usize,
+) -> String {
     let pid_display = row
         .pid
         .map(|value| value.to_string())
@@ -626,7 +633,7 @@ fn format_session_list_row_compact(row: &SessionListRow, no_trunc: bool) -> Stri
         truncate_compact_field(row.debug_endpoint.as_deref().unwrap_or("-"), 24, no_trunc);
     let link_display =
         truncate_compact_field(row.link_name.as_deref().unwrap_or("-"), 20, no_trunc);
-    let id_display = abbreviate_session_id(&row.id, no_trunc);
+    let id_display = abbreviate_session_id(&row.id, no_trunc, short_id_len);
     let name_display = truncate_compact_field(&row.name, 32, no_trunc);
 
     format!(
@@ -642,11 +649,11 @@ fn format_session_list_row_compact(row: &SessionListRow, no_trunc: bool) -> Stri
     )
 }
 
-fn abbreviate_session_id(value: &str, no_trunc: bool) -> String {
+fn abbreviate_session_id(value: &str, no_trunc: bool, short_id_len: usize) -> String {
     if no_trunc {
         return value.to_string();
     }
-    value.chars().take(12).collect()
+    value.chars().take(short_id_len).collect()
 }
 
 fn truncate_compact_field(value: &str, max_chars: usize, no_trunc: bool) -> String {
@@ -776,7 +783,7 @@ fn print_list_rows(rows: &[SessionListRow], render: ListRenderOptions) {
         .iter()
         .map(|row| {
             if matches!(render.view, ListRenderView::Compact) {
-                format_session_list_row_compact(row, render.no_trunc)
+                format_session_list_row_compact(row, render.no_trunc, render.short_id_len)
             } else {
                 format_session_list_row_wide(row)
             }

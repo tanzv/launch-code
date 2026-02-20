@@ -51,8 +51,8 @@ State scope:
 - Runtime writes (start/debug/launch/config/project/session actions) default to the current workspace link
 - `lcode list` defaults to global aggregation across all registered links (unless `--local`/`--link` is used)
 - `lcode running` is a shortcut for listing only running sessions in the current scope (compact view by default)
-- `lcode list` supports display options `--format <table|compact|wide|id>`, `--compact`, `--quiet/-q`, `--no-trunc`, and `--no-headers`
-- `lcode running` supports display options `--format <table|compact|wide|id>`, `--wide`, `--quiet/-q`, `--no-trunc`, and `--no-headers`, plus runtime/name filters
+- `lcode list` supports display options `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--compact`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, and `--no-headers`
+- `lcode running` supports display options `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--wide`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, and `--no-headers`, plus runtime/name filters
 - `lcode cleanup` defaults to global cleanup across registered links (unless `--local`/`--link` is used)
 - Global `list`/`running`/`cleanup`/`project show` can auto-prune stale links when link registry is very large
 - Session-id commands (for example `stop`, `status`, `inspect`, `logs`, `restart`, `suspend`, `resume`, `attach`, `dap`, `doctor`) auto-route by `--id` across links when global scope is active and `--link` is omitted
@@ -118,12 +118,17 @@ lcode list
 lcode running
 lcode running --wide
 lcode running --format wide
+lcode running --format default
+lcode running --format short
 lcode running --format id
+lcode running --short-id-len 8
 lcode running -q
 lcode running --no-headers
 lcode list --compact
 lcode list --format compact
+lcode list --format short
 lcode list --format id
+lcode list --short-id-len 16
 lcode list --compact --no-trunc
 lcode list --compact --no-headers
 lcode list -q

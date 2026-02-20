@@ -268,6 +268,10 @@ fn list_help_exposes_filter_flags() {
         stdout.contains("--no-headers"),
         "list help should expose --no-headers option"
     );
+    assert!(
+        stdout.contains("--short-id-len"),
+        "list help should expose --short-id-len option"
+    );
 }
 
 #[test]
@@ -312,6 +316,10 @@ fn running_help_exposes_display_flags() {
     assert!(
         stdout.contains("--no-headers"),
         "running help should expose --no-headers option"
+    );
+    assert!(
+        stdout.contains("--short-id-len"),
+        "running help should expose --short-id-len option"
     );
 }
 

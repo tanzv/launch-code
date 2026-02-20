@@ -38,8 +38,8 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
 - `lcode list` defaults to global aggregation across all registered links.
 - `lcode running` lists only running sessions across the current scope (compact view by default).
-- `lcode list` supports display options: `--format <table|compact|wide|id>`, `--compact`, `--quiet/-q`, `--no-trunc`, `--no-headers`.
-- `lcode running` supports display options: `--format <table|compact|wide|id>`, `--wide`, `--quiet/-q`, `--no-trunc`, `--no-headers`.
+- `lcode list` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--compact`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
+- `lcode running` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--wide`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode cleanup` defaults to global cleanup across all registered links.
 - `lcode stop --all`, `lcode restart --all`, `lcode suspend --all`, and `lcode resume --all` support batch lifecycle control in scope (`--local`, `--link`, or global default).
 - Global non-dry-run batch apply requires explicit `--yes` confirmation; use `--dry-run` for preview.
@@ -91,12 +91,17 @@ lcode --link demo list
 lcode running
 lcode running --wide
 lcode running --format wide
+lcode running --format default
+lcode running --format short
 lcode running --format id
+lcode running --short-id-len 8
 lcode running -q
 lcode running --no-headers
 lcode list --compact
 lcode list --format compact
+lcode list --format short
 lcode list --format id
+lcode list --short-id-len 16
 lcode list --compact --no-trunc
 lcode list --compact --no-headers
 lcode --link demo status --id <session_id>

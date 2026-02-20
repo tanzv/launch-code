@@ -273,6 +273,13 @@ pub struct ListArgs {
     pub no_trunc: bool,
     #[arg(
         long,
+        default_value_t = 12,
+        value_parser = parse_short_id_len,
+        help = "Short session id length in compact table view."
+    )]
+    pub short_id_len: usize,
+    #[arg(
+        long,
         default_value_t = false,
         help = "Do not print table headers for table/compact formats."
     )]
@@ -315,6 +322,13 @@ pub struct RunningArgs {
     pub no_trunc: bool,
     #[arg(
         long,
+        default_value_t = 12,
+        value_parser = parse_short_id_len,
+        help = "Short session id length in compact table view."
+    )]
+    pub short_id_len: usize,
+    #[arg(
+        long,
         default_value_t = false,
         help = "Do not print table headers for table/compact formats."
     )]
@@ -345,8 +359,11 @@ pub enum CleanupStatusArg {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ListFormatArg {
+    #[value(alias = "default")]
     Table,
+    #[value(alias = "short")]
     Compact,
+    #[value(alias = "debug")]
     Wide,
     Id,
 }
@@ -931,6 +948,16 @@ fn default_serve_workers() -> usize {
     std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(4)
+}
+
+fn parse_short_id_len(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| "short-id-len must be an integer".to_string())?;
+    if !(4..=32).contains(&parsed) {
+        return Err("short-id-len must be between 4 and 32".to_string());
+    }
+    Ok(parsed)
 }
 
 impl SessionIdArgs {

@@ -308,6 +308,74 @@ fn running_command_lists_only_running_sessions() {
         "running --format wide should include full columns"
     );
 
+    let mut running_default_alias_cmd = cargo_bin_cmd!("launch-code");
+    let running_default_alias_output = running_default_alias_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("running")
+        .arg("--format")
+        .arg("default")
+        .output()
+        .expect("running --format default should run");
+    assert!(
+        running_default_alias_output.status.success(),
+        "running --format default should succeed"
+    );
+    let running_default_alias_text =
+        String::from_utf8(running_default_alias_output.stdout).expect("stdout utf8");
+    assert!(
+        running_default_alias_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("ENTRY") && line.contains("RESTARTS")),
+        "running --format default alias should map to wide columns"
+    );
+
+    let mut running_short_alias_cmd = cargo_bin_cmd!("launch-code");
+    let running_short_alias_output = running_short_alias_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("running")
+        .arg("--format")
+        .arg("short")
+        .output()
+        .expect("running --format short should run");
+    assert!(
+        running_short_alias_output.status.success(),
+        "running --format short should succeed"
+    );
+    let running_short_alias_text =
+        String::from_utf8(running_short_alias_output.stdout).expect("stdout utf8");
+    assert!(
+        running_short_alias_text
+            .lines()
+            .next()
+            .is_some_and(|line| !line.contains("ENTRY") && line.contains("NAME")),
+        "running --format short alias should map to compact columns"
+    );
+
+    let mut running_short_id_len_cmd = cargo_bin_cmd!("launch-code");
+    let running_short_id_len_output = running_short_id_len_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("running")
+        .arg("--short-id-len")
+        .arg("8")
+        .arg("--no-headers")
+        .output()
+        .expect("running --short-id-len should run");
+    assert!(
+        running_short_id_len_output.status.success(),
+        "running --short-id-len should succeed"
+    );
+    let running_short_id_len_text =
+        String::from_utf8(running_short_id_len_output.stdout).expect("stdout utf8");
+    let first_id_token = running_short_id_len_text
+        .lines()
+        .next()
+        .and_then(|line| line.split('\t').next())
+        .expect("compact row should contain id token");
+    assert_eq!(first_id_token.len(), 8);
+    let running_prefix_8: String = running_id.chars().take(8).collect();
+    assert_eq!(first_id_token, running_prefix_8);
+
     let mut running_no_headers_cmd = cargo_bin_cmd!("launch-code");
     let running_no_headers_output = running_no_headers_cmd
         .env("LAUNCH_CODE_HOME", tmp.path())
@@ -521,6 +589,33 @@ fn list_supports_combined_filters_and_rich_columns() {
         "compact list header should omit ENTRY column"
     );
 
+    let mut compact_alias_cmd = cargo_bin_cmd!("launch-code");
+    let compact_alias_output = compact_alias_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("list")
+        .arg("--format")
+        .arg("short")
+        .arg("--status")
+        .arg("running")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--name-contains")
+        .arg("api")
+        .output()
+        .expect("list --format short should run");
+    assert!(
+        compact_alias_output.status.success(),
+        "list --format short should succeed"
+    );
+    let compact_alias_text = String::from_utf8(compact_alias_output.stdout).expect("stdout utf8");
+    assert!(
+        compact_alias_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("NAME") && !line.contains("ENTRY")),
+        "list --format short alias should map to compact columns"
+    );
+
     let mut compact_no_headers_cmd = cargo_bin_cmd!("launch-code");
     let compact_no_headers_output = compact_no_headers_cmd
         .env("LAUNCH_CODE_HOME", tmp.path())
@@ -584,6 +679,38 @@ fn list_supports_combined_filters_and_rich_columns() {
         !list_id_text.contains("STATUS"),
         "list --format id should not print table headers"
     );
+
+    let mut list_short_id_len_cmd = cargo_bin_cmd!("launch-code");
+    let list_short_id_len_output = list_short_id_len_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("list")
+        .arg("--format")
+        .arg("compact")
+        .arg("--short-id-len")
+        .arg("16")
+        .arg("--no-headers")
+        .arg("--status")
+        .arg("running")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--name-contains")
+        .arg("api")
+        .output()
+        .expect("list --short-id-len should run");
+    assert!(
+        list_short_id_len_output.status.success(),
+        "list --short-id-len should succeed"
+    );
+    let list_short_id_len_text =
+        String::from_utf8(list_short_id_len_output.stdout).expect("stdout utf8");
+    let first_id_token = list_short_id_len_text
+        .lines()
+        .next()
+        .and_then(|line| line.split('\t').next())
+        .expect("compact row should contain id token");
+    assert_eq!(first_id_token.len(), 16);
+    let api_prefix_16: String = api_id.chars().take(16).collect();
+    assert_eq!(first_id_token, api_prefix_16);
 
     for session_id in [api_id, worker_id] {
         let mut stop_cmd = cargo_bin_cmd!("launch-code");
