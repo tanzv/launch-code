@@ -43,6 +43,122 @@ fn json_error_output_includes_stable_error_code() {
 }
 
 #[test]
+fn json_debug_rejects_rust_runtime_with_stable_error_code() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("debug")
+        .arg("--runtime")
+        .arg("rust")
+        .arg("--entry")
+        .arg("demo-bin")
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("debug should run");
+
+    assert!(
+        !output.status.success(),
+        "rust debug should fail with unsupported runtime error"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "unsupported_debug_runtime");
+    assert!(
+        doc["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("python and node runtimes only")),
+        "error message should explain supported runtime"
+    );
+}
+
+#[test]
+fn json_dap_rejects_node_runtime_with_stable_error_code() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    let state_doc = json!({
+        "schema_version": 1,
+        "profiles": {},
+        "project_info": null,
+        "sessions": {
+            "session-1": {
+                "id": "session-1",
+                "spec": {
+                    "name": "node-debug",
+                    "runtime": "node",
+                    "entry": "app.js",
+                    "args": [],
+                    "cwd": ".",
+                    "env": {},
+                    "managed": false,
+                    "mode": "debug",
+                    "debug": {
+                        "host": "127.0.0.1",
+                        "port": 9229,
+                        "wait_for_client": true,
+                        "subprocess": true
+                    },
+                    "prelaunch_task": null,
+                    "poststop_task": null
+                },
+                "status": "running",
+                "pid": 12345,
+                "supervisor_pid": null,
+                "log_path": null,
+                "debug_meta": {
+                    "host": "127.0.0.1",
+                    "requested_port": 9229,
+                    "active_port": 9229,
+                    "fallback_applied": false,
+                    "reconnect_policy": "auto-retry"
+                },
+                "created_at": 1,
+                "updated_at": 1,
+                "last_exit_code": null,
+                "restart_count": 0
+            }
+        }
+    });
+    fs::write(
+        &state_path,
+        serde_json::to_string_pretty(&state_doc).expect("state json"),
+    )
+    .expect("state should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("dap")
+        .arg("threads")
+        .arg("--id")
+        .arg("session-1")
+        .output()
+        .expect("dap threads should run");
+
+    assert!(
+        !output.status.success(),
+        "dap threads should fail for node runtime"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "unsupported_dap_runtime");
+    assert!(
+        doc["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("python runtime only")),
+        "error message should explain dap runtime support"
+    );
+}
+
+#[test]
 fn json_list_output_is_structured() {
     let tmp = tempdir().expect("temp dir should exist");
 
@@ -303,6 +419,146 @@ fn json_cleanup_dry_run_returns_structured_payload() {
     assert_eq!(doc["matched_count"], 1);
     assert_eq!(doc["removed_count"], 0);
     assert_eq!(doc["kept_count"], 1);
+}
+
+#[test]
+fn json_status_output_returns_structured_session_payload() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    let state = json!({
+        "schema_version": 1,
+        "profiles": {},
+        "sessions": {
+            "session-1": {
+                "id": "session-1",
+                "spec": {
+                    "name": "api",
+                    "runtime": "python",
+                    "entry": "app.py",
+                    "args": [],
+                    "cwd": ".",
+                    "env": {},
+                    "managed": false,
+                    "mode": "run",
+                    "debug": null,
+                    "prelaunch_task": null,
+                    "poststop_task": null
+                },
+                "status": "stopped",
+                "pid": null,
+                "supervisor_pid": null,
+                "log_path": null,
+                "debug_meta": null,
+                "created_at": 1,
+                "updated_at": 1,
+                "last_exit_code": null,
+                "restart_count": 0
+            }
+        },
+        "project_info": null
+    });
+    fs::write(
+        &state_path,
+        serde_json::to_string_pretty(&state).expect("state json"),
+    )
+    .expect("state should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("status")
+        .arg("--id")
+        .arg("session-1")
+        .output()
+        .expect("status should run");
+    assert!(output.status.success(), "status should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["action"], "status");
+    assert_eq!(doc["session"]["id"], "session-1");
+    assert_eq!(doc["session"]["status"], "stopped");
+    assert_eq!(doc["session"]["runtime"], "python");
+    assert_eq!(doc["session"]["mode"], "run");
+    assert!(
+        doc["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("status=stopped"))
+    );
+}
+
+#[test]
+fn json_stop_output_returns_structured_session_payload() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    let state = json!({
+        "schema_version": 1,
+        "profiles": {},
+        "sessions": {
+            "session-1": {
+                "id": "session-1",
+                "spec": {
+                    "name": "api",
+                    "runtime": "python",
+                    "entry": "app.py",
+                    "args": [],
+                    "cwd": ".",
+                    "env": {},
+                    "managed": false,
+                    "mode": "run",
+                    "debug": null,
+                    "prelaunch_task": null,
+                    "poststop_task": null
+                },
+                "status": "stopped",
+                "pid": null,
+                "supervisor_pid": null,
+                "log_path": null,
+                "debug_meta": null,
+                "created_at": 1,
+                "updated_at": 1,
+                "last_exit_code": null,
+                "restart_count": 0
+            }
+        },
+        "project_info": null
+    });
+    fs::write(
+        &state_path,
+        serde_json::to_string_pretty(&state).expect("state json"),
+    )
+    .expect("state should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("stop")
+        .arg("--id")
+        .arg("session-1")
+        .output()
+        .expect("stop should run");
+    assert!(output.status.success(), "stop should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["action"], "stop");
+    assert_eq!(doc["session"]["id"], "session-1");
+    assert_eq!(doc["session"]["status"], "stopped");
+    assert_eq!(doc["session"]["runtime"], "python");
+    assert_eq!(doc["session"]["mode"], "run");
+    assert!(
+        doc["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("status=stopped"))
+    );
 }
 
 #[test]

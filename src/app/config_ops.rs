@@ -363,6 +363,13 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
     checks.push("command_buildable=true".to_string());
 
     if matches!(spec.mode, LaunchMode::Debug) {
+        if !matches!(spec.runtime, RuntimeKind::Python | RuntimeKind::Node) {
+            return Err(AppError::ProfileValidationFailed(format!(
+                "debug mode currently supports python and node runtimes only; found {}",
+                super::spec_ops::runtime_label(&spec.runtime)
+            )));
+        }
+
         if spec.debug.is_none() {
             return Err(AppError::ProfileValidationFailed(
                 "debug mode requires debug config".to_string(),

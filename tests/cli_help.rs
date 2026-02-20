@@ -32,11 +32,15 @@ fn top_level_help_includes_command_descriptions() {
         "top-level help should explain the link command"
     );
     assert!(
+        stdout.contains("List only running sessions"),
+        "top-level help should explain the running command"
+    );
+    assert!(
         stdout.contains("Run diagnostic checks for session lifecycle and debug channels"),
         "top-level help should explain the doctor command"
     );
     assert!(
-        stdout.contains("Remove stale session records from local state"),
+        stdout.contains("Remove stale session records"),
         "top-level help should explain the cleanup command"
     );
     assert!(
@@ -50,6 +54,23 @@ fn top_level_help_includes_command_descriptions() {
     assert!(
         stdout.contains("--link"),
         "top-level help should expose link scope flag"
+    );
+}
+
+#[test]
+fn link_help_exposes_prune_subcommand() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("link")
+        .arg("--help")
+        .output()
+        .expect("link help should run");
+    assert!(output.status.success(), "link help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("prune"),
+        "link help should expose prune subcommand"
     );
 }
 
@@ -271,6 +292,125 @@ fn restart_help_exposes_force_and_grace_timeout_options() {
     assert!(
         stdout.contains("--no-force"),
         "restart help should expose --no-force"
+    );
+    assert!(
+        stdout.contains("--all"),
+        "restart help should expose --all for batch mode"
+    );
+    assert!(
+        stdout.contains("--dry-run"),
+        "restart help should expose --dry-run for batch mode"
+    );
+    assert!(
+        stdout.contains("--yes"),
+        "restart help should expose --yes confirmation for global batch apply"
+    );
+    assert!(
+        stdout.contains("--continue-on-error"),
+        "restart help should expose batch continue-on-error control"
+    );
+    assert!(
+        stdout.contains("--max-failures"),
+        "restart help should expose batch max-failures control"
+    );
+}
+
+#[test]
+fn stop_help_exposes_batch_mode_flags() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("stop")
+        .arg("--help")
+        .output()
+        .expect("stop help should run");
+    assert!(output.status.success(), "stop help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("--id"), "stop help should expose --id");
+    assert!(stdout.contains("--all"), "stop help should expose --all");
+    assert!(
+        stdout.contains("--name-contains"),
+        "stop help should expose batch name filter"
+    );
+    assert!(
+        stdout.contains("--dry-run"),
+        "stop help should expose batch dry-run"
+    );
+    assert!(
+        stdout.contains("--yes"),
+        "stop help should expose --yes confirmation for global batch apply"
+    );
+    assert!(
+        stdout.contains("--continue-on-error"),
+        "stop help should expose batch continue-on-error control"
+    );
+    assert!(
+        stdout.contains("--max-failures"),
+        "stop help should expose batch max-failures control"
+    );
+}
+
+#[test]
+fn suspend_resume_help_exposes_batch_mode_flags() {
+    let mut suspend_cmd = cargo_bin_cmd!("launch-code");
+    let suspend_output = suspend_cmd
+        .arg("suspend")
+        .arg("--help")
+        .output()
+        .expect("suspend help should run");
+    assert!(
+        suspend_output.status.success(),
+        "suspend help should succeed"
+    );
+    let suspend_stdout = String::from_utf8(suspend_output.stdout).expect("stdout should be utf8");
+    assert!(
+        suspend_stdout.contains("--all"),
+        "suspend help should expose --all"
+    );
+    assert!(
+        suspend_stdout.contains("--dry-run"),
+        "suspend help should expose --dry-run"
+    );
+    assert!(
+        suspend_stdout.contains("--yes"),
+        "suspend help should expose --yes confirmation"
+    );
+    assert!(
+        suspend_stdout.contains("--continue-on-error"),
+        "suspend help should expose batch continue-on-error control"
+    );
+    assert!(
+        suspend_stdout.contains("--max-failures"),
+        "suspend help should expose batch max-failures control"
+    );
+
+    let mut resume_cmd = cargo_bin_cmd!("launch-code");
+    let resume_output = resume_cmd
+        .arg("resume")
+        .arg("--help")
+        .output()
+        .expect("resume help should run");
+    assert!(resume_output.status.success(), "resume help should succeed");
+    let resume_stdout = String::from_utf8(resume_output.stdout).expect("stdout should be utf8");
+    assert!(
+        resume_stdout.contains("--all"),
+        "resume help should expose --all"
+    );
+    assert!(
+        resume_stdout.contains("--dry-run"),
+        "resume help should expose --dry-run"
+    );
+    assert!(
+        resume_stdout.contains("--yes"),
+        "resume help should expose --yes confirmation"
+    );
+    assert!(
+        resume_stdout.contains("--continue-on-error"),
+        "resume help should expose batch continue-on-error control"
+    );
+    assert!(
+        resume_stdout.contains("--max-failures"),
+        "resume help should expose batch max-failures control"
     );
 }
 

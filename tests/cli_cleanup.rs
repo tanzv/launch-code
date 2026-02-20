@@ -64,6 +64,31 @@ fn write_state(root: &Path, sessions: Value) {
     .expect("state should be written");
 }
 
+fn read_session_count(root: &Path) -> usize {
+    let state_payload =
+        fs::read_to_string(root.join(".launch-code").join("state.json")).expect("state exists");
+    let state_doc: Value = serde_json::from_str(&state_payload).expect("state should be json");
+    state_doc["sessions"]
+        .as_object()
+        .expect("sessions should be object")
+        .len()
+}
+
+fn add_link(home_root: &Path, name: &str, workspace_path: &Path) {
+    let mut add_cmd = cargo_bin_cmd!("launch-code");
+    let add_output = add_cmd
+        .env("HOME", home_root)
+        .arg("link")
+        .arg("add")
+        .arg("--name")
+        .arg(name)
+        .arg("--path")
+        .arg(workspace_path.to_string_lossy().to_string())
+        .output()
+        .expect("link add should run");
+    assert!(add_output.status.success(), "link add should succeed");
+}
+
 #[test]
 fn cleanup_dry_run_reports_matches_without_removing_sessions() {
     let tmp = tempdir().expect("temp dir should exist");
@@ -243,5 +268,103 @@ fn cleanup_keeps_running_sessions_by_default() {
     assert!(
         stop_running_output.status.success(),
         "running stop should succeed"
+    );
+}
+
+#[test]
+fn cleanup_defaults_to_global_scope_across_registered_links() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace_a = home_root.path().join("workspace-a");
+    let workspace_b = home_root.path().join("workspace-b");
+    fs::create_dir_all(&workspace_a).expect("workspace a should exist");
+    fs::create_dir_all(&workspace_b).expect("workspace b should exist");
+
+    write_state(
+        &workspace_a,
+        json!({
+            "stopped-a": build_session("stopped-a", "a", "stopped")
+        }),
+    );
+    write_state(
+        &workspace_b,
+        json!({
+            "stopped-b": build_session("stopped-b", "b", "stopped")
+        }),
+    );
+    add_link(home_root.path(), "workspace-a", &workspace_a);
+    add_link(home_root.path(), "workspace-b", &workspace_b);
+
+    let mut cleanup_cmd = cargo_bin_cmd!("launch-code");
+    let cleanup_output = cleanup_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_a)
+        .arg("--json")
+        .arg("cleanup")
+        .output()
+        .expect("global cleanup should run");
+    assert!(
+        cleanup_output.status.success(),
+        "global cleanup should succeed"
+    );
+
+    let stdout = String::from_utf8(cleanup_output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["scope"], "global");
+    assert_eq!(doc["matched_count"], 2);
+    assert_eq!(doc["removed_count"], 2);
+    assert_eq!(doc["link_count"], 2);
+
+    assert_eq!(read_session_count(&workspace_a), 0);
+    assert_eq!(read_session_count(&workspace_b), 0);
+}
+
+#[test]
+fn cleanup_with_local_flag_limits_scope_to_current_workspace() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace_a = home_root.path().join("workspace-a");
+    let workspace_b = home_root.path().join("workspace-b");
+    fs::create_dir_all(&workspace_a).expect("workspace a should exist");
+    fs::create_dir_all(&workspace_b).expect("workspace b should exist");
+
+    write_state(
+        &workspace_a,
+        json!({
+            "stopped-a": build_session("stopped-a", "a", "stopped")
+        }),
+    );
+    write_state(
+        &workspace_b,
+        json!({
+            "stopped-b": build_session("stopped-b", "b", "stopped")
+        }),
+    );
+    add_link(home_root.path(), "workspace-a", &workspace_a);
+    add_link(home_root.path(), "workspace-b", &workspace_b);
+
+    let mut cleanup_cmd = cargo_bin_cmd!("launch-code");
+    let cleanup_output = cleanup_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_a)
+        .arg("--local")
+        .arg("cleanup")
+        .output()
+        .expect("local cleanup should run");
+    assert!(
+        cleanup_output.status.success(),
+        "local cleanup should succeed"
+    );
+
+    let stdout = String::from_utf8(cleanup_output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("removed=1"),
+        "local cleanup should only remove one workspace record"
+    );
+
+    assert_eq!(read_session_count(&workspace_a), 0);
+    assert_eq!(
+        read_session_count(&workspace_b),
+        1,
+        "local cleanup should not touch another linked workspace"
     );
 }

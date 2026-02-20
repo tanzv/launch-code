@@ -189,6 +189,102 @@ fn list_supports_status_runtime_and_name_filters() {
 }
 
 #[test]
+fn running_command_lists_only_running_sessions() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let run_script = tmp.path().join("running.py");
+    let stop_script = tmp.path().join("stopped.py");
+    fs::write(&run_script, "import time\ntime.sleep(30)\n").expect("script should be written");
+    fs::write(&stop_script, "import time\ntime.sleep(30)\n").expect("script should be written");
+
+    let mut start_running_cmd = cargo_bin_cmd!("launch-code");
+    let running_output = start_running_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("running-only")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(run_script.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(running_output.status.success(), "start should succeed");
+    let running_id =
+        parse_session_id(&String::from_utf8(running_output.stdout).expect("stdout utf8"))
+            .expect("running session id should exist");
+
+    let mut start_stopped_cmd = cargo_bin_cmd!("launch-code");
+    let stopped_output = start_stopped_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("running-stop")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(stop_script.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(stopped_output.status.success(), "start should succeed");
+    let stopped_id =
+        parse_session_id(&String::from_utf8(stopped_output.stdout).expect("stdout utf8"))
+            .expect("stopped session id should exist");
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&stopped_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(stop_output.status.success(), "stop should succeed");
+
+    let mut running_cmd = cargo_bin_cmd!("launch-code");
+    let running_list_output = running_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("running")
+        .output()
+        .expect("running should run");
+    assert!(
+        running_list_output.status.success(),
+        "running command should succeed"
+    );
+    let text = String::from_utf8(running_list_output.stdout).expect("stdout utf8");
+    assert!(
+        text.contains(&running_id),
+        "running command should include running session"
+    );
+    assert!(
+        !text.contains(&stopped_id),
+        "running command should exclude stopped session"
+    );
+
+    let mut cleanup_cmd = cargo_bin_cmd!("launch-code");
+    let cleanup_output = cleanup_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&running_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(
+        cleanup_output.status.success(),
+        "cleanup stop should succeed"
+    );
+}
+
+#[test]
 fn list_supports_combined_filters_and_rich_columns() {
     if !python_available() {
         return;

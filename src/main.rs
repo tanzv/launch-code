@@ -6,6 +6,7 @@ mod http_api;
 mod http_utils;
 mod link_registry;
 mod output;
+mod session_lookup;
 
 use std::env;
 use std::path::PathBuf;
@@ -14,7 +15,7 @@ use clap::Parser;
 use launch_code::state::StateStore;
 use serde_json::json;
 
-use crate::cli::{Cli, Commands, ProjectCommands};
+use crate::cli::{Cli, Commands, DapCommands, DoctorCommands, ProjectCommands};
 use crate::error::AppError;
 
 fn main() {
@@ -41,9 +42,35 @@ fn main() {
 
 fn run(cli: Cli) -> Result<(), AppError> {
     if should_use_global_link_list(&cli) {
-        if let Commands::List(args) = &cli.command {
+        let workspace_root = resolve_workspace_root()?;
+        match &cli.command {
+            Commands::List(args) => return app::execute_global_list(args, &workspace_root),
+            Commands::Running => return app::execute_global_running(&workspace_root),
+            _ => {}
+        }
+    }
+    if should_use_global_cleanup(&cli) {
+        if let Commands::Cleanup(args) = &cli.command {
             let workspace_root = resolve_workspace_root()?;
-            return app::execute_global_list(args, &workspace_root);
+            return app::execute_global_cleanup(args, &workspace_root);
+        }
+    }
+    if should_use_global_batch_session_control(&cli) {
+        let workspace_root = resolve_workspace_root()?;
+        match &cli.command {
+            Commands::Stop(args) if args.all => {
+                return app::execute_global_stop(args, &workspace_root);
+            }
+            Commands::Restart(args) if args.all => {
+                return app::execute_global_restart(args, &workspace_root);
+            }
+            Commands::Suspend(args) if args.all => {
+                return app::execute_global_suspend(args, &workspace_root);
+            }
+            Commands::Resume(args) if args.all => {
+                return app::execute_global_resume(args, &workspace_root);
+            }
+            _ => {}
         }
     }
     if should_use_global_project_show(&cli)
@@ -56,8 +83,27 @@ fn run(cli: Cli) -> Result<(), AppError> {
         return app::execute_global_project_show();
     }
 
+    let global_session_fallback_enabled = is_global_session_fallback_enabled(&cli);
     let store = build_store(&cli)?;
-    app::execute(&store, cli.command)
+    let command = cli.command;
+    match app::execute(&store, command.clone()) {
+        Ok(()) => Ok(()),
+        Err(AppError::SessionNotFound(missing_id))
+            if should_use_global_session_fallback(
+                global_session_fallback_enabled,
+                &command,
+                &missing_id,
+            ) =>
+        {
+            if let Some(routed_store) =
+                app::resolve_global_store_for_session_id(&missing_id, &store)?
+            {
+                return app::execute(&routed_store, command);
+            }
+            Err(AppError::SessionNotFound(missing_id))
+        }
+        Err(err) => Err(err),
+    }
 }
 
 fn build_store(cli: &Cli) -> Result<StateStore, AppError> {
@@ -88,7 +134,7 @@ fn should_use_global_link_list(cli: &Cli) -> bool {
     if env::var_os("LAUNCH_CODE_HOME").is_some() && !cli.global {
         return false;
     }
-    matches!(&cli.command, Commands::List(_))
+    matches!(&cli.command, Commands::List(_) | Commands::Running)
 }
 
 fn should_use_global_project_show(cli: &Cli) -> bool {
@@ -103,4 +149,97 @@ fn should_use_global_project_show(cli: &Cli) -> bool {
         Commands::Project(project_args)
             if matches!(&project_args.command, ProjectCommands::Show)
     )
+}
+
+fn should_use_global_cleanup(cli: &Cli) -> bool {
+    if cli.local || cli.link.is_some() {
+        return false;
+    }
+    if env::var_os("LAUNCH_CODE_HOME").is_some() && !cli.global {
+        return false;
+    }
+    matches!(&cli.command, Commands::Cleanup(_))
+}
+
+fn should_use_global_batch_session_control(cli: &Cli) -> bool {
+    if cli.local || cli.link.is_some() {
+        return false;
+    }
+    if env::var_os("LAUNCH_CODE_HOME").is_some() && !cli.global {
+        return false;
+    }
+    match &cli.command {
+        Commands::Stop(args) => args.all,
+        Commands::Restart(args) => args.all,
+        Commands::Suspend(args) => args.all,
+        Commands::Resume(args) => args.all,
+        _ => false,
+    }
+}
+
+fn is_global_session_fallback_enabled(cli: &Cli) -> bool {
+    if cli.local || cli.link.is_some() {
+        return false;
+    }
+    if env::var_os("LAUNCH_CODE_HOME").is_some() && !cli.global {
+        return false;
+    }
+    true
+}
+
+fn should_use_global_session_fallback(
+    fallback_enabled: bool,
+    command: &Commands,
+    missing_id: &str,
+) -> bool {
+    if !fallback_enabled {
+        return false;
+    }
+    matches!(command_session_id(command), Some(id) if id == missing_id)
+}
+
+fn command_session_id(command: &Commands) -> Option<&str> {
+    match command {
+        Commands::Attach(args) => Some(&args.id),
+        Commands::Inspect(args) => Some(&args.id),
+        Commands::Logs(args) => Some(&args.id),
+        Commands::Stop(args) => args.id.as_deref(),
+        Commands::Restart(args) => args.id.as_deref(),
+        Commands::Suspend(args) => args.id.as_deref(),
+        Commands::Resume(args) => args.id.as_deref(),
+        Commands::Status(args) => Some(&args.id),
+        Commands::Dap(args) => dap_command_session_id(&args.command),
+        Commands::Doctor(args) => doctor_command_session_id(&args.command),
+        _ => None,
+    }
+}
+
+fn dap_command_session_id(command: &DapCommands) -> Option<&str> {
+    match command {
+        DapCommands::Request(args) => Some(&args.id),
+        DapCommands::Batch(args) => Some(&args.id),
+        DapCommands::Breakpoints(args) => Some(&args.id),
+        DapCommands::ExceptionBreakpoints(args) => Some(&args.id),
+        DapCommands::Evaluate(args) => Some(&args.id),
+        DapCommands::SetVariable(args) => Some(&args.id),
+        DapCommands::Continue(args) => Some(&args.id),
+        DapCommands::Pause(args) => Some(&args.id),
+        DapCommands::Next(args) => Some(&args.id),
+        DapCommands::StepIn(args) => Some(&args.id),
+        DapCommands::StepOut(args) => Some(&args.id),
+        DapCommands::Disconnect(args) => Some(&args.id),
+        DapCommands::Terminate(args) => Some(&args.id),
+        DapCommands::AdoptSubprocess(args) => Some(&args.id),
+        DapCommands::Events(args) => Some(&args.id),
+        DapCommands::Threads(args) => Some(&args.id),
+        DapCommands::StackTrace(args) => Some(&args.id),
+        DapCommands::Scopes(args) => Some(&args.id),
+        DapCommands::Variables(args) => Some(&args.id),
+    }
+}
+
+fn doctor_command_session_id(command: &DoctorCommands) -> Option<&str> {
+    match command {
+        DoctorCommands::Debug(args) => Some(&args.id),
+    }
 }

@@ -97,3 +97,62 @@ fn python_debug_command_can_disable_debugpy_subprocess_injection() {
         ]
     );
 }
+
+#[test]
+fn node_debug_command_uses_host_port_and_wait_flag() {
+    let spec = LaunchSpec {
+        name: "node-debug".to_string(),
+        runtime: RuntimeKind::Node,
+        entry: "app.js".to_string(),
+        args: vec!["--env".to_string(), "dev".to_string()],
+        cwd: ".".to_string(),
+        env: Default::default(),
+        managed: false,
+        mode: LaunchMode::Debug,
+        debug: Some(DebugConfig {
+            host: "127.0.0.1".to_string(),
+            port: 9229,
+            wait_for_client: true,
+            subprocess: true,
+        }),
+        prelaunch_task: None,
+        poststop_task: None,
+    };
+
+    let command = build_command(&spec).expect("node debug command should build");
+    assert_eq!(
+        command,
+        vec![
+            "node",
+            "--inspect-brk=127.0.0.1:9229",
+            "app.js",
+            "--env",
+            "dev"
+        ]
+    );
+}
+
+#[test]
+fn node_debug_command_can_disable_wait_for_client() {
+    let spec = LaunchSpec {
+        name: "node-debug-no-wait".to_string(),
+        runtime: RuntimeKind::Node,
+        entry: "app.js".to_string(),
+        args: vec![],
+        cwd: ".".to_string(),
+        env: Default::default(),
+        managed: false,
+        mode: LaunchMode::Debug,
+        debug: Some(DebugConfig {
+            host: "127.0.0.1".to_string(),
+            port: 9230,
+            wait_for_client: false,
+            subprocess: true,
+        }),
+        prelaunch_task: None,
+        poststop_task: None,
+    };
+
+    let command = build_command(&spec).expect("node debug command should build");
+    assert_eq!(command, vec!["node", "--inspect=127.0.0.1:9230", "app.js"]);
+}

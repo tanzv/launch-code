@@ -33,6 +33,18 @@ struct RestartPlan {
 }
 
 pub(crate) fn api_list_sessions(store: &StateStore) -> Result<Vec<SessionRecord>, AppError> {
+    let state = store.load()?;
+    if state.sessions.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !state
+        .sessions
+        .values()
+        .any(session_requires_reconcile_for_list)
+    {
+        return Ok(state.sessions.values().cloned().collect());
+    }
+
     store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let ids: Vec<String> = state.sessions.keys().cloned().collect();
@@ -46,6 +58,14 @@ pub(crate) fn api_list_sessions(store: &StateStore) -> Result<Vec<SessionRecord>
 
         Ok(state.sessions.values().cloned().collect())
     })
+}
+
+fn session_requires_reconcile_for_list(session: &SessionRecord) -> bool {
+    session.pid.is_some()
+        || matches!(
+            session.status,
+            SessionStatus::Running | SessionStatus::Unknown
+        )
 }
 
 pub(crate) fn api_cleanup_sessions(

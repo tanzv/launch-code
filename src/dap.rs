@@ -211,9 +211,9 @@ fn build_bootstrap_requests(
         .ok_or_else(|| AppError::SessionMissingDebugMeta(session.id.clone()))?;
 
     if !matches!(session.spec.runtime, RuntimeKind::Python) {
-        return Err(AppError::Dap(
-            "auto-bootstrap currently supports python debug sessions only".to_string(),
-        ));
+        return Err(AppError::UnsupportedDapRuntime(runtime_label(
+            &session.spec.runtime,
+        )));
     }
 
     let fallback_host = session
@@ -394,6 +394,11 @@ pub(crate) fn proxy_for_session(
     } else {
         base_session
     };
+    if !matches!(session.spec.runtime, RuntimeKind::Python) {
+        return Err(AppError::UnsupportedDapRuntime(runtime_label(
+            &session.spec.runtime,
+        )));
+    }
     let meta = session
         .debug_meta
         .as_ref()
@@ -483,5 +488,13 @@ impl DapProxy {
             Self::Tcp(inner) => inner.pop_events(max, timeout),
             Self::PythonAdapter(inner) => inner.pop_events(max, timeout),
         }
+    }
+}
+
+fn runtime_label(runtime: &RuntimeKind) -> String {
+    match runtime {
+        RuntimeKind::Python => "python".to_string(),
+        RuntimeKind::Node => "node".to_string(),
+        RuntimeKind::Rust => "rust".to_string(),
     }
 }

@@ -44,6 +44,10 @@ pub enum AppError {
     InvalidLogRegex(String),
     #[error("python debug requires debugpy; install with `python -m pip install debugpy`")]
     PythonDebugpyUnavailable,
+    #[error("debug mode currently supports python and node runtimes only: {0}")]
+    UnsupportedDebugRuntime(String),
+    #[error("dap operations currently support python runtime only: {0}")]
+    UnsupportedDapRuntime(String),
     #[error("http server error: {0}")]
     Http(String),
     #[error("dap error: {0}")]
@@ -54,6 +58,8 @@ pub enum AppError {
     InvalidLinkPath(String),
     #[error("invalid start options: {0}")]
     InvalidStartOptions(String),
+    #[error("confirmation required: {0}")]
+    ConfirmationRequired(String),
 }
 
 impl AppError {
@@ -79,11 +85,14 @@ impl AppError {
             Self::InvalidEnvFileLine(_) => "invalid_env_file_line",
             Self::InvalidLogRegex(_) => "invalid_log_regex",
             Self::PythonDebugpyUnavailable => "python_debugpy_unavailable",
+            Self::UnsupportedDebugRuntime(_) => "unsupported_debug_runtime",
+            Self::UnsupportedDapRuntime(_) => "unsupported_dap_runtime",
             Self::Http(_) => "http_error",
             Self::Dap(_) => "dap_error",
             Self::LinkNotFound(_) => "link_not_found",
             Self::InvalidLinkPath(_) => "invalid_link_path",
             Self::InvalidStartOptions(_) => "invalid_start_options",
+            Self::ConfirmationRequired(_) => "confirmation_required",
         }
     }
 
@@ -93,7 +102,12 @@ impl AppError {
             | Self::InvalidEnvFileLine(_)
             | Self::InvalidLogRegex(_)
             | Self::ProfileBundleVersionUnsupported(_)
-            | Self::ProfileValidationFailed(_) => 2,
+            | Self::ProfileValidationFailed(_)
+            | Self::UnsupportedDebugRuntime(_)
+            | Self::UnsupportedDapRuntime(_) => 2,
+            Self::InvalidLinkPath(_) => 2,
+            Self::InvalidStartOptions(_) => 2,
+            Self::ConfirmationRequired(_) => 2,
             Self::SessionNotFound(_)
             | Self::SessionMissingPid(_)
             | Self::SessionMissingDebugMeta(_)
@@ -104,8 +118,6 @@ impl AppError {
             Self::PythonDebugpyUnavailable => 4,
             Self::Dap(_) => 5,
             Self::Http(_) => 6,
-            Self::InvalidLinkPath(_) => 2,
-            Self::InvalidStartOptions(_) => 2,
             _ => 1,
         }
     }

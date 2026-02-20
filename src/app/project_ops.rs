@@ -637,6 +637,7 @@ fn collect_global_project_rows() -> Result<Vec<GlobalProjectRow>, AppError> {
 }
 
 fn collect_global_link_targets() -> Result<Vec<GlobalLinkTarget>, AppError> {
+    let _ = super::link_ops::auto_prune_stale_links_for_global_scan();
     let registry = load_registry()?;
     let mut seen_paths = BTreeSet::new();
     let mut targets = Vec::new();

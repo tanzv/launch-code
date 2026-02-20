@@ -20,7 +20,7 @@ pub use dap_args::{
     DapVariablesFilterArg,
 };
 pub use doctor_args::{DoctorArgs, DoctorCommands, DoctorDebugArgs};
-pub use link_args::{LinkAddArgs, LinkArgs, LinkCommands, LinkNameArgs};
+pub use link_args::{LinkAddArgs, LinkArgs, LinkCommands, LinkNameArgs, LinkPruneArgs};
 pub use project_args::{
     ProjectArgs, ProjectClearArgs, ProjectCommands, ProjectListArgs, ProjectListFieldArg,
     ProjectSetArgs, ProjectUnsetArgs, ProjectUnsetFieldArg,
@@ -69,7 +69,7 @@ pub struct Cli {
     pub command: Commands,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Clone, Subcommand)]
 pub enum Commands {
     #[command(
         about = "Start a new run session.",
@@ -94,16 +94,18 @@ pub enum Commands {
     #[command(about = "Restart a session process.")]
     Restart(RestartArgs),
     #[command(about = "Suspend a running session.")]
-    Suspend(SessionIdArgs),
+    Suspend(SuspendArgs),
     #[command(about = "Resume a suspended session.")]
-    Resume(SessionIdArgs),
+    Resume(ResumeArgs),
     #[command(about = "Show reconciled status for a session.")]
     Status(SessionIdArgs),
     #[command(about = "List known sessions with optional filters.")]
     List(ListArgs),
+    #[command(about = "List only running sessions across the current scope.")]
+    Running,
     #[command(
-        about = "Remove stale session records from local state.",
-        long_about = "Remove session records from local state. By default cleanup targets stopped and unknown sessions. Use --status to narrow scope and --dry-run to preview matched records."
+        about = "Remove stale session records.",
+        long_about = "Remove session records matching selected statuses. In global scope cleanup runs across all linked workspaces; use --local to limit to the current workspace. By default cleanup targets stopped and unknown sessions. Use --status to narrow scope and --dry-run to preview matched records."
     )]
     Cleanup(CleanupArgs),
     #[command(about = "Manage saved run/debug profiles.")]
@@ -251,8 +253,78 @@ pub enum CleanupStatusArg {
 
 #[derive(Debug, Clone, Args)]
 pub struct StopArgs {
-    #[arg(long, help = "Target session id.")]
-    pub id: String,
+    #[arg(
+        long,
+        required_unless_present = "all",
+        conflicts_with_all = [
+            "all",
+            "status",
+            "runtime",
+            "name_contains",
+            "dry_run",
+            "yes",
+            "continue_on_error",
+            "max_failures"
+        ],
+        help = "Target session id."
+    )]
+    pub id: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        required_unless_present = "id",
+        help = "Apply operation to all matched sessions in scope."
+    )]
+    pub all: bool,
+    #[arg(
+        long,
+        value_enum,
+        requires = "all",
+        help = "Filter matched sessions by reconciled status."
+    )]
+    pub status: Option<ListStatusArg>,
+    #[arg(
+        long,
+        value_enum,
+        requires = "all",
+        help = "Filter matched sessions by runtime kind."
+    )]
+    pub runtime: Option<RuntimeArg>,
+    #[arg(
+        long,
+        requires = "all",
+        help = "Case-insensitive substring filter on session name."
+    )]
+    pub name_contains: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "all",
+        help = "Preview matched sessions without applying stop."
+    )]
+    pub dry_run: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "all",
+        help = "Confirm global non-dry-run batch operation (required in global scope)."
+    )]
+    pub yes: bool,
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        requires = "all",
+        help = "Continue processing matched sessions after individual failures (set false for fail-fast)."
+    )]
+    pub continue_on_error: bool,
+    #[arg(
+        long,
+        default_value_t = 0,
+        requires = "all",
+        help = "Maximum allowed failures before stopping batch apply; 0 means unlimited."
+    )]
+    pub max_failures: usize,
     #[arg(
         long,
         default_value_t = false,
@@ -269,8 +341,78 @@ pub struct StopArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct RestartArgs {
-    #[arg(long, help = "Target session id.")]
-    pub id: String,
+    #[arg(
+        long,
+        required_unless_present = "all",
+        conflicts_with_all = [
+            "all",
+            "status",
+            "runtime",
+            "name_contains",
+            "dry_run",
+            "yes",
+            "continue_on_error",
+            "max_failures"
+        ],
+        help = "Target session id."
+    )]
+    pub id: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        required_unless_present = "id",
+        help = "Apply operation to all matched sessions in scope."
+    )]
+    pub all: bool,
+    #[arg(
+        long,
+        value_enum,
+        requires = "all",
+        help = "Filter matched sessions by reconciled status."
+    )]
+    pub status: Option<ListStatusArg>,
+    #[arg(
+        long,
+        value_enum,
+        requires = "all",
+        help = "Filter matched sessions by runtime kind."
+    )]
+    pub runtime: Option<RuntimeArg>,
+    #[arg(
+        long,
+        requires = "all",
+        help = "Case-insensitive substring filter on session name."
+    )]
+    pub name_contains: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "all",
+        help = "Preview matched sessions without applying restart."
+    )]
+    pub dry_run: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "all",
+        help = "Confirm global non-dry-run batch operation (required in global scope)."
+    )]
+    pub yes: bool,
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        requires = "all",
+        help = "Continue processing matched sessions after individual failures (set false for fail-fast)."
+    )]
+    pub continue_on_error: bool,
+    #[arg(
+        long,
+        default_value_t = 0,
+        requires = "all",
+        help = "Maximum allowed failures before stopping batch apply; 0 means unlimited."
+    )]
+    pub max_failures: usize,
     #[arg(
         long,
         default_value_t = true,
@@ -291,6 +433,158 @@ pub struct RestartArgs {
         help = "Graceful stop timeout in milliseconds before optional force kill."
     )]
     pub grace_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SuspendArgs {
+    #[arg(
+        long,
+        required_unless_present = "all",
+        conflicts_with_all = [
+            "all",
+            "status",
+            "runtime",
+            "name_contains",
+            "dry_run",
+            "yes",
+            "continue_on_error",
+            "max_failures"
+        ],
+        help = "Target session id."
+    )]
+    pub id: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        required_unless_present = "id",
+        help = "Apply operation to all matched sessions in scope."
+    )]
+    pub all: bool,
+    #[arg(
+        long,
+        value_enum,
+        requires = "all",
+        help = "Filter matched sessions by reconciled status."
+    )]
+    pub status: Option<ListStatusArg>,
+    #[arg(
+        long,
+        value_enum,
+        requires = "all",
+        help = "Filter matched sessions by runtime kind."
+    )]
+    pub runtime: Option<RuntimeArg>,
+    #[arg(
+        long,
+        requires = "all",
+        help = "Case-insensitive substring filter on session name."
+    )]
+    pub name_contains: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "all",
+        help = "Preview matched sessions without applying suspend."
+    )]
+    pub dry_run: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "all",
+        help = "Confirm global non-dry-run batch operation (required in global scope)."
+    )]
+    pub yes: bool,
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        requires = "all",
+        help = "Continue processing matched sessions after individual failures (set false for fail-fast)."
+    )]
+    pub continue_on_error: bool,
+    #[arg(
+        long,
+        default_value_t = 0,
+        requires = "all",
+        help = "Maximum allowed failures before stopping batch apply; 0 means unlimited."
+    )]
+    pub max_failures: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ResumeArgs {
+    #[arg(
+        long,
+        required_unless_present = "all",
+        conflicts_with_all = [
+            "all",
+            "status",
+            "runtime",
+            "name_contains",
+            "dry_run",
+            "yes",
+            "continue_on_error",
+            "max_failures"
+        ],
+        help = "Target session id."
+    )]
+    pub id: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        required_unless_present = "id",
+        help = "Apply operation to all matched sessions in scope."
+    )]
+    pub all: bool,
+    #[arg(
+        long,
+        value_enum,
+        requires = "all",
+        help = "Filter matched sessions by reconciled status."
+    )]
+    pub status: Option<ListStatusArg>,
+    #[arg(
+        long,
+        value_enum,
+        requires = "all",
+        help = "Filter matched sessions by runtime kind."
+    )]
+    pub runtime: Option<RuntimeArg>,
+    #[arg(
+        long,
+        requires = "all",
+        help = "Case-insensitive substring filter on session name."
+    )]
+    pub name_contains: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "all",
+        help = "Preview matched sessions without applying resume."
+    )]
+    pub dry_run: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "all",
+        help = "Confirm global non-dry-run batch operation (required in global scope)."
+    )]
+    pub yes: bool,
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        requires = "all",
+        help = "Continue processing matched sessions after individual failures (set false for fail-fast)."
+    )]
+    pub continue_on_error: bool,
+    #[arg(
+        long,
+        default_value_t = 0,
+        requires = "all",
+        help = "Maximum allowed failures before stopping batch apply; 0 means unlimited."
+    )]
+    pub max_failures: usize,
 }
 
 #[derive(Debug, Clone, Args)]

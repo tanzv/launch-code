@@ -604,6 +604,106 @@ fn config_validate_supports_rust_runtime_profiles() {
 }
 
 #[test]
+fn config_validate_rejects_rust_debug_runtime_profiles() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let cargo_manifest = tmp.path().join("Cargo.toml");
+    fs::write(
+        &cargo_manifest,
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("cargo manifest should be written");
+
+    let mut save_cmd = cargo_bin_cmd!("launch-code");
+    let save_output = save_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("rust-debug-profile")
+        .arg("--runtime")
+        .arg("rust")
+        .arg("--entry")
+        .arg("demo-bin")
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .arg("--mode")
+        .arg("debug")
+        .output()
+        .expect("save rust debug profile should run");
+    assert!(
+        save_output.status.success(),
+        "save rust debug profile should succeed"
+    );
+
+    let mut validate_cmd = cargo_bin_cmd!("launch-code");
+    let validate_output = validate_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("validate")
+        .arg("--name")
+        .arg("rust-debug-profile")
+        .output()
+        .expect("validate rust debug profile should run");
+    assert!(
+        !validate_output.status.success(),
+        "validate should reject rust debug profile"
+    );
+    let stderr = String::from_utf8(validate_output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("python and node runtimes only"),
+        "validation error should explain debug runtime support"
+    );
+}
+
+#[test]
+fn config_validate_accepts_node_debug_runtime_profiles() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let entry = tmp.path().join("app.js");
+    fs::write(&entry, "console.log('ok')\n").expect("node entry should be written");
+
+    let mut save_cmd = cargo_bin_cmd!("launch-code");
+    let save_output = save_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("node-debug-profile")
+        .arg("--runtime")
+        .arg("node")
+        .arg("--entry")
+        .arg(entry.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .arg("--mode")
+        .arg("debug")
+        .output()
+        .expect("save node debug profile should run");
+    assert!(
+        save_output.status.success(),
+        "save node debug profile should succeed"
+    );
+
+    let mut validate_cmd = cargo_bin_cmd!("launch-code");
+    let validate_output = validate_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("validate")
+        .arg("--name")
+        .arg("node-debug-profile")
+        .output()
+        .expect("validate node debug profile should run");
+    assert!(
+        validate_output.status.success(),
+        "validate should accept node debug profile"
+    );
+    let stdout = String::from_utf8(validate_output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("valid=true"),
+        "validate output should indicate success"
+    );
+}
+
+#[test]
 fn config_validate_all_succeeds_for_valid_profiles() {
     let tmp = tempdir().expect("temp dir should exist");
     let entry_a = tmp.path().join("a.py");

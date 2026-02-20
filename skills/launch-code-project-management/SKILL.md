@@ -10,6 +10,8 @@ description: Use when using lcode (launch-code) to run, debug, supervise, and tr
 Use this skill to operate lcode (launch-code) across the daily development cycle:
 
 - Run and debug project code with reproducible commands.
+- Debug mode currently supports Python and Node runtimes.
+- Direct DAP operations currently support Python runtime only.
 - Supervise session lifecycle and recover from failures.
 - Inspect logs, process state, and parent/child debug topology.
 - Run doctor diagnostics for debug channels with actionable recovery hints.
@@ -35,8 +37,16 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Global link metadata is stored at `$HOME/.launch-code/links.json`.
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
 - `lcode list` defaults to global aggregation across all registered links.
+- `lcode running` lists only running sessions across the current scope.
+- `lcode cleanup` defaults to global cleanup across all registered links.
+- `lcode stop --all`, `lcode restart --all`, `lcode suspend --all`, and `lcode resume --all` support batch lifecycle control in scope (`--local`, `--link`, or global default).
+- Global non-dry-run batch apply requires explicit `--yes` confirmation; use `--dry-run` for preview.
+- Batch lifecycle commands support failure control via `--continue-on-error` and `--max-failures`.
+- Session-id commands auto-route by `--id` across links in global scope when `--link` is omitted (`stop/status/inspect/logs/restart/suspend/resume/attach/dap/doctor`).
 - `lcode project show` defaults to global project metadata aggregation across links.
 - Register links with `lcode link add --name <name> --path <workspace>` and use `--link <name>` to route commands.
+- Use `lcode link prune` to clean stale links (`missing_path`, `temporary_empty_path`).
+- Set `LCODE_AUTO_PRUNE_VERBOSE=1` to print auto-prune telemetry to stderr in global scan commands.
 - `--local` forces workspace-local scope.
 - `--global` forces global-link behavior when environment variables would otherwise force local scope.
 
@@ -69,8 +79,11 @@ lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678
 ```bash
 lcode link add --name demo --path /path/to/workspace
 lcode link list
+lcode link prune --dry-run
+lcode link prune
 lcode link show --name demo
 lcode --link demo list
+lcode running
 lcode --link demo status --id <session_id>
 ```
 
@@ -103,10 +116,17 @@ lcode suspend --id <session_id>
 lcode resume --id <session_id>
 lcode restart --id <session_id>
 lcode stop --id <session_id>
+lcode stop --all --status running --yes
+lcode restart --all --dry-run --status running
+lcode suspend --all --dry-run --status running
+lcode resume --all --dry-run --status suspended
+lcode suspend --all --status running --max-failures 1
+lcode suspend --all --status running --continue-on-error false
 lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
 lcode daemon --interval-ms 1000
 lcode cleanup
 lcode cleanup --dry-run --status stopped
+lcode --local cleanup
 ```
 
 Use force-stop only when needed:
@@ -234,7 +254,10 @@ curl -sS -X DELETE \
 | `stop` or `restart` reports state conflict | Concurrent actor changed PID/state | Re-run once after `lcode status --id <session_id>` | Serialize lifecycle actions per session id |
 | `stop` times out | Worker ignores graceful signal | `lcode inspect --id <session_id> --tail 100` | `lcode stop --id <session_id> --force --grace-timeout-ms 100` |
 | `start` fails with `invalid_start_options` | Incompatible startup flags | Check `--foreground`, `--tail`, and `--log-mode` combination | Use `--tail` only for background mode; use `--log-mode stdout|tee` only with `--foreground` |
+| `debug` fails with `unsupported_debug_runtime` | Debug mode is requested for unsupported runtime | Check `--runtime` and profile `mode` | Use Python/Node runtime for debug mode, or switch Rust to run mode |
+| `dap` fails with `unsupported_dap_runtime` | DAP operations are requested for non-Python runtime | Check target session runtime from `lcode list` | Use Python debug sessions for `dap` commands, or attach Node sessions from IDE using `attach_vscode` metadata |
 | `list` shows `no sessions` unexpectedly | No linked workspace contains sessions, or links are missing | `lcode link list` then `lcode --link <name> list` | Register correct workspace links, or run from the project once to bootstrap link metadata |
+| `list` is slow in global mode | Large stale link registry (missing/temp workspaces) | `lcode --json link prune --dry-run` | Run `lcode link prune` and re-run `lcode list` |
 | No useful log lines | Wrong filters or log path not present | Remove filters and retry `logs --tail 500` | Use `inspect` `log.text` and simplify regex/include filters |
 | Child debug process not visible | Subprocess event not adopted | `lcode dap events --id <session_id> --max 50` | `lcode dap adopt-subprocess --id <session_id>` |
 | `doctor debug` reports `D001` | DAP thread request failed | `lcode dap threads --id <session_id>` | Restart session or increase `--timeout-ms` |

@@ -10,7 +10,10 @@ Recommended command: `lcode` (compatibility command: `launch-code`).
 - Workspace session persistence (`.launch-code/state.json`)
 - Atomic state updates for concurrent CLI/HTTP writers (multi-process safe persistence)
 - Process lifecycle controls (`stop`, `restart`, `suspend`, `resume`)
-- Session state cleanup for stale records (`cleanup`)
+- Batch lifecycle controls (`stop --all`, `restart --all`, `suspend --all`, `resume --all`) with scope-aware filtering
+- Batch failure controls (`--continue-on-error`, `--max-failures`) for `--all` lifecycle commands
+- Global non-dry-run batch lifecycle apply requires explicit `--yes` confirmation
+- Session state cleanup for stale records (`cleanup`, global-by-default)
 - Graceful/forced stop strategy (`stop --grace-timeout-ms`, optional `--force`)
 - Managed sessions with automatic restart after worker exit
 - Reconciliation daemon (`daemon`)
@@ -18,7 +21,7 @@ Recommended command: `lcode` (compatibility command: `launch-code`).
 - VS Code `launch.json` compatibility (`launch` command)
 - Saved profile management (`config save/list/show/run/delete`)
 - Workspace project metadata management (`project show/list/set/unset/clear`)
-- Global workspace link registry (`link add/list/show/remove`) with `--link <name>` routing
+- Global workspace link registry (`link add/list/show/remove/prune`) with `--link <name>` routing
 - Default global session listing (`lcode list`) aggregated across registered links
 - `preLaunchTask` and `postStopTask` hooks for launch configurations
 - Debug port conflict fallback with session metadata output
@@ -47,8 +50,16 @@ State scope:
 - Global link metadata is stored at `$HOME/.launch-code/links.json`
 - Runtime writes (start/debug/launch/config/project/session actions) default to the current workspace link
 - `lcode list` defaults to global aggregation across all registered links (unless `--local`/`--link` is used)
+- `lcode running` is a shortcut for listing only running sessions in the current scope
+- `lcode cleanup` defaults to global cleanup across registered links (unless `--local`/`--link` is used)
+- Global `list`/`running`/`cleanup`/`project show` can auto-prune stale links when link registry is very large
+- Session-id commands (for example `stop`, `status`, `inspect`, `logs`, `restart`, `suspend`, `resume`, `attach`, `dap`, `doctor`) auto-route by `--id` across links when global scope is active and `--link` is omitted
+- Session lookup cache is stored at `$HOME/.launch-code/session-index.json` to accelerate repeated cross-link `--id` routing
 - `lcode project show` defaults to global project metadata aggregation across links
 - Use `lcode link add --name <name> --path <workspace>` to register a workspace explicitly
+- Use `lcode link prune` to clean stale links (missing paths and temporary empty workspaces)
+- If global listing becomes slow, run `lcode link prune --dry-run` then `lcode link prune`
+- Set `LCODE_AUTO_PRUNE_VERBOSE=1` to emit auto-prune telemetry to stderr during global scans
 - Use `--link <name>` to route commands to one linked workspace
 - Use `--local` to force current workspace scope (`LAUNCH_CODE_HOME` or current directory)
 
@@ -60,6 +71,8 @@ State scope:
 ## Python Debug Requirements
 
 Python debug mode uses `debugpy`.
+Node debug mode is supported for process startup and endpoint metadata.
+Rust debug mode is currently not supported.
 
 ```bash
 python -m pip install debugpy
@@ -82,6 +95,7 @@ lcode start --runtime python --entry app.py --cwd . --foreground --log-mode tee
 lcode start --runtime python --entry app.py --cwd . --tail
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
 lcode debug --runtime python --entry app.py --cwd . --env-file ./.env.base --env DEBUG=1
+lcode debug --runtime node --entry app.js --cwd . --host 127.0.0.1 --port 9229
 lcode launch --name "Python Demo" --mode run
 lcode config save --name "Python Profile" --runtime python --entry app.py --cwd . --mode debug
 lcode config list
@@ -98,8 +112,11 @@ lcode config delete --name "Python Profile"
 lcode link add --name demo --path /path/to/workspace
 lcode link list
 lcode list
+lcode running
 lcode --link demo list
 lcode --local list
+lcode link prune --dry-run
+lcode link prune
 lcode project show
 lcode project list
 lcode project list --field name --field repository --all
@@ -140,6 +157,13 @@ lcode status --id <session_id>
 lcode list
 lcode cleanup
 lcode cleanup --dry-run --status stopped
+lcode --local cleanup
+lcode stop --all --status running --yes
+lcode restart --all --dry-run --status running
+lcode suspend --all --dry-run --status running
+lcode resume --all --dry-run --status suspended
+lcode suspend --all --status running --max-failures 1
+lcode suspend --all --status running --continue-on-error false
 lcode suspend --id <session_id>
 lcode resume --id <session_id>
 lcode restart --id <session_id>
@@ -188,6 +212,8 @@ Pass `--json` on any command to get machine-readable results.
 Success responses:
 
 - Message style: `{"ok":true,"message":"..."}`
+- Session command style (`status`/`stop`/`restart`/`suspend`/`resume`): `{"ok":true,"action":"status","message":"...","session":{...}}`
+- Batch command style (`stop/restart/suspend/resume --all`): `{"ok":true,"action":"stop","scope":"global","all":true,"matched_count":2,"success_count":2,"failed_count":0,"items":[...]}`
 - List style: `{"ok":true,"items":[...]}`
 - Text block style: `{"ok":true,"text":"..."}`
 
@@ -209,7 +235,10 @@ Representative error codes:
 - `invalid_env_file_line`
 - `invalid_log_regex`
 - `invalid_start_options`
+- `confirmation_required`
 - `python_debugpy_unavailable`
+- `unsupported_debug_runtime`
+- `unsupported_dap_runtime`
 - `dap_error`
 - `http_error`
 
@@ -381,6 +410,7 @@ curl -sS \
 ## Direct DAP CLI
 
 You can issue DAP commands directly without the HTTP control plane:
+Direct DAP commands currently support Python debug sessions only.
 
 - `lcode dap request --id <session_id> --command <dap_command> --arguments '{"key":"value"}' --timeout-ms 1500`
 - `lcode dap batch --id <session_id> --file ./dap-batch.json --timeout-ms 1500`

@@ -10,6 +10,8 @@ mod session_api;
 mod session_cli;
 mod spec_ops;
 
+use std::collections::BTreeSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::thread;
@@ -31,8 +33,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::cli::{
-    Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, ListArgs, LogsArgs, SessionIdArgs,
-    StartArgs, StartLogModeArg,
+    CleanupArgs, Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, ListArgs, LogsArgs,
+    RestartArgs, ResumeArgs, SessionIdArgs, StartArgs, StartLogModeArg, StopArgs, SuspendArgs,
 };
 use crate::error::AppError;
 use crate::output;
@@ -65,6 +67,7 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
         Commands::Resume(args) => session_cli::handle_resume(store, &args),
         Commands::Status(args) => session_cli::handle_status(store, &args),
         Commands::List(args) => session_cli::handle_list(store, &args),
+        Commands::Running => session_cli::handle_running(store),
         Commands::Cleanup(args) => session_cli::handle_cleanup(store, &args),
         Commands::Config(args) => config_ops::handle_config(store, &args),
         Commands::Project(args) => project_ops::handle_project(store, &args),
@@ -81,8 +84,100 @@ pub(crate) fn execute_global_list(args: &ListArgs, workspace_root: &Path) -> Res
     session_cli::handle_list_global_default(args)
 }
 
+pub(crate) fn execute_global_running(workspace_root: &Path) -> Result<(), AppError> {
+    crate::link_registry::ensure_link_for_workspace(workspace_root)?;
+    session_cli::handle_running_global_default()
+}
+
+pub(crate) fn execute_global_cleanup(
+    args: &CleanupArgs,
+    workspace_root: &Path,
+) -> Result<(), AppError> {
+    crate::link_registry::ensure_link_for_workspace(workspace_root)?;
+    session_cli::handle_cleanup_global_default(args)
+}
+
+pub(crate) fn execute_global_stop(args: &StopArgs, workspace_root: &Path) -> Result<(), AppError> {
+    crate::link_registry::ensure_link_for_workspace(workspace_root)?;
+    session_cli::handle_stop_global_default(args)
+}
+
+pub(crate) fn execute_global_restart(
+    args: &RestartArgs,
+    workspace_root: &Path,
+) -> Result<(), AppError> {
+    crate::link_registry::ensure_link_for_workspace(workspace_root)?;
+    session_cli::handle_restart_global_default(args)
+}
+
+pub(crate) fn execute_global_suspend(
+    args: &SuspendArgs,
+    workspace_root: &Path,
+) -> Result<(), AppError> {
+    crate::link_registry::ensure_link_for_workspace(workspace_root)?;
+    session_cli::handle_suspend_global_default(args)
+}
+
+pub(crate) fn execute_global_resume(
+    args: &ResumeArgs,
+    workspace_root: &Path,
+) -> Result<(), AppError> {
+    crate::link_registry::ensure_link_for_workspace(workspace_root)?;
+    session_cli::handle_resume_global_default(args)
+}
+
 pub(crate) fn execute_global_project_show() -> Result<(), AppError> {
     project_ops::handle_project_show_global_default()
+}
+
+pub(crate) fn resolve_global_store_for_session_id(
+    session_id: &str,
+    current_store: &StateStore,
+) -> Result<Option<StateStore>, AppError> {
+    let current_root = normalize_lookup_path(current_store.root_path());
+
+    if let Some(cached_path) = crate::session_lookup::lookup_session_path(session_id)? {
+        let cached_store = StateStore::new(cached_path);
+        if normalize_lookup_path(cached_store.root_path()) != current_root {
+            let cached_state = cached_store.load();
+            if matches!(
+                cached_state,
+                Ok(ref state) if state.sessions.contains_key(session_id)
+            ) {
+                return Ok(Some(cached_store));
+            }
+        }
+        let _ = crate::session_lookup::remove_session_mapping(session_id);
+    }
+
+    let registry = crate::link_registry::load_registry()?;
+    let mut seen_paths = BTreeSet::new();
+
+    for item in registry.list() {
+        if !seen_paths.insert(item.path.clone()) {
+            continue;
+        }
+
+        let store = StateStore::new(&item.path);
+        if normalize_lookup_path(store.root_path()) == current_root {
+            continue;
+        }
+
+        let state = match store.load() {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if state.sessions.contains_key(session_id) {
+            let _ = crate::session_lookup::upsert_session_path(session_id, store.root_path());
+            return Ok(Some(store));
+        }
+    }
+
+    Ok(None)
+}
+
+fn normalize_lookup_path(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -224,6 +319,7 @@ pub(super) fn handle_start_spec(
             state.sessions.insert(session_id.clone(), record);
             Ok(())
         })?;
+        let _ = crate::session_lookup::upsert_session_path(&session_id, store.root_path());
 
         let mut output =
             format!("session_id={session_id} pid={pid} status=stopped mode=foreground");
@@ -254,6 +350,7 @@ pub(super) fn handle_start_spec(
         state.sessions.insert(session_id.clone(), record);
         Ok(())
     })?;
+    let _ = crate::session_lookup::upsert_session_path(&session_id, store.root_path());
 
     let mut output = format!("session_id={session_id} pid={pid} status=running");
     append_debug_meta_output(&mut output, debug_meta_output.as_ref());
@@ -408,6 +505,11 @@ fn prepare_debug_spec(spec: &mut LaunchSpec) -> Result<Option<DebugSessionMeta>,
     if !matches!(spec.mode, LaunchMode::Debug) {
         return Ok(None);
     }
+    if !matches!(spec.runtime, RuntimeKind::Python | RuntimeKind::Node) {
+        return Err(AppError::UnsupportedDebugRuntime(
+            spec_ops::runtime_label(&spec.runtime).to_string(),
+        ));
+    }
 
     let debug = spec.debug.clone().unwrap_or_default();
     let resolved = resolve_debug_config(&debug)?;
@@ -485,6 +587,21 @@ fn build_debug_session_doc(session: &SessionRecord, meta: &DebugSessionMeta) -> 
                     "remoteRoot": "."
                 }
             ]
+        });
+        if let Some(obj) = doc.as_object_mut() {
+            obj.insert("attach_vscode".to_string(), attach);
+        }
+    }
+    if matches!(session.spec.runtime, RuntimeKind::Node) {
+        let attach = json!({
+            "name": format!("Attach ({})", session.spec.name),
+            "type": "pwa-node",
+            "request": "attach",
+            "address": meta.host,
+            "port": meta.active_port,
+            "restart": true,
+            "localRoot": "${workspaceFolder}",
+            "remoteRoot": "."
         });
         if let Some(obj) = doc.as_object_mut() {
             obj.insert("attach_vscode".to_string(), attach);
