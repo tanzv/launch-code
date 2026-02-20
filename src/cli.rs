@@ -99,10 +99,16 @@ pub enum Commands {
     Resume(ResumeArgs),
     #[command(about = "Show reconciled status for a session.")]
     Status(SessionIdArgs),
-    #[command(about = "List known sessions with optional filters.")]
+    #[command(
+        about = "List known sessions with optional filters.",
+        visible_alias = "ps"
+    )]
     List(ListArgs),
-    #[command(about = "List only running sessions across the current scope.")]
-    Running,
+    #[command(
+        about = "List only running sessions across the current scope.",
+        long_about = "List sessions with reconciled running status. Defaults to a compact table optimized for interactive use. Use --wide to show full columns."
+    )]
+    Running(RunningArgs),
     #[command(
         about = "Remove stale session records.",
         long_about = "Remove session records matching selected statuses. In global scope cleanup runs across all linked workspaces; use --local to limit to the current workspace. By default cleanup targets stopped and unknown sessions. Use --status to narrow scope and --dry-run to preview matched records."
@@ -215,8 +221,21 @@ pub struct LaunchArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct SessionIdArgs {
-    #[arg(long, help = "Target session id.")]
-    pub id: String,
+    #[arg(
+        long,
+        required_unless_present = "session_id",
+        conflicts_with = "session_id",
+        help = "Target session id."
+    )]
+    pub id: Option<String>,
+    #[arg(
+        value_name = "ID",
+        index = 1,
+        required_unless_present = "id",
+        conflicts_with = "id",
+        help = "Target session id (positional shorthand)."
+    )]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -227,6 +246,67 @@ pub struct ListArgs {
     pub runtime: Option<RuntimeArg>,
     #[arg(long, help = "Case-insensitive substring filter on session name.")]
     pub name_contains: Option<String>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Output format for list view. `table` and `wide` both mean full columns."
+    )]
+    pub format: Option<ListFormatArg>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Show compact columns optimized for interactive terminal usage."
+    )]
+    pub compact: bool,
+    #[arg(
+        short = 'q',
+        long,
+        default_value_t = false,
+        help = "Print only session ids (one per line)."
+    )]
+    pub quiet: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Disable compact-column truncation."
+    )]
+    pub no_trunc: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct RunningArgs {
+    #[arg(long, value_enum, help = "Filter running sessions by runtime kind.")]
+    pub runtime: Option<RuntimeArg>,
+    #[arg(
+        long,
+        help = "Case-insensitive substring filter on running session name."
+    )]
+    pub name_contains: Option<String>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Output format for running view. `table` and `wide` both mean full columns."
+    )]
+    pub format: Option<ListFormatArg>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Show full list columns instead of compact running view."
+    )]
+    pub wide: bool,
+    #[arg(
+        short = 'q',
+        long,
+        default_value_t = false,
+        help = "Print only session ids (one per line)."
+    )]
+    pub quiet: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Disable compact-column truncation."
+    )]
+    pub no_trunc: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -251,13 +331,22 @@ pub enum CleanupStatusArg {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ListFormatArg {
+    Table,
+    Compact,
+    Wide,
+    Id,
+}
+
 #[derive(Debug, Clone, Args)]
 pub struct StopArgs {
     #[arg(
         long,
-        required_unless_present = "all",
+        required_unless_present_any = ["all", "session_id"],
         conflicts_with_all = [
             "all",
+            "session_id",
             "status",
             "runtime",
             "name_contains",
@@ -270,9 +359,27 @@ pub struct StopArgs {
     )]
     pub id: Option<String>,
     #[arg(
+        value_name = "ID",
+        index = 1,
+        required_unless_present_any = ["all", "id"],
+        conflicts_with_all = [
+            "all",
+            "id",
+            "status",
+            "runtime",
+            "name_contains",
+            "dry_run",
+            "yes",
+            "continue_on_error",
+            "max_failures"
+        ],
+        help = "Target session id (positional shorthand)."
+    )]
+    pub session_id: Option<String>,
+    #[arg(
         long,
         default_value_t = false,
-        required_unless_present = "id",
+        required_unless_present_any = ["id", "session_id"],
         help = "Apply operation to all matched sessions in scope."
     )]
     pub all: bool,
@@ -343,9 +450,10 @@ pub struct StopArgs {
 pub struct RestartArgs {
     #[arg(
         long,
-        required_unless_present = "all",
+        required_unless_present_any = ["all", "session_id"],
         conflicts_with_all = [
             "all",
+            "session_id",
             "status",
             "runtime",
             "name_contains",
@@ -358,9 +466,27 @@ pub struct RestartArgs {
     )]
     pub id: Option<String>,
     #[arg(
+        value_name = "ID",
+        index = 1,
+        required_unless_present_any = ["all", "id"],
+        conflicts_with_all = [
+            "all",
+            "id",
+            "status",
+            "runtime",
+            "name_contains",
+            "dry_run",
+            "yes",
+            "continue_on_error",
+            "max_failures"
+        ],
+        help = "Target session id (positional shorthand)."
+    )]
+    pub session_id: Option<String>,
+    #[arg(
         long,
         default_value_t = false,
-        required_unless_present = "id",
+        required_unless_present_any = ["id", "session_id"],
         help = "Apply operation to all matched sessions in scope."
     )]
     pub all: bool,
@@ -439,9 +565,10 @@ pub struct RestartArgs {
 pub struct SuspendArgs {
     #[arg(
         long,
-        required_unless_present = "all",
+        required_unless_present_any = ["all", "session_id"],
         conflicts_with_all = [
             "all",
+            "session_id",
             "status",
             "runtime",
             "name_contains",
@@ -454,9 +581,27 @@ pub struct SuspendArgs {
     )]
     pub id: Option<String>,
     #[arg(
+        value_name = "ID",
+        index = 1,
+        required_unless_present_any = ["all", "id"],
+        conflicts_with_all = [
+            "all",
+            "id",
+            "status",
+            "runtime",
+            "name_contains",
+            "dry_run",
+            "yes",
+            "continue_on_error",
+            "max_failures"
+        ],
+        help = "Target session id (positional shorthand)."
+    )]
+    pub session_id: Option<String>,
+    #[arg(
         long,
         default_value_t = false,
-        required_unless_present = "id",
+        required_unless_present_any = ["id", "session_id"],
         help = "Apply operation to all matched sessions in scope."
     )]
     pub all: bool,
@@ -515,9 +660,10 @@ pub struct SuspendArgs {
 pub struct ResumeArgs {
     #[arg(
         long,
-        required_unless_present = "all",
+        required_unless_present_any = ["all", "session_id"],
         conflicts_with_all = [
             "all",
+            "session_id",
             "status",
             "runtime",
             "name_contains",
@@ -530,9 +676,27 @@ pub struct ResumeArgs {
     )]
     pub id: Option<String>,
     #[arg(
+        value_name = "ID",
+        index = 1,
+        required_unless_present_any = ["all", "id"],
+        conflicts_with_all = [
+            "all",
+            "id",
+            "status",
+            "runtime",
+            "name_contains",
+            "dry_run",
+            "yes",
+            "continue_on_error",
+            "max_failures"
+        ],
+        help = "Target session id (positional shorthand)."
+    )]
+    pub session_id: Option<String>,
+    #[arg(
         long,
         default_value_t = false,
-        required_unless_present = "id",
+        required_unless_present_any = ["id", "session_id"],
         help = "Apply operation to all matched sessions in scope."
     )]
     pub all: bool,
@@ -589,8 +753,21 @@ pub struct ResumeArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct LogsArgs {
-    #[arg(long, help = "Target session id.")]
-    pub id: String,
+    #[arg(
+        long,
+        required_unless_present = "session_id",
+        conflicts_with = "session_id",
+        help = "Target session id."
+    )]
+    pub id: Option<String>,
+    #[arg(
+        value_name = "ID",
+        index = 1,
+        required_unless_present = "id",
+        conflicts_with = "id",
+        help = "Target session id (positional shorthand)."
+    )]
+    pub session_id: Option<String>,
     #[arg(
         long,
         default_value_t = 100,
@@ -649,8 +826,21 @@ pub struct DaemonArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct InspectArgs {
-    #[arg(long, help = "Target session id.")]
-    pub id: String,
+    #[arg(
+        long,
+        required_unless_present = "session_id",
+        conflicts_with = "session_id",
+        help = "Target session id."
+    )]
+    pub id: Option<String>,
+    #[arg(
+        value_name = "ID",
+        index = 1,
+        required_unless_present = "id",
+        conflicts_with = "id",
+        help = "Target session id (positional shorthand)."
+    )]
+    pub session_id: Option<String>,
     #[arg(
         long,
         default_value_t = 50,
@@ -729,4 +919,46 @@ fn default_serve_workers() -> usize {
     std::thread::available_parallelism()
         .map(|value| value.get())
         .unwrap_or(4)
+}
+
+impl SessionIdArgs {
+    pub fn resolved_id(&self) -> Option<&str> {
+        self.id.as_deref().or(self.session_id.as_deref())
+    }
+}
+
+impl StopArgs {
+    pub fn resolved_id(&self) -> Option<&str> {
+        self.id.as_deref().or(self.session_id.as_deref())
+    }
+}
+
+impl RestartArgs {
+    pub fn resolved_id(&self) -> Option<&str> {
+        self.id.as_deref().or(self.session_id.as_deref())
+    }
+}
+
+impl SuspendArgs {
+    pub fn resolved_id(&self) -> Option<&str> {
+        self.id.as_deref().or(self.session_id.as_deref())
+    }
+}
+
+impl ResumeArgs {
+    pub fn resolved_id(&self) -> Option<&str> {
+        self.id.as_deref().or(self.session_id.as_deref())
+    }
+}
+
+impl LogsArgs {
+    pub fn resolved_id(&self) -> Option<&str> {
+        self.id.as_deref().or(self.session_id.as_deref())
+    }
+}
+
+impl InspectArgs {
+    pub fn resolved_id(&self) -> Option<&str> {
+        self.id.as_deref().or(self.session_id.as_deref())
+    }
 }

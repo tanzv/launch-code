@@ -50,7 +50,9 @@ State scope:
 - Global link metadata is stored at `$HOME/.launch-code/links.json`
 - Runtime writes (start/debug/launch/config/project/session actions) default to the current workspace link
 - `lcode list` defaults to global aggregation across all registered links (unless `--local`/`--link` is used)
-- `lcode running` is a shortcut for listing only running sessions in the current scope
+- `lcode running` is a shortcut for listing only running sessions in the current scope (compact view by default)
+- `lcode list` supports display options `--format <table|compact|wide|id>`, `--compact`, `--quiet/-q`, and `--no-trunc`
+- `lcode running` supports display options `--format <table|compact|wide|id>`, `--wide`, `--quiet/-q`, and `--no-trunc`, plus runtime/name filters
 - `lcode cleanup` defaults to global cleanup across registered links (unless `--local`/`--link` is used)
 - Global `list`/`running`/`cleanup`/`project show` can auto-prune stale links when link registry is very large
 - Session-id commands (for example `stop`, `status`, `inspect`, `logs`, `restart`, `suspend`, `resume`, `attach`, `dap`, `doctor`) auto-route by `--id` across links when global scope is active and `--link` is omitted
@@ -113,6 +115,15 @@ lcode link add --name demo --path /path/to/workspace
 lcode link list
 lcode list
 lcode running
+lcode running --wide
+lcode running --format wide
+lcode running --format id
+lcode running -q
+lcode list --compact
+lcode list --format compact
+lcode list --format id
+lcode list --compact --no-trunc
+lcode list -q
 lcode --link demo list
 lcode --local list
 lcode link prune --dry-run
@@ -146,7 +157,9 @@ lcode dap variables --id <session_id> --variables-reference 7001 --filter named 
 lcode dap events --id <session_id> --max 50 --timeout-ms 1000
 lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
 lcode inspect --id <session_id> --tail 50
+lcode inspect <session_id> --tail 50
 lcode logs --id <session_id> --tail 200 --follow
+lcode logs <session_id> --tail 200 --follow
 lcode logs --id <session_id> --tail 500 --contains "ERROR" --contains "Traceback"
 lcode logs --id <session_id> --tail 500 --exclude "heartbeat"
 lcode logs --id <session_id> --follow --contains "timeout" --ignore-case
@@ -154,7 +167,9 @@ lcode logs --id <session_id> --tail 500 --regex "^ERROR\\s+E(100|200)$"
 lcode logs --id <session_id> --tail 500 --exclude-regex "^(DEBUG|TRACE)"
 lcode serve --bind 127.0.0.1:8787 --token <token>
 lcode status --id <session_id>
+lcode status <session_id>
 lcode list
+lcode ps
 lcode cleanup
 lcode cleanup --dry-run --status stopped
 lcode --local cleanup
@@ -165,10 +180,15 @@ lcode resume --all --dry-run --status suspended
 lcode suspend --all --status running --max-failures 1
 lcode suspend --all --status running --continue-on-error false
 lcode suspend --id <session_id>
+lcode suspend <session_id>
 lcode resume --id <session_id>
+lcode resume <session_id>
 lcode restart --id <session_id>
+lcode restart <session_id>
 lcode stop --id <session_id> --grace-timeout-ms 1500
+lcode stop <session_id>
 lcode stop --id <session_id> --grace-timeout-ms 100 --force
+lcode attach <session_id>
 lcode daemon --once
 ```
 
@@ -188,6 +208,11 @@ Debug output includes endpoint metadata:
 - `--exclude-regex` applies a regular expression exclude condition.
 - `--ignore-case` applies case-insensitive matching for `--contains`, `--exclude`, `--regex`, and `--exclude-regex`.
 - Filtering applies to both `--tail` output and `--follow` stream output.
+
+Session-id commands (`status`, `inspect`, `logs`, `attach`, `stop`, `restart`, `suspend`, `resume`) support both forms:
+
+- `--id <session_id>`
+- positional shorthand `<session_id>`
 
 `start` / `debug` / `config run` env override order:
 
@@ -213,7 +238,7 @@ Success responses:
 
 - Message style: `{"ok":true,"message":"..."}`
 - Session command style (`status`/`stop`/`restart`/`suspend`/`resume`): `{"ok":true,"action":"status","message":"...","session":{...}}`
-- Batch command style (`stop/restart/suspend/resume --all`): `{"ok":true,"action":"stop","scope":"global","all":true,"matched_count":2,"success_count":2,"failed_count":0,"items":[...]}`
+- Batch command style (`stop/restart/suspend/resume --all`): `{"ok":true,"action":"stop","scope":"global","all":true,"matched_count":2,"processed_count":2,"success_count":2,"session_failed_count":0,"link_error_count":0,"failed_count":0,"link_errors":[],"items":[...]}`
 - List style: `{"ok":true,"items":[...]}`
 - Text block style: `{"ok":true,"text":"..."}`
 

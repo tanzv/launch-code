@@ -45,7 +45,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
         let workspace_root = resolve_workspace_root()?;
         match &cli.command {
             Commands::List(args) => return app::execute_global_list(args, &workspace_root),
-            Commands::Running => return app::execute_global_running(&workspace_root),
+            Commands::Running(args) => return app::execute_global_running(&workspace_root, args),
             _ => {}
         }
     }
@@ -134,7 +134,7 @@ fn should_use_global_link_list(cli: &Cli) -> bool {
     if env::var_os("LAUNCH_CODE_HOME").is_some() && !cli.global {
         return false;
     }
-    matches!(&cli.command, Commands::List(_) | Commands::Running)
+    matches!(&cli.command, Commands::List(_) | Commands::Running(_))
 }
 
 fn should_use_global_project_show(cli: &Cli) -> bool {
@@ -200,14 +200,14 @@ fn should_use_global_session_fallback(
 
 fn command_session_id(command: &Commands) -> Option<&str> {
     match command {
-        Commands::Attach(args) => Some(&args.id),
-        Commands::Inspect(args) => Some(&args.id),
-        Commands::Logs(args) => Some(&args.id),
-        Commands::Stop(args) => args.id.as_deref(),
-        Commands::Restart(args) => args.id.as_deref(),
-        Commands::Suspend(args) => args.id.as_deref(),
-        Commands::Resume(args) => args.id.as_deref(),
-        Commands::Status(args) => Some(&args.id),
+        Commands::Attach(args) => args.resolved_id(),
+        Commands::Inspect(args) => args.resolved_id(),
+        Commands::Logs(args) => args.resolved_id(),
+        Commands::Stop(args) => args.resolved_id(),
+        Commands::Restart(args) => args.resolved_id(),
+        Commands::Suspend(args) => args.resolved_id(),
+        Commands::Resume(args) => args.resolved_id(),
+        Commands::Status(args) => args.resolved_id(),
         Commands::Dap(args) => dap_command_session_id(&args.command),
         Commands::Doctor(args) => doctor_command_session_id(&args.command),
         _ => None,

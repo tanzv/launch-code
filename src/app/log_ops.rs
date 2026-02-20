@@ -16,7 +16,10 @@ use crate::output;
 pub(in crate::app) const MAX_LOG_TAIL_LINES: usize = 5000;
 
 pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), AppError> {
-    let session_id = args.id.clone();
+    let Some(session_id) = args.resolved_id() else {
+        return Ok(());
+    };
+    let session_id = session_id.to_string();
     let filter = LogFilter::new(
         args.contains.clone(),
         args.exclude.clone(),

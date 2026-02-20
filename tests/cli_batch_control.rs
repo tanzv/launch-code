@@ -116,8 +116,10 @@ fn stop_all_global_scope_stops_matched_sessions_across_links() {
     assert_eq!(doc["action"], "stop");
     assert_eq!(doc["scope"], "global");
     assert_eq!(doc["matched_count"], 2);
+    assert_eq!(doc["processed_count"], 2);
     assert_eq!(doc["success_count"], 2);
     assert_eq!(doc["failed_count"], 0);
+    assert_eq!(doc["link_error_count"], 0);
 
     assert_eq!(read_session_status(&workspace_a, "session-a"), "stopped");
     assert_eq!(read_session_status(&workspace_b, "session-b"), "stopped");
@@ -219,8 +221,10 @@ fn stop_all_with_local_flag_limits_scope_to_current_workspace() {
     assert_eq!(doc["action"], "stop");
     assert_eq!(doc["scope"], "local");
     assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
     assert_eq!(doc["success_count"], 1);
     assert_eq!(doc["failed_count"], 0);
+    assert_eq!(doc["link_error_count"], 0);
 
     assert_eq!(read_session_status(&workspace_a, "session-a"), "stopped");
     assert_eq!(
@@ -265,8 +269,10 @@ fn restart_all_dry_run_matches_running_sessions_by_default() {
     assert_eq!(doc["scope"], "local");
     assert_eq!(doc["dry_run"], true);
     assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
     assert_eq!(doc["success_count"], 1);
     assert_eq!(doc["failed_count"], 0);
+    assert_eq!(doc["link_error_count"], 0);
     let items = doc["items"].as_array().expect("items should be array");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["id"], "session-running");
@@ -318,8 +324,10 @@ fn suspend_all_dry_run_supports_status_and_name_filters() {
     assert_eq!(doc["scope"], "local");
     assert_eq!(doc["dry_run"], true);
     assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
     assert_eq!(doc["success_count"], 1);
     assert_eq!(doc["failed_count"], 0);
+    assert_eq!(doc["link_error_count"], 0);
     let items = doc["items"].as_array().expect("items should be array");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["id"], "session-running");
@@ -358,8 +366,10 @@ fn resume_all_dry_run_supports_status_and_name_filters() {
     assert_eq!(doc["scope"], "local");
     assert_eq!(doc["dry_run"], true);
     assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
     assert_eq!(doc["success_count"], 1);
     assert_eq!(doc["failed_count"], 0);
+    assert_eq!(doc["link_error_count"], 0);
     let items = doc["items"].as_array().expect("items should be array");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["id"], "session-suspended");
@@ -412,8 +422,10 @@ fn suspend_all_global_scope_dry_run_matches_across_links() {
     assert_eq!(doc["scope"], "global");
     assert_eq!(doc["dry_run"], true);
     assert_eq!(doc["matched_count"], 2);
+    assert_eq!(doc["processed_count"], 2);
     assert_eq!(doc["success_count"], 2);
     assert_eq!(doc["failed_count"], 0);
+    assert_eq!(doc["link_error_count"], 0);
 }
 
 #[test]
@@ -447,8 +459,10 @@ fn resume_all_defaults_to_continue_on_error_with_unlimited_failures() {
     assert_eq!(doc["max_failures"], 0);
     assert_eq!(doc["stopped_early"], false);
     assert_eq!(doc["matched_count"], 2);
+    assert_eq!(doc["processed_count"], 2);
     assert_eq!(doc["success_count"], 0);
     assert_eq!(doc["failed_count"], 2);
+    assert_eq!(doc["link_error_count"], 0);
 }
 
 #[test]
@@ -486,9 +500,11 @@ fn resume_all_stops_early_when_max_failures_reached() {
     assert_eq!(doc["continue_on_error"], true);
     assert_eq!(doc["max_failures"], 1);
     assert_eq!(doc["stopped_early"], true);
-    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["matched_count"], 2);
+    assert_eq!(doc["processed_count"], 1);
     assert_eq!(doc["success_count"], 0);
     assert_eq!(doc["failed_count"], 1);
+    assert_eq!(doc["link_error_count"], 0);
 }
 
 #[test]
@@ -525,6 +541,62 @@ fn resume_all_supports_explicit_fail_fast_via_continue_on_error_false() {
     assert_eq!(doc["scope"], "local");
     assert_eq!(doc["continue_on_error"], false);
     assert_eq!(doc["stopped_early"], true);
-    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["matched_count"], 2);
+    assert_eq!(doc["processed_count"], 1);
     assert_eq!(doc["failed_count"], 1);
+    assert_eq!(doc["link_error_count"], 0);
+}
+
+#[test]
+fn stop_all_global_dry_run_tolerates_broken_link_state_and_reports_link_error() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace_ok = home_root.path().join("workspace-ok");
+    let workspace_bad = home_root.path().join("workspace-bad");
+    fs::create_dir_all(&workspace_ok).expect("workspace ok should exist");
+    fs::create_dir_all(&workspace_bad).expect("workspace bad should exist");
+
+    write_state(
+        &workspace_ok,
+        json!({
+            "session-ok": build_session("session-ok", "api-ok", "stopped")
+        }),
+    );
+    let bad_state_dir = workspace_bad.join(".launch-code");
+    fs::create_dir_all(&bad_state_dir).expect("bad state dir should exist");
+    fs::write(bad_state_dir.join("state.json"), "{bad json").expect("bad state should be written");
+
+    add_link(home_root.path(), "workspace-ok", &workspace_ok);
+    add_link(home_root.path(), "workspace-bad", &workspace_bad);
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_ok)
+        .arg("--json")
+        .arg("stop")
+        .arg("--all")
+        .arg("--dry-run")
+        .arg("--status")
+        .arg("stopped")
+        .output()
+        .expect("global stop all dry-run should run");
+    assert!(
+        output.status.success(),
+        "broken link state should not fail global batch dry-run"
+    );
+
+    let doc: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["scope"], "global");
+    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
+    assert_eq!(doc["success_count"], 1);
+    assert_eq!(doc["failed_count"], 1);
+    assert_eq!(doc["session_failed_count"], 0);
+    assert_eq!(doc["link_error_count"], 1);
+    let link_errors = doc["link_errors"]
+        .as_array()
+        .expect("link_errors should be an array");
+    assert_eq!(link_errors.len(), 1);
+    assert_eq!(link_errors[0]["link_name"], "workspace-bad");
 }

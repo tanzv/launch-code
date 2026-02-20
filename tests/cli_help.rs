@@ -58,6 +58,23 @@ fn top_level_help_includes_command_descriptions() {
 }
 
 #[test]
+fn list_ps_alias_is_available() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("ps")
+        .arg("--help")
+        .output()
+        .expect("ps help should run");
+    assert!(output.status.success(), "ps alias should be available");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("Filter sessions by reconciled status"),
+        "ps alias should map to list command options"
+    );
+}
+
+#[test]
 fn link_help_exposes_prune_subcommand() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd
@@ -226,6 +243,67 @@ fn list_help_exposes_filter_flags() {
     assert!(
         stdout.contains("--name-contains"),
         "list help should expose --name-contains"
+    );
+    assert!(
+        stdout.contains("--format"),
+        "list help should expose --format"
+    );
+    assert!(
+        stdout.contains("--compact"),
+        "list help should expose --compact view option"
+    );
+    assert!(
+        stdout.contains("--quiet"),
+        "list help should expose --quiet id-only option"
+    );
+    assert!(
+        stdout.contains("-q"),
+        "list help should expose -q shorthand"
+    );
+    assert!(
+        stdout.contains("--no-trunc"),
+        "list help should expose --no-trunc option"
+    );
+}
+
+#[test]
+fn running_help_exposes_display_flags() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("running")
+        .arg("--help")
+        .output()
+        .expect("running help should run");
+    assert!(output.status.success(), "running help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("--runtime"),
+        "running help should expose --runtime filter"
+    );
+    assert!(
+        stdout.contains("--name-contains"),
+        "running help should expose --name-contains filter"
+    );
+    assert!(
+        stdout.contains("--format"),
+        "running help should expose --format option"
+    );
+    assert!(
+        stdout.contains("--wide"),
+        "running help should expose --wide option"
+    );
+    assert!(
+        stdout.contains("--quiet"),
+        "running help should expose --quiet option"
+    );
+    assert!(
+        stdout.contains("-q"),
+        "running help should expose -q shorthand"
+    );
+    assert!(
+        stdout.contains("--no-trunc"),
+        "running help should expose --no-trunc option"
     );
 }
 

@@ -37,12 +37,17 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Global link metadata is stored at `$HOME/.launch-code/links.json`.
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
 - `lcode list` defaults to global aggregation across all registered links.
-- `lcode running` lists only running sessions across the current scope.
+- `lcode running` lists only running sessions across the current scope (compact view by default).
+- `lcode list` supports display options: `--format <table|compact|wide|id>`, `--compact`, `--quiet/-q`, `--no-trunc`.
+- `lcode running` supports display options: `--format <table|compact|wide|id>`, `--wide`, `--quiet/-q`, `--no-trunc`.
 - `lcode cleanup` defaults to global cleanup across all registered links.
 - `lcode stop --all`, `lcode restart --all`, `lcode suspend --all`, and `lcode resume --all` support batch lifecycle control in scope (`--local`, `--link`, or global default).
 - Global non-dry-run batch apply requires explicit `--yes` confirmation; use `--dry-run` for preview.
 - Batch lifecycle commands support failure control via `--continue-on-error` and `--max-failures`.
+- Global batch lifecycle commands tolerate unreadable/broken links and report them in `link_errors` with `link_error_count`.
 - Session-id commands auto-route by `--id` across links in global scope when `--link` is omitted (`stop/status/inspect/logs/restart/suspend/resume/attach/dap/doctor`).
+- Session-id lifecycle and diagnostics commands support positional shorthand (`lcode stop <id>`, `lcode status <id>`, `lcode logs <id>`, ...).
+- `lcode ps` is an alias of `lcode list`.
 - `lcode project show` defaults to global project metadata aggregation across links.
 - Register links with `lcode link add --name <name> --path <workspace>` and use `--link <name>` to route commands.
 - Use `lcode link prune` to clean stale links (`missing_path`, `temporary_empty_path`).
@@ -84,6 +89,14 @@ lcode link prune
 lcode link show --name demo
 lcode --link demo list
 lcode running
+lcode running --wide
+lcode running --format wide
+lcode running --format id
+lcode running -q
+lcode list --compact
+lcode list --format compact
+lcode list --format id
+lcode list --compact --no-trunc
 lcode --link demo status --id <session_id>
 ```
 
@@ -108,14 +121,29 @@ lcode config show --name "Python Debug"
 
 ```bash
 lcode list
+lcode ps
+lcode list --compact
+lcode list -q
+lcode running
+lcode running --wide
+lcode running --format id
+lcode running -q
 lcode status --id <session_id>
+lcode status <session_id>
 lcode inspect --id <session_id> --tail 100
+lcode inspect <session_id> --tail 100
 lcode logs --id <session_id> --tail 200 --follow
+lcode logs <session_id> --tail 200 --follow
 lcode attach --id <session_id>
+lcode attach <session_id>
 lcode suspend --id <session_id>
+lcode suspend <session_id>
 lcode resume --id <session_id>
+lcode resume <session_id>
 lcode restart --id <session_id>
+lcode restart <session_id>
 lcode stop --id <session_id>
+lcode stop <session_id>
 lcode stop --all --status running --yes
 lcode restart --all --dry-run --status running
 lcode suspend --all --dry-run --status running

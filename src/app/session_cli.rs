@@ -6,8 +6,8 @@ use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::cli::{
-    CleanupArgs, CleanupStatusArg, ListArgs, ListStatusArg, RestartArgs, ResumeArgs, SessionIdArgs,
-    StopArgs, SuspendArgs,
+    CleanupArgs, CleanupStatusArg, ListArgs, ListFormatArg, ListStatusArg, RestartArgs, ResumeArgs,
+    RunningArgs, SessionIdArgs, StopArgs, SuspendArgs,
 };
 use crate::error::AppError;
 use crate::link_registry::load_registry;
@@ -35,6 +35,19 @@ struct ListFilters {
     status_filter: Option<ListStatusArg>,
     runtime_filter: Option<RuntimeKind>,
     name_filter: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ListRenderOptions {
+    view: ListRenderView,
+    no_trunc: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListRenderView {
+    Wide,
+    Compact,
+    Id,
 }
 
 #[derive(Debug, Clone)]
@@ -82,8 +95,18 @@ struct BatchSessionRow {
 }
 
 #[derive(Debug, Clone)]
+struct BatchLinkErrorRow {
+    link_name: Option<String>,
+    link_path: Option<String>,
+    error: String,
+}
+
+#[derive(Debug, Clone)]
 struct BatchExecutionResult {
     rows: Vec<BatchSessionRow>,
+    selected_count: usize,
+    processed_count: usize,
+    link_errors: Vec<BatchLinkErrorRow>,
     stopped_early: bool,
 }
 
@@ -91,6 +114,17 @@ impl ListFilters {
     fn from_args(args: &ListArgs) -> Self {
         Self {
             status_filter: args.status.clone(),
+            runtime_filter: args.runtime.as_ref().map(super::spec_ops::to_runtime_kind),
+            name_filter: args
+                .name_contains
+                .as_ref()
+                .map(|value| value.to_lowercase()),
+        }
+    }
+
+    fn from_running_args(args: &RunningArgs) -> Self {
+        Self {
+            status_filter: Some(ListStatusArg::Running),
             runtime_filter: args.runtime.as_ref().map(super::spec_ops::to_runtime_kind),
             name_filter: args
                 .name_contains
@@ -132,7 +166,7 @@ pub(super) fn handle_stop(store: &StateStore, args: &StopArgs) -> Result<(), App
             args.grace_timeout_ms,
         );
     }
-    let Some(session_id) = args.id.as_deref() else {
+    let Some(session_id) = args.resolved_id() else {
         return Ok(());
     };
     let session =
@@ -156,7 +190,7 @@ pub(super) fn handle_restart(store: &StateStore, args: &RestartArgs) -> Result<(
             args.grace_timeout_ms,
         );
     }
-    let Some(session_id) = args.id.as_deref() else {
+    let Some(session_id) = args.resolved_id() else {
         return Ok(());
     };
     let force = args.force && !args.no_force;
@@ -180,7 +214,7 @@ pub(super) fn handle_suspend(store: &StateStore, args: &SuspendArgs) -> Result<(
             0,
         );
     }
-    let Some(session_id) = args.id.as_deref() else {
+    let Some(session_id) = args.resolved_id() else {
         return Ok(());
     };
     let session = super::api_suspend_session(store, session_id)?;
@@ -195,7 +229,7 @@ pub(super) fn handle_resume(store: &StateStore, args: &ResumeArgs) -> Result<(),
         let control = control_from_resume_args(args);
         return handle_batch_control_local(store, BatchAction::Resume, selector, control, false, 0);
     }
-    let Some(session_id) = args.id.as_deref() else {
+    let Some(session_id) = args.resolved_id() else {
         return Ok(());
     };
     let session = super::api_resume_session(store, session_id)?;
@@ -205,7 +239,10 @@ pub(super) fn handle_resume(store: &StateStore, args: &ResumeArgs) -> Result<(),
 }
 
 pub(super) fn handle_status(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppError> {
-    let session = super::api_get_session(store, &args.id)?;
+    let Some(session_id) = args.resolved_id() else {
+        return Ok(());
+    };
+    let session = super::api_get_session(store, session_id)?;
     let output = format_status_like_message(&session);
     print_session_command_output("status", &session, output);
     Ok(())
@@ -213,29 +250,36 @@ pub(super) fn handle_status(store: &StateStore, args: &SessionIdArgs) -> Result<
 
 pub(super) fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_args(args);
+    let render = list_render_options_from_list_args(args);
     let rows = collect_rows_from_store(store, &filters, None, None)?;
-    print_list_rows(&rows);
+    print_list_rows(&rows, render);
     Ok(())
 }
 
-pub(super) fn handle_running(store: &StateStore) -> Result<(), AppError> {
-    let filters = running_list_filters();
+pub(super) fn handle_running(store: &StateStore, args: &RunningArgs) -> Result<(), AppError> {
+    let filters = ListFilters::from_running_args(args);
+    let render = list_render_options_from_running_args(args);
     let rows = collect_rows_from_store(store, &filters, None, None)?;
-    print_list_rows(&rows);
+    print_list_rows(&rows, render);
     Ok(())
 }
 
 pub(super) fn handle_list_global_default(args: &ListArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_args(args);
-    handle_list_global_with_filters(&filters)
+    let render = list_render_options_from_list_args(args);
+    handle_list_global_with_filters(&filters, render)
 }
 
-pub(super) fn handle_running_global_default() -> Result<(), AppError> {
-    let filters = running_list_filters();
-    handle_list_global_with_filters(&filters)
+pub(super) fn handle_running_global_default(args: &RunningArgs) -> Result<(), AppError> {
+    let filters = ListFilters::from_running_args(args);
+    let render = list_render_options_from_running_args(args);
+    handle_list_global_with_filters(&filters, render)
 }
 
-fn handle_list_global_with_filters(filters: &ListFilters) -> Result<(), AppError> {
+fn handle_list_global_with_filters(
+    filters: &ListFilters,
+    render: ListRenderOptions,
+) -> Result<(), AppError> {
     let _ = super::link_ops::auto_prune_stale_links_for_global_scan();
     let registry = load_registry()?;
     let mut seen_paths = BTreeSet::new();
@@ -262,15 +306,49 @@ fn handle_list_global_with_filters(filters: &ListFilters) -> Result<(), AppError
             .then_with(|| left.link_name.cmp(&right.link_name))
     });
 
-    print_list_rows(&rows);
+    print_list_rows(&rows, render);
     Ok(())
 }
 
-fn running_list_filters() -> ListFilters {
-    ListFilters {
-        status_filter: Some(ListStatusArg::Running),
-        runtime_filter: None,
-        name_filter: None,
+fn list_render_options_from_list_args(args: &ListArgs) -> ListRenderOptions {
+    let view = if args.quiet {
+        ListRenderView::Id
+    } else if let Some(format) = args.format {
+        list_render_view_from_format(format)
+    } else if args.compact {
+        ListRenderView::Compact
+    } else {
+        ListRenderView::Wide
+    };
+
+    ListRenderOptions {
+        view,
+        no_trunc: args.no_trunc,
+    }
+}
+
+fn list_render_options_from_running_args(args: &RunningArgs) -> ListRenderOptions {
+    let view = if args.quiet {
+        ListRenderView::Id
+    } else if let Some(format) = args.format {
+        list_render_view_from_format(format)
+    } else if args.wide {
+        ListRenderView::Wide
+    } else {
+        ListRenderView::Compact
+    };
+
+    ListRenderOptions {
+        view,
+        no_trunc: args.no_trunc,
+    }
+}
+
+fn list_render_view_from_format(format: ListFormatArg) -> ListRenderView {
+    match format {
+        ListFormatArg::Table | ListFormatArg::Wide => ListRenderView::Wide,
+        ListFormatArg::Compact => ListRenderView::Compact,
+        ListFormatArg::Id => ListRenderView::Id,
     }
 }
 
@@ -504,7 +582,7 @@ fn build_session_command_doc(session: &SessionRecord) -> serde_json::Value {
     })
 }
 
-fn format_session_list_row(row: &SessionListRow) -> String {
+fn format_session_list_row_wide(row: &SessionListRow) -> String {
     let pid_display = row
         .pid
         .map(|value| value.to_string())
@@ -534,6 +612,56 @@ fn format_session_list_row(row: &SessionListRow) -> String {
         parent_display,
         link_display,
     )
+}
+
+fn format_session_list_row_compact(row: &SessionListRow, no_trunc: bool) -> String {
+    let pid_display = row
+        .pid
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let debug_display =
+        truncate_compact_field(row.debug_endpoint.as_deref().unwrap_or("-"), 24, no_trunc);
+    let link_display =
+        truncate_compact_field(row.link_name.as_deref().unwrap_or("-"), 20, no_trunc);
+    let id_display = abbreviate_session_id(&row.id, no_trunc);
+    let name_display = truncate_compact_field(&row.name, 32, no_trunc);
+
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        id_display,
+        row.status,
+        row.runtime,
+        row.mode,
+        pid_display,
+        name_display,
+        debug_display,
+        link_display,
+    )
+}
+
+fn abbreviate_session_id(value: &str, no_trunc: bool) -> String {
+    if no_trunc {
+        return value.to_string();
+    }
+    value.chars().take(12).collect()
+}
+
+fn truncate_compact_field(value: &str, max_chars: usize, no_trunc: bool) -> String {
+    if no_trunc {
+        return value.to_string();
+    }
+
+    let count = value.chars().count();
+    if count <= max_chars {
+        return value.to_string();
+    }
+
+    if max_chars <= 3 {
+        return ".".repeat(max_chars);
+    }
+
+    let prefix: String = value.chars().take(max_chars - 3).collect();
+    format!("{prefix}...")
 }
 
 fn collect_rows_from_store(
@@ -605,7 +733,7 @@ fn matches_list_filters(filters: &ListFilters, session: &SessionRecord) -> bool 
     true
 }
 
-fn print_list_rows(rows: &[SessionListRow]) {
+fn print_list_rows(rows: &[SessionListRow], render: ListRenderOptions) {
     if output::is_json_mode() {
         let items: Vec<serde_json::Value> = rows
             .iter()
@@ -635,17 +763,34 @@ fn print_list_rows(rows: &[SessionListRow]) {
         return;
     }
 
-    let lines: Vec<String> = rows.iter().map(format_session_list_row).collect();
+    if matches!(render.view, ListRenderView::Id) {
+        let lines: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+        output::print_lines(&lines);
+        return;
+    }
+
+    let lines: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            if matches!(render.view, ListRenderView::Compact) {
+                format_session_list_row_compact(row, render.no_trunc)
+            } else {
+                format_session_list_row_wide(row)
+            }
+        })
+        .collect();
     if lines.is_empty() {
         output::print_lines(&lines);
         return;
     }
 
     let mut all_lines = Vec::with_capacity(lines.len() + 1);
-    all_lines.push(
+    let header = if matches!(render.view, ListRenderView::Compact) {
+        "ID\tSTATUS\tRUNTIME\tMODE\tPID\tNAME\tDEBUG\tLINK"
+    } else {
         "ID\tSTATUS\tRUNTIME\tMODE\tPID\tRESTARTS\tNAME\tENTRY\tDEBUG\tCHILDREN\tPARENT\tLINK"
-            .to_string(),
-    );
+    };
+    all_lines.push(header.to_string());
     all_lines.extend(lines);
     output::print_lines(&all_lines);
 }
@@ -915,6 +1060,8 @@ fn execute_batch_control_global(
     let mut seen_paths = BTreeSet::new();
     let mut failure_count = 0usize;
     let mut rows = Vec::new();
+    let mut link_errors = Vec::new();
+    let mut selected_count = 0usize;
     let mut stopped_early = false;
 
     for item in registry.list() {
@@ -922,7 +1069,10 @@ fn execute_batch_control_global(
             continue;
         }
         let store = StateStore::new(&item.path);
-        let mut scoped = execute_batch_control_for_store(
+        let link_name = item.name.clone();
+        let link_path = item.path.clone();
+
+        match execute_batch_control_for_store(
             &store,
             action,
             filters,
@@ -931,13 +1081,29 @@ fn execute_batch_control_global(
             &mut failure_count,
             force,
             grace_timeout_ms,
-            Some(item.name),
-            Some(item.path),
-        )?;
-        rows.append(&mut scoped.rows);
-        if scoped.stopped_early {
-            stopped_early = true;
-            break;
+            Some(link_name.clone()),
+            Some(link_path.clone()),
+        ) {
+            Ok(mut scoped) => {
+                selected_count = selected_count.saturating_add(scoped.selected_count);
+                rows.append(&mut scoped.rows);
+                if scoped.stopped_early {
+                    stopped_early = true;
+                    break;
+                }
+            }
+            Err(err) => {
+                failure_count = failure_count.saturating_add(1);
+                link_errors.push(BatchLinkErrorRow {
+                    link_name: Some(link_name),
+                    link_path: Some(link_path),
+                    error: err.to_string(),
+                });
+                if control.should_stop_after_failure(failure_count) {
+                    stopped_early = true;
+                    break;
+                }
+            }
         }
     }
 
@@ -946,8 +1112,18 @@ fn execute_batch_control_global(
             .cmp(&right.id)
             .then_with(|| left.link_name.cmp(&right.link_name))
     });
+    link_errors.sort_by(|left, right| {
+        left.link_name
+            .cmp(&right.link_name)
+            .then_with(|| left.link_path.cmp(&right.link_path))
+    });
+
+    let processed_count = rows.len();
     Ok(BatchExecutionResult {
         rows,
+        selected_count,
+        processed_count,
+        link_errors,
         stopped_early,
     })
 }
@@ -1030,8 +1206,12 @@ fn execute_batch_control_for_store(
     }
 
     let stopped_early = rows.len() < total_matched;
+    let processed_count = rows.len();
     Ok(BatchExecutionResult {
         rows,
+        selected_count: total_matched,
+        processed_count,
+        link_errors: Vec::new(),
         stopped_early,
     })
 }
@@ -1080,11 +1260,15 @@ fn print_batch_control_result(
 ) {
     let BatchExecutionResult {
         rows,
+        selected_count,
+        processed_count,
+        link_errors,
         stopped_early,
     } = result;
-    let matched_count = rows.len();
     let success_count = rows.iter().filter(|row| row.ok).count();
-    let failed_count = matched_count.saturating_sub(success_count);
+    let session_failed_count = rows.len().saturating_sub(success_count);
+    let link_error_count = link_errors.len();
+    let failed_count = session_failed_count.saturating_add(link_error_count);
     let action_label = match action {
         BatchAction::Stop => "stop",
         BatchAction::Restart => "restart",
@@ -1116,34 +1300,61 @@ fn print_batch_control_result(
             "continue_on_error": control.continue_on_error,
             "max_failures": control.max_failures,
             "stopped_early": stopped_early,
-            "matched_count": matched_count,
+            "matched_count": selected_count,
+            "processed_count": processed_count,
             "success_count": success_count,
+            "session_failed_count": session_failed_count,
+            "link_error_count": link_error_count,
             "failed_count": failed_count,
+            "link_errors": link_errors.iter().map(|row| {
+                json!({
+                    "link_name": row.link_name,
+                    "link_path": row.link_path,
+                    "error": row.error,
+                })
+            }).collect::<Vec<_>>(),
             "items": items,
         }));
         return;
     }
 
     output::print_message(&format!(
-        "session_batch_action={action_label} scope={scope} dry_run={dry_run} continue_on_error={} max_failures={} stopped_early={} matched={matched_count} success={success_count} failed={failed_count}",
-        control.continue_on_error, control.max_failures, stopped_early,
+        "session_batch_action={action_label} scope={scope} dry_run={dry_run} continue_on_error={} max_failures={} stopped_early={} matched={} processed={} success={success_count} failed={failed_count} link_errors={link_error_count}",
+        control.continue_on_error,
+        control.max_failures,
+        stopped_early,
+        selected_count,
+        processed_count,
     ));
 
-    if rows.is_empty() {
+    if rows.is_empty() && link_errors.is_empty() {
         return;
     }
 
-    let mut lines = Vec::with_capacity(rows.len() + 1);
-    lines.push("ID\tSTATUS_BEFORE\tSTATUS_AFTER\tRESULT\tLINK\tERROR".to_string());
-    for row in &rows {
-        let status_after = row.status_after.unwrap_or("-");
-        let result = if row.ok { "ok" } else { "failed" };
-        let link = row.link_name.clone().unwrap_or_else(|| "-".to_string());
-        let error = row.error.clone().unwrap_or_else(|| "-".to_string());
-        lines.push(format!(
-            "{}\t{}\t{}\t{}\t{}\t{}",
-            row.id, row.status_before, status_after, result, link, error
-        ));
+    if !rows.is_empty() {
+        let mut lines = Vec::with_capacity(rows.len() + 1);
+        lines.push("ID\tSTATUS_BEFORE\tSTATUS_AFTER\tRESULT\tLINK\tERROR".to_string());
+        for row in &rows {
+            let status_after = row.status_after.unwrap_or("-");
+            let result = if row.ok { "ok" } else { "failed" };
+            let link = row.link_name.clone().unwrap_or_else(|| "-".to_string());
+            let error = row.error.clone().unwrap_or_else(|| "-".to_string());
+            lines.push(format!(
+                "{}\t{}\t{}\t{}\t{}\t{}",
+                row.id, row.status_before, status_after, result, link, error
+            ));
+        }
+        output::print_lines(&lines);
     }
-    output::print_lines(&lines);
+
+    if !link_errors.is_empty() {
+        let mut lines = Vec::with_capacity(link_errors.len() + 1);
+        lines.push("LINK\tPATH\tERROR".to_string());
+        for row in &link_errors {
+            let link = row.link_name.clone().unwrap_or_else(|| "-".to_string());
+            let path = row.link_path.clone().unwrap_or_else(|| "-".to_string());
+            lines.push(format!("{}\t{}\t{}", link, path, row.error));
+        }
+        output::print_lines(&lines);
+    }
 }

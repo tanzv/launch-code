@@ -368,3 +368,89 @@ fn cleanup_with_local_flag_limits_scope_to_current_workspace() {
         "local cleanup should not touch another linked workspace"
     );
 }
+
+#[test]
+fn cleanup_removes_deleted_session_ids_from_session_lookup_index() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace = home_root.path().join("workspace");
+    fs::create_dir_all(&workspace).expect("workspace should exist");
+
+    write_state(
+        &workspace,
+        json!({
+            "stopped-a": build_session("stopped-a", "a", "stopped"),
+            "running-b": {
+                "id": "running-b",
+                "spec": {
+                    "name": "b",
+                    "runtime": "python",
+                    "entry": "app.py",
+                    "args": [],
+                    "cwd": ".",
+                    "env": {},
+                    "managed": false,
+                    "mode": "run",
+                    "debug": null,
+                    "prelaunch_task": null,
+                    "poststop_task": null
+                },
+                "status": "running",
+                "pid": std::process::id(),
+                "supervisor_pid": null,
+                "log_path": null,
+                "debug_meta": null,
+                "created_at": 1,
+                "updated_at": 1,
+                "last_exit_code": null,
+                "restart_count": 0
+            }
+        }),
+    );
+
+    let index_dir = home_root.path().join(".launch-code");
+    fs::create_dir_all(&index_dir).expect("index dir should exist");
+    let index_path = index_dir.join("session-index.json");
+    fs::write(
+        &index_path,
+        serde_json::to_string_pretty(&json!({
+            "schema_version": 1,
+            "sessions": {
+                "stopped-a": {
+                    "path": workspace.to_string_lossy().to_string(),
+                    "updated_at": 1
+                },
+                "running-b": {
+                    "path": workspace.to_string_lossy().to_string(),
+                    "updated_at": 1
+                }
+            }
+        }))
+        .expect("index json"),
+    )
+    .expect("index file should be written");
+
+    let mut cleanup_cmd = cargo_bin_cmd!("launch-code");
+    let cleanup_output = cleanup_cmd
+        .env("HOME", home_root.path())
+        .env("LAUNCH_CODE_HOME", &workspace)
+        .arg("cleanup")
+        .arg("--status")
+        .arg("stopped")
+        .output()
+        .expect("cleanup should run");
+    assert!(cleanup_output.status.success(), "cleanup should succeed");
+
+    let index_payload = fs::read_to_string(&index_path).expect("index should exist");
+    let index_doc: Value = serde_json::from_str(&index_payload).expect("index should be json");
+    let sessions = index_doc["sessions"]
+        .as_object()
+        .expect("sessions should be object");
+    assert!(
+        !sessions.contains_key("stopped-a"),
+        "removed session should be deleted from lookup index"
+    );
+    assert!(
+        sessions.contains_key("running-b"),
+        "non-removed session should remain in lookup index"
+    );
+}

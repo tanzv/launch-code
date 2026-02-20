@@ -74,7 +74,7 @@ pub(crate) fn api_cleanup_sessions(
     dry_run: bool,
 ) -> Result<SessionCleanupResult, AppError> {
     let statuses: Vec<SessionStatus> = statuses.to_vec();
-    store.update::<_, _, AppError>(|state| {
+    let result = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let ids: Vec<String> = state.sessions.keys().cloned().collect();
         for id in ids {
@@ -113,7 +113,15 @@ pub(crate) fn api_cleanup_sessions(
             removed_session_ids,
             kept_count: state.sessions.len(),
         })
-    })
+    })?;
+
+    if !result.removed_session_ids.is_empty() {
+        let _ = crate::session_lookup::remove_session_mappings(
+            result.removed_session_ids.iter().cloned(),
+        );
+    }
+
+    Ok(result)
 }
 
 pub(crate) fn api_get_session(

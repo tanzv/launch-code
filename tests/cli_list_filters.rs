@@ -260,13 +260,94 @@ fn running_command_lists_only_running_sessions() {
         "running command should succeed"
     );
     let text = String::from_utf8(running_list_output.stdout).expect("stdout utf8");
+    let running_prefix: String = running_id.chars().take(12).collect();
+    let stopped_prefix: String = stopped_id.chars().take(12).collect();
     assert!(
-        text.contains(&running_id),
-        "running command should include running session"
+        text.contains(&running_prefix),
+        "running command should include running session in compact id form"
     );
     assert!(
-        !text.contains(&stopped_id),
-        "running command should exclude stopped session"
+        !text.contains(&stopped_prefix),
+        "running command should exclude stopped session from compact output"
+    );
+    assert!(
+        text.lines().next().is_some_and(|line| {
+            line.contains("ID")
+                && line.contains("STATUS")
+                && line.contains("NAME")
+                && line.contains("LINK")
+        }),
+        "running command should render a compact readable header"
+    );
+    assert!(
+        !text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("ENTRY")),
+        "running compact view should not include ENTRY column by default"
+    );
+
+    let mut running_wide_cmd = cargo_bin_cmd!("launch-code");
+    let running_wide_output = running_wide_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("running")
+        .arg("--format")
+        .arg("wide")
+        .output()
+        .expect("running --format wide should run");
+    assert!(
+        running_wide_output.status.success(),
+        "running --format wide should succeed"
+    );
+    let running_wide_text = String::from_utf8(running_wide_output.stdout).expect("stdout utf8");
+    assert!(
+        running_wide_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("ENTRY") && line.contains("RESTARTS")),
+        "running --format wide should include full columns"
+    );
+
+    let mut running_quiet_cmd = cargo_bin_cmd!("launch-code");
+    let running_quiet_output = running_quiet_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("running")
+        .arg("-q")
+        .output()
+        .expect("running --quiet should run");
+    assert!(
+        running_quiet_output.status.success(),
+        "running --quiet should succeed"
+    );
+    let quiet_text = String::from_utf8(running_quiet_output.stdout).expect("stdout utf8");
+    assert!(
+        quiet_text.lines().any(|line| line.trim() == running_id),
+        "running --quiet should print raw session ids"
+    );
+    assert!(
+        !quiet_text.contains("STATUS"),
+        "running --quiet should not print a table header"
+    );
+
+    let mut running_id_format_cmd = cargo_bin_cmd!("launch-code");
+    let running_id_format_output = running_id_format_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("running")
+        .arg("--format")
+        .arg("id")
+        .output()
+        .expect("running --format id should run");
+    assert!(
+        running_id_format_output.status.success(),
+        "running --format id should succeed"
+    );
+    let running_id_format_text =
+        String::from_utf8(running_id_format_output.stdout).expect("stdout utf8");
+    assert!(
+        running_id_format_text
+            .lines()
+            .any(|line| line.trim() == running_id),
+        "running --format id should print full session ids"
     );
 
     let mut cleanup_cmd = cargo_bin_cmd!("launch-code");
@@ -376,6 +457,68 @@ fn list_supports_combined_filters_and_rich_columns() {
     assert!(
         list_text.contains("LINK"),
         "list output should include link column header"
+    );
+
+    let mut compact_cmd = cargo_bin_cmd!("launch-code");
+    let compact_output = compact_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("list")
+        .arg("--format")
+        .arg("compact")
+        .arg("--status")
+        .arg("running")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--name-contains")
+        .arg("api")
+        .output()
+        .expect("compact list should run");
+    assert!(
+        compact_output.status.success(),
+        "compact list should succeed"
+    );
+    let compact_text = String::from_utf8(compact_output.stdout).expect("compact stdout utf8");
+    assert!(
+        compact_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("ID") && line.contains("NAME")),
+        "compact list should include compact header"
+    );
+    assert!(
+        !compact_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("ENTRY")),
+        "compact list header should omit ENTRY column"
+    );
+
+    let mut list_id_cmd = cargo_bin_cmd!("launch-code");
+    let list_id_output = list_id_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("list")
+        .arg("--format")
+        .arg("id")
+        .arg("--status")
+        .arg("running")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--name-contains")
+        .arg("api")
+        .output()
+        .expect("list --format id should run");
+    assert!(
+        list_id_output.status.success(),
+        "list --format id should succeed"
+    );
+    let list_id_text = String::from_utf8(list_id_output.stdout).expect("id list stdout utf8");
+    assert!(
+        list_id_text.lines().any(|line| line.trim() == api_id),
+        "list --format id should include full session id"
+    );
+    assert!(
+        !list_id_text.contains("STATUS"),
+        "list --format id should not print table headers"
     );
 
     for session_id in [api_id, worker_id] {

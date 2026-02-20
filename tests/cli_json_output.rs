@@ -17,6 +17,29 @@ fn parse_field<'a>(output: &'a str, key: &str) -> Option<&'a str> {
         .find_map(|token| token.strip_prefix(&format!("{key}=")))
 }
 
+fn assert_json_session_not_found_for_positional(command: &[&str]) {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .args(command)
+        .arg("missing-session")
+        .output()
+        .expect("command should run");
+
+    assert!(
+        !output.status.success(),
+        "missing positional session id target should fail cleanly"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "session_not_found");
+    assert!(doc["message"].as_str().is_some());
+}
+
 #[test]
 fn json_error_output_includes_stable_error_code() {
     let tmp = tempdir().expect("temp dir should exist");
@@ -40,6 +63,46 @@ fn json_error_output_includes_stable_error_code() {
     assert_eq!(doc["ok"], false);
     assert_eq!(doc["error"], "session_not_found");
     assert!(doc["message"].as_str().is_some());
+}
+
+#[test]
+fn json_stop_accepts_positional_session_id() {
+    assert_json_session_not_found_for_positional(&["stop"]);
+}
+
+#[test]
+fn json_restart_accepts_positional_session_id() {
+    assert_json_session_not_found_for_positional(&["restart"]);
+}
+
+#[test]
+fn json_suspend_accepts_positional_session_id() {
+    assert_json_session_not_found_for_positional(&["suspend"]);
+}
+
+#[test]
+fn json_resume_accepts_positional_session_id() {
+    assert_json_session_not_found_for_positional(&["resume"]);
+}
+
+#[test]
+fn json_status_accepts_positional_session_id() {
+    assert_json_session_not_found_for_positional(&["status"]);
+}
+
+#[test]
+fn json_attach_accepts_positional_session_id() {
+    assert_json_session_not_found_for_positional(&["attach"]);
+}
+
+#[test]
+fn json_inspect_accepts_positional_session_id() {
+    assert_json_session_not_found_for_positional(&["inspect"]);
+}
+
+#[test]
+fn json_logs_accepts_positional_session_id() {
+    assert_json_session_not_found_for_positional(&["logs"]);
 }
 
 #[test]

@@ -34,7 +34,8 @@ use uuid::Uuid;
 
 use crate::cli::{
     CleanupArgs, Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, ListArgs, LogsArgs,
-    RestartArgs, ResumeArgs, SessionIdArgs, StartArgs, StartLogModeArg, StopArgs, SuspendArgs,
+    RestartArgs, ResumeArgs, RunningArgs, SessionIdArgs, StartArgs, StartLogModeArg, StopArgs,
+    SuspendArgs,
 };
 use crate::error::AppError;
 use crate::output;
@@ -67,7 +68,7 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
         Commands::Resume(args) => session_cli::handle_resume(store, &args),
         Commands::Status(args) => session_cli::handle_status(store, &args),
         Commands::List(args) => session_cli::handle_list(store, &args),
-        Commands::Running => session_cli::handle_running(store),
+        Commands::Running(args) => session_cli::handle_running(store, &args),
         Commands::Cleanup(args) => session_cli::handle_cleanup(store, &args),
         Commands::Config(args) => config_ops::handle_config(store, &args),
         Commands::Project(args) => project_ops::handle_project(store, &args),
@@ -84,9 +85,12 @@ pub(crate) fn execute_global_list(args: &ListArgs, workspace_root: &Path) -> Res
     session_cli::handle_list_global_default(args)
 }
 
-pub(crate) fn execute_global_running(workspace_root: &Path) -> Result<(), AppError> {
+pub(crate) fn execute_global_running(
+    workspace_root: &Path,
+    args: &RunningArgs,
+) -> Result<(), AppError> {
     crate::link_registry::ensure_link_for_workspace(workspace_root)?;
-    session_cli::handle_running_global_default()
+    session_cli::handle_running_global_default(args)
 }
 
 pub(crate) fn execute_global_cleanup(
@@ -252,11 +256,14 @@ fn handle_launch(store: &StateStore, args: &LaunchArgs) -> Result<(), AppError> 
 }
 
 fn handle_attach(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppError> {
+    let Some(session_id) = args.resolved_id() else {
+        return Ok(());
+    };
     let state = store.load()?;
     let session = state
         .sessions
-        .get(&args.id)
-        .ok_or_else(|| AppError::SessionNotFound(args.id.clone()))?;
+        .get(session_id)
+        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
     let meta = session
         .debug_meta
         .as_ref()
@@ -268,8 +275,11 @@ fn handle_attach(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppErro
 }
 
 fn handle_inspect(store: &StateStore, args: &InspectArgs) -> Result<(), AppError> {
+    let Some(session_id) = args.resolved_id() else {
+        return Ok(());
+    };
     let tail_lines = args.tail.min(log_ops::MAX_LOG_TAIL_LINES);
-    let doc = api_inspect_session(store, &args.id, tail_lines)?;
+    let doc = api_inspect_session(store, session_id, tail_lines)?;
     output::print_json_doc(&doc);
     Ok(())
 }
@@ -358,7 +368,8 @@ pub(super) fn handle_start_spec(
 
     if options.tail {
         let follow_args = LogsArgs {
-            id: session_id,
+            id: Some(session_id),
+            session_id: None,
             tail: 100,
             follow: true,
             poll_ms: 200,

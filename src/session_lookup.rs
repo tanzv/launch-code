@@ -97,6 +97,23 @@ pub(crate) fn remove_session_mapping(session_id: &str) -> Result<(), AppError> {
     })
 }
 
+pub(crate) fn remove_session_mappings<I>(session_ids: I) -> Result<(), AppError>
+where
+    I: IntoIterator<Item = String>,
+{
+    let ids: BTreeSet<String> = session_ids.into_iter().collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    update_index(|index| {
+        for session_id in &ids {
+            index.sessions.remove(session_id);
+        }
+        Ok(())
+    })
+}
+
 fn load_index() -> Result<SessionLookupIndex, AppError> {
     let path = session_lookup_path()?;
     let lock_file = open_session_lookup_lock(&path)?;
