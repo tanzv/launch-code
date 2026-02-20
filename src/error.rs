@@ -22,6 +22,8 @@ pub enum AppError {
     Process(#[from] ProcessError),
     #[error("session not found: {0}")]
     SessionNotFound(String),
+    #[error("session id is ambiguous: {0}")]
+    SessionIdAmbiguous(String),
     #[error("session has no active pid: {0}")]
     SessionMissingPid(String),
     #[error("session has no debug metadata: {0}")]
@@ -74,6 +76,7 @@ impl AppError {
             Self::Process(ProcessError::StopTimeout { .. }) => "stop_timeout",
             Self::Process(_) => "process_error",
             Self::SessionNotFound(_) => "session_not_found",
+            Self::SessionIdAmbiguous(_) => "session_id_ambiguous",
             Self::SessionMissingPid(_) => "session_missing_pid",
             Self::SessionMissingDebugMeta(_) => "session_missing_debug_meta",
             Self::SessionMissingLogPath(_) => "session_missing_log_path",
@@ -109,6 +112,7 @@ impl AppError {
             Self::InvalidStartOptions(_) => 2,
             Self::ConfirmationRequired(_) => 2,
             Self::SessionNotFound(_)
+            | Self::SessionIdAmbiguous(_)
             | Self::SessionMissingPid(_)
             | Self::SessionMissingDebugMeta(_)
             | Self::SessionMissingLogPath(_)

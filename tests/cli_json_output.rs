@@ -17,6 +17,51 @@ fn parse_field<'a>(output: &'a str, key: &str) -> Option<&'a str> {
         .find_map(|token| token.strip_prefix(&format!("{key}=")))
 }
 
+fn build_session(id: &str, name: &str) -> Value {
+    json!({
+        "id": id,
+        "spec": {
+            "name": name,
+            "runtime": "python",
+            "entry": "app.py",
+            "args": [],
+            "cwd": ".",
+            "env": {},
+            "managed": false,
+            "mode": "run",
+            "debug": null,
+            "prelaunch_task": null,
+            "poststop_task": null
+        },
+        "status": "stopped",
+        "pid": null,
+        "supervisor_pid": null,
+        "log_path": null,
+        "debug_meta": null,
+        "created_at": 1,
+        "updated_at": 1,
+        "last_exit_code": null,
+        "restart_count": 0
+    })
+}
+
+fn write_state_with_sessions(tmp: &tempfile::TempDir, sessions: Value) {
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    let state_doc = json!({
+        "schema_version": 1,
+        "profiles": {},
+        "project_info": null,
+        "sessions": sessions
+    });
+    fs::write(
+        &state_path,
+        serde_json::to_string_pretty(&state_doc).expect("state json"),
+    )
+    .expect("state should be written");
+}
+
 fn assert_json_session_not_found_for_positional(command: &[&str]) {
     let tmp = tempdir().expect("temp dir should exist");
 
@@ -103,6 +148,59 @@ fn json_inspect_accepts_positional_session_id() {
 #[test]
 fn json_logs_accepts_positional_session_id() {
     assert_json_session_not_found_for_positional(&["logs"]);
+}
+
+#[test]
+fn json_status_resolves_unique_session_id_prefix() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let full_id = "a1234567890abcdef1234567890abc1";
+    let mut sessions = serde_json::Map::new();
+    sessions.insert(full_id.to_string(), build_session(full_id, "prefix-target"));
+    write_state_with_sessions(&tmp, Value::Object(sessions));
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("status")
+        .arg("a1234567890")
+        .output()
+        .expect("status should run");
+
+    assert!(output.status.success(), "status by short id should succeed");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["session"]["id"], full_id);
+}
+
+#[test]
+fn json_status_rejects_ambiguous_session_id_prefix() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let id_a = "shared001234567890abcdef1234567890";
+    let id_b = "shared991234567890abcdef1234567890";
+    let mut sessions = serde_json::Map::new();
+    sessions.insert(id_a.to_string(), build_session(id_a, "first"));
+    sessions.insert(id_b.to_string(), build_session(id_b, "second"));
+    write_state_with_sessions(&tmp, Value::Object(sessions));
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("status")
+        .arg("shared")
+        .output()
+        .expect("status should run");
+
+    assert!(
+        !output.status.success(),
+        "status by ambiguous short id should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "session_id_ambiguous");
 }
 
 #[test]

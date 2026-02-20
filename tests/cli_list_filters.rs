@@ -308,6 +308,34 @@ fn running_command_lists_only_running_sessions() {
         "running --format wide should include full columns"
     );
 
+    let mut running_no_headers_cmd = cargo_bin_cmd!("launch-code");
+    let running_no_headers_output = running_no_headers_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("running")
+        .arg("--no-headers")
+        .output()
+        .expect("running --no-headers should run");
+    assert!(
+        running_no_headers_output.status.success(),
+        "running --no-headers should succeed"
+    );
+    let running_no_headers_text =
+        String::from_utf8(running_no_headers_output.stdout).expect("stdout utf8");
+    assert!(
+        running_no_headers_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("running-only")),
+        "running --no-headers should start from session rows"
+    );
+    assert!(
+        !running_no_headers_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("STATUS")),
+        "running --no-headers should omit header row"
+    );
+
     let mut running_quiet_cmd = cargo_bin_cmd!("launch-code");
     let running_quiet_output = running_quiet_cmd
         .env("LAUNCH_CODE_HOME", tmp.path())
@@ -491,6 +519,42 @@ fn list_supports_combined_filters_and_rich_columns() {
             .next()
             .is_some_and(|line| line.contains("ENTRY")),
         "compact list header should omit ENTRY column"
+    );
+
+    let mut compact_no_headers_cmd = cargo_bin_cmd!("launch-code");
+    let compact_no_headers_output = compact_no_headers_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("list")
+        .arg("--format")
+        .arg("compact")
+        .arg("--no-headers")
+        .arg("--status")
+        .arg("running")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--name-contains")
+        .arg("api")
+        .output()
+        .expect("list compact --no-headers should run");
+    assert!(
+        compact_no_headers_output.status.success(),
+        "list compact --no-headers should succeed"
+    );
+    let compact_no_headers_text =
+        String::from_utf8(compact_no_headers_output.stdout).expect("no-header stdout utf8");
+    assert!(
+        compact_no_headers_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("api-session")),
+        "list --no-headers should start from session rows"
+    );
+    assert!(
+        !compact_no_headers_text
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("STATUS")),
+        "list --no-headers should omit header row"
     );
 
     let mut list_id_cmd = cargo_bin_cmd!("launch-code");

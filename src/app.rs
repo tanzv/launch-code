@@ -156,6 +156,7 @@ pub(crate) fn resolve_global_store_for_session_id(
 
     let registry = crate::link_registry::load_registry()?;
     let mut seen_paths = BTreeSet::new();
+    let mut prefix_candidates: Vec<(String, String, PathBuf)> = Vec::new();
 
     for item in registry.list() {
         if !seen_paths.insert(item.path.clone()) {
@@ -175,6 +176,51 @@ pub(crate) fn resolve_global_store_for_session_id(
             let _ = crate::session_lookup::upsert_session_path(session_id, store.root_path());
             return Ok(Some(store));
         }
+
+        let mut scoped_matches: Vec<String> = state
+            .sessions
+            .keys()
+            .filter(|candidate| candidate.starts_with(session_id))
+            .cloned()
+            .collect();
+        if scoped_matches.len() > 1 {
+            scoped_matches.sort();
+            let preview = scoped_matches
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<String>>()
+                .join(",");
+            return Err(AppError::SessionIdAmbiguous(format!(
+                "{session_id}; matches={preview}"
+            )));
+        }
+        if let Some(full_id) = scoped_matches.pop() {
+            prefix_candidates.push((full_id, item.name, PathBuf::from(item.path)));
+        }
+    }
+
+    if prefix_candidates.len() > 1 {
+        prefix_candidates.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+        });
+        let preview = prefix_candidates
+            .iter()
+            .take(5)
+            .map(|(id, link, _)| format!("{id}@{link}"))
+            .collect::<Vec<String>>()
+            .join(",");
+        return Err(AppError::SessionIdAmbiguous(format!(
+            "{session_id}; matches={preview}"
+        )));
+    }
+    if let Some((full_id, _, root_path)) = prefix_candidates.pop() {
+        let store = StateStore::new(&root_path);
+        let _ = crate::session_lookup::upsert_session_path(&full_id, store.root_path());
+        return Ok(Some(store));
     }
 
     Ok(None)
@@ -259,17 +305,13 @@ fn handle_attach(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppErro
     let Some(session_id) = args.resolved_id() else {
         return Ok(());
     };
-    let state = store.load()?;
-    let session = state
-        .sessions
-        .get(session_id)
-        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
+    let session = api_get_session(store, session_id)?;
     let meta = session
         .debug_meta
         .as_ref()
         .ok_or_else(|| AppError::SessionMissingDebugMeta(session.id.clone()))?;
 
-    let doc = build_debug_session_doc(session, meta);
+    let doc = build_debug_session_doc(&session, meta);
     output::print_json_doc(&doc);
     Ok(())
 }

@@ -41,6 +41,7 @@ struct ListFilters {
 struct ListRenderOptions {
     view: ListRenderView,
     no_trunc: bool,
+    no_headers: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,6 +325,7 @@ fn list_render_options_from_list_args(args: &ListArgs) -> ListRenderOptions {
     ListRenderOptions {
         view,
         no_trunc: args.no_trunc,
+        no_headers: args.no_headers,
     }
 }
 
@@ -341,6 +343,7 @@ fn list_render_options_from_running_args(args: &RunningArgs) -> ListRenderOption
     ListRenderOptions {
         view,
         no_trunc: args.no_trunc,
+        no_headers: args.no_headers,
     }
 }
 
@@ -784,13 +787,15 @@ fn print_list_rows(rows: &[SessionListRow], render: ListRenderOptions) {
         return;
     }
 
-    let mut all_lines = Vec::with_capacity(lines.len() + 1);
     let header = if matches!(render.view, ListRenderView::Compact) {
         "ID\tSTATUS\tRUNTIME\tMODE\tPID\tNAME\tDEBUG\tLINK"
     } else {
         "ID\tSTATUS\tRUNTIME\tMODE\tPID\tRESTARTS\tNAME\tENTRY\tDEBUG\tCHILDREN\tPARENT\tLINK"
     };
-    all_lines.push(header.to_string());
+    let mut all_lines = Vec::with_capacity(lines.len() + usize::from(!render.no_headers));
+    if !render.no_headers {
+        all_lines.push(header.to_string());
+    }
     all_lines.extend(lines);
     output::print_lines(&all_lines);
 }

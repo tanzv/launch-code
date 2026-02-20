@@ -60,6 +60,51 @@ pub(crate) fn api_list_sessions(store: &StateStore) -> Result<Vec<SessionRecord>
     })
 }
 
+pub(crate) fn resolve_session_id(store: &StateStore, session_id: &str) -> Result<String, AppError> {
+    let state = store.load()?;
+    resolve_session_id_in_map(&state.sessions, session_id)
+}
+
+fn resolve_session_id_in_map(
+    sessions: &BTreeMap<String, SessionRecord>,
+    session_id: &str,
+) -> Result<String, AppError> {
+    if sessions.contains_key(session_id) {
+        return Ok(session_id.to_string());
+    }
+
+    let mut matches: Vec<String> = sessions
+        .keys()
+        .filter(|candidate| candidate.starts_with(session_id))
+        .cloned()
+        .collect();
+    if matches.is_empty() {
+        return Err(AppError::SessionNotFound(session_id.to_string()));
+    }
+    if matches.len() == 1 {
+        return Ok(matches.remove(0));
+    }
+
+    matches.sort();
+    let preview_limit = 5usize;
+    let preview = matches
+        .iter()
+        .take(preview_limit)
+        .cloned()
+        .collect::<Vec<String>>()
+        .join(",");
+    let extra_count = matches.len().saturating_sub(preview_limit);
+    let suffix = if extra_count > 0 {
+        format!(",+{extra_count}")
+    } else {
+        String::new()
+    };
+
+    Err(AppError::SessionIdAmbiguous(format!(
+        "{session_id}; matches={preview}{suffix}"
+    )))
+}
+
 fn session_requires_reconcile_for_list(session: &SessionRecord) -> bool {
     session.pid.is_some()
         || matches!(
@@ -128,7 +173,7 @@ pub(crate) fn api_get_session(
     store: &StateStore,
     session_id: &str,
 ) -> Result<SessionRecord, AppError> {
-    let session_id = session_id.to_string();
+    let session_id = resolve_session_id(store, session_id)?;
     store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, &session_id)?;
@@ -142,7 +187,7 @@ pub(crate) fn api_inspect_session(
     session_id: &str,
     tail: usize,
 ) -> Result<serde_json::Value, AppError> {
-    let session_id = session_id.to_string();
+    let session_id = resolve_session_id(store, session_id)?;
     let tail = tail.min(super::log_ops::MAX_LOG_TAIL_LINES);
     store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
@@ -230,11 +275,12 @@ pub(crate) fn api_debug_session(
     store: &StateStore,
     session_id: &str,
 ) -> Result<serde_json::Value, AppError> {
+    let session_id = resolve_session_id(store, session_id)?;
     let state = store.load()?;
     let session = state
         .sessions
-        .get(session_id)
-        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
+        .get(&session_id)
+        .ok_or_else(|| AppError::SessionNotFound(session_id.clone()))?;
 
     let meta = session
         .debug_meta
@@ -250,9 +296,10 @@ pub(crate) fn api_stop_session_with_options(
     force: bool,
     grace_timeout_ms: u64,
 ) -> Result<SessionRecord, AppError> {
+    let resolved_session_id = resolve_session_id(store, session_id)?;
     let grace_timeout = Duration::from_millis(grace_timeout_ms);
-    retry_session_control(session_id, || {
-        api_stop_session_once(store, session_id, force, grace_timeout)
+    retry_session_control(&resolved_session_id, || {
+        api_stop_session_once(store, &resolved_session_id, force, grace_timeout)
     })
 }
 
@@ -262,9 +309,10 @@ pub(crate) fn api_restart_session_with_options(
     force: bool,
     grace_timeout_ms: u64,
 ) -> Result<SessionRecord, AppError> {
+    let resolved_session_id = resolve_session_id(store, session_id)?;
     let grace_timeout = Duration::from_millis(grace_timeout_ms);
-    retry_session_control(session_id, || {
-        api_restart_session_once(store, session_id, force, grace_timeout)
+    retry_session_control(&resolved_session_id, || {
+        api_restart_session_once(store, &resolved_session_id, force, grace_timeout)
     })
 }
 
@@ -433,7 +481,7 @@ pub(crate) fn api_suspend_session(
     store: &StateStore,
     session_id: &str,
 ) -> Result<SessionRecord, AppError> {
-    let session_id = session_id.to_string();
+    let session_id = resolve_session_id(store, session_id)?;
     store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, &session_id)?;
@@ -451,7 +499,7 @@ pub(crate) fn api_resume_session(
     store: &StateStore,
     session_id: &str,
 ) -> Result<SessionRecord, AppError> {
-    let session_id = session_id.to_string();
+    let session_id = resolve_session_id(store, session_id)?;
     store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, &session_id)?;

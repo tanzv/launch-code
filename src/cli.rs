@@ -271,6 +271,12 @@ pub struct ListArgs {
         help = "Disable compact-column truncation."
     )]
     pub no_trunc: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Do not print table headers for table/compact formats."
+    )]
+    pub no_headers: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -307,6 +313,12 @@ pub struct RunningArgs {
         help = "Disable compact-column truncation."
     )]
     pub no_trunc: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Do not print table headers for table/compact formats."
+    )]
+    pub no_headers: bool,
 }
 
 #[derive(Debug, Clone, Args)]

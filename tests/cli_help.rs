@@ -264,6 +264,10 @@ fn list_help_exposes_filter_flags() {
         stdout.contains("--no-trunc"),
         "list help should expose --no-trunc option"
     );
+    assert!(
+        stdout.contains("--no-headers"),
+        "list help should expose --no-headers option"
+    );
 }
 
 #[test]
@@ -304,6 +308,10 @@ fn running_help_exposes_display_flags() {
     assert!(
         stdout.contains("--no-trunc"),
         "running help should expose --no-trunc option"
+    );
+    assert!(
+        stdout.contains("--no-headers"),
+        "running help should expose --no-headers option"
     );
 }
 

@@ -19,7 +19,6 @@ pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), App
     let Some(session_id) = args.resolved_id() else {
         return Ok(());
     };
-    let session_id = session_id.to_string();
     let filter = LogFilter::new(
         args.contains.clone(),
         args.exclude.clone(),
@@ -27,6 +26,7 @@ pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), App
         args.exclude_regex.clone(),
         args.ignore_case,
     )?;
+    let session_id = super::session_api::resolve_session_id(store, session_id)?;
     let (log_path, pid) = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, &session_id)?;

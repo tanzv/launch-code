@@ -38,15 +38,15 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
 - `lcode list` defaults to global aggregation across all registered links.
 - `lcode running` lists only running sessions across the current scope (compact view by default).
-- `lcode list` supports display options: `--format <table|compact|wide|id>`, `--compact`, `--quiet/-q`, `--no-trunc`.
-- `lcode running` supports display options: `--format <table|compact|wide|id>`, `--wide`, `--quiet/-q`, `--no-trunc`.
+- `lcode list` supports display options: `--format <table|compact|wide|id>`, `--compact`, `--quiet/-q`, `--no-trunc`, `--no-headers`.
+- `lcode running` supports display options: `--format <table|compact|wide|id>`, `--wide`, `--quiet/-q`, `--no-trunc`, `--no-headers`.
 - `lcode cleanup` defaults to global cleanup across all registered links.
 - `lcode stop --all`, `lcode restart --all`, `lcode suspend --all`, and `lcode resume --all` support batch lifecycle control in scope (`--local`, `--link`, or global default).
 - Global non-dry-run batch apply requires explicit `--yes` confirmation; use `--dry-run` for preview.
 - Batch lifecycle commands support failure control via `--continue-on-error` and `--max-failures`.
 - Global batch lifecycle commands tolerate unreadable/broken links and report them in `link_errors` with `link_error_count`.
 - Session-id commands auto-route by `--id` across links in global scope when `--link` is omitted (`stop/status/inspect/logs/restart/suspend/resume/attach/dap/doctor`).
-- Session-id lifecycle and diagnostics commands support positional shorthand (`lcode stop <id>`, `lcode status <id>`, `lcode logs <id>`, ...).
+- Session-id lifecycle and diagnostics commands support positional shorthand (`lcode stop <id>`, `lcode status <id>`, `lcode logs <id>`, ...) and unique short-id prefixes.
 - `lcode ps` is an alias of `lcode list`.
 - `lcode project show` defaults to global project metadata aggregation across links.
 - Register links with `lcode link add --name <name> --path <workspace>` and use `--link <name>` to route commands.
@@ -93,10 +93,12 @@ lcode running --wide
 lcode running --format wide
 lcode running --format id
 lcode running -q
+lcode running --no-headers
 lcode list --compact
 lcode list --format compact
 lcode list --format id
 lcode list --compact --no-trunc
+lcode list --compact --no-headers
 lcode --link demo status --id <session_id>
 ```
 
@@ -128,6 +130,8 @@ lcode running
 lcode running --wide
 lcode running --format id
 lcode running -q
+lcode running --no-headers
+lcode list --compact --no-headers
 lcode status --id <session_id>
 lcode status <session_id>
 lcode inspect --id <session_id> --tail 100
