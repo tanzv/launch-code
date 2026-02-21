@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use serde_json::{Value, json};
@@ -46,6 +47,12 @@ fn build_session(id: &str, name: &str, status: &str) -> Value {
         "last_exit_code": null,
         "restart_count": 0
     })
+}
+
+fn build_session_with_updated_at(id: &str, name: &str, status: &str, updated_at: u64) -> Value {
+    let mut session = build_session(id, name, status);
+    session["updated_at"] = json!(updated_at);
+    session
 }
 
 fn write_state(root: &Path, sessions: Value) {
@@ -160,6 +167,72 @@ fn cleanup_removes_stopped_sessions_from_state() {
         .as_object()
         .expect("sessions should be object");
     assert_eq!(sessions.len(), 0, "cleanup should remove stopped sessions");
+}
+
+#[test]
+fn cleanup_older_than_filters_sessions_by_updated_time() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be valid")
+        .as_secs();
+    let old_updated_at = now.saturating_sub(3 * 60 * 60);
+    let fresh_updated_at = now.saturating_sub(60);
+
+    write_state(
+        tmp.path(),
+        json!({
+            "stopped-old": build_session_with_updated_at("stopped-old", "old", "stopped", old_updated_at),
+            "stopped-fresh": build_session_with_updated_at("stopped-fresh", "fresh", "stopped", fresh_updated_at)
+        }),
+    );
+
+    let mut dry_run_cmd = cargo_bin_cmd!("launch-code");
+    let dry_run_output = dry_run_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("cleanup")
+        .arg("--dry-run")
+        .arg("--older-than")
+        .arg("2h")
+        .output()
+        .expect("cleanup dry-run should run");
+    assert!(
+        dry_run_output.status.success(),
+        "cleanup dry-run with older-than should succeed"
+    );
+    let dry_run_stdout = String::from_utf8(dry_run_output.stdout).expect("stdout should be utf8");
+    assert!(
+        dry_run_stdout.contains("matched=1"),
+        "only old session should match older-than window"
+    );
+
+    let mut apply_cmd = cargo_bin_cmd!("launch-code");
+    let apply_output = apply_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("cleanup")
+        .arg("--older-than")
+        .arg("2h")
+        .output()
+        .expect("cleanup apply should run");
+    assert!(
+        apply_output.status.success(),
+        "cleanup apply with older-than should succeed"
+    );
+
+    let state_payload = fs::read_to_string(tmp.path().join(".launch-code").join("state.json"))
+        .expect("state file should exist");
+    let state_doc: Value = serde_json::from_str(&state_payload).expect("state should be json");
+    let sessions = state_doc["sessions"]
+        .as_object()
+        .expect("sessions should be object");
+    assert!(
+        !sessions.contains_key("stopped-old"),
+        "older session should be removed"
+    );
+    assert!(
+        sessions.contains_key("stopped-fresh"),
+        "fresh session should be kept"
+    );
 }
 
 #[test]

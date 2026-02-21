@@ -116,6 +116,36 @@ fn json_stop_accepts_positional_session_id() {
 }
 
 #[test]
+fn json_stop_rejects_batch_flags_without_all_target() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("stop")
+        .arg("session-1")
+        .arg("--dry-run")
+        .output()
+        .expect("stop should run");
+
+    assert!(
+        !output.status.success(),
+        "single-session stop with batch flags should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "invalid_start_options");
+    assert!(
+        doc["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("batch flags")),
+        "error should explain batch flag scope"
+    );
+}
+
+#[test]
 fn json_restart_accepts_positional_session_id() {
     assert_json_session_not_found_for_positional(&["restart"]);
 }
@@ -126,8 +156,56 @@ fn json_suspend_accepts_positional_session_id() {
 }
 
 #[test]
+fn json_suspend_rejects_batch_flags_without_all_target() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("suspend")
+        .arg("session-1")
+        .arg("--dry-run")
+        .output()
+        .expect("suspend should run");
+
+    assert!(
+        !output.status.success(),
+        "single-session suspend with batch flags should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "invalid_start_options");
+}
+
+#[test]
 fn json_resume_accepts_positional_session_id() {
     assert_json_session_not_found_for_positional(&["resume"]);
+}
+
+#[test]
+fn json_resume_rejects_batch_flags_without_all_target() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("resume")
+        .arg("session-1")
+        .arg("--dry-run")
+        .output()
+        .expect("resume should run");
+
+    assert!(
+        !output.status.success(),
+        "single-session resume with batch flags should fail"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "invalid_start_options");
 }
 
 #[test]

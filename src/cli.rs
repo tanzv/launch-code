@@ -5,6 +5,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 mod config_args;
 mod dap_args;
 mod doctor_args;
+mod lifecycle_args;
 mod link_args;
 mod project_args;
 
@@ -20,6 +21,7 @@ pub use dap_args::{
     DapVariablesFilterArg,
 };
 pub use doctor_args::{DoctorArgs, DoctorCommands, DoctorDebugArgs};
+pub use lifecycle_args::{BatchSortArg, RestartArgs, ResumeArgs, StopArgs, SuspendArgs};
 pub use link_args::{LinkAddArgs, LinkArgs, LinkCommands, LinkNameArgs, LinkPruneArgs};
 pub use project_args::{
     ProjectArgs, ProjectClearArgs, ProjectCommands, ProjectListArgs, ProjectListFieldArg,
@@ -344,6 +346,13 @@ pub struct CleanupArgs {
     )]
     pub status: Vec<CleanupStatusArg>,
     #[arg(
+        long = "older-than",
+        value_name = "DURATION",
+        value_parser = parse_cleanup_older_than_secs,
+        help = "Only match sessions with updated_at older than this duration (examples: 30m, 12h, 7d)."
+    )]
+    pub older_than_secs: Option<u64>,
+    #[arg(
         long,
         default_value_t = false,
         help = "Preview matched sessions without removing them."
@@ -366,418 +375,6 @@ pub enum ListFormatArg {
     #[value(alias = "debug")]
     Wide,
     Id,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct StopArgs {
-    #[arg(
-        long,
-        required_unless_present_any = ["all", "session_id"],
-        conflicts_with_all = [
-            "all",
-            "session_id",
-            "status",
-            "runtime",
-            "name_contains",
-            "dry_run",
-            "yes",
-            "continue_on_error",
-            "max_failures"
-        ],
-        help = "Target session id."
-    )]
-    pub id: Option<String>,
-    #[arg(
-        value_name = "ID",
-        index = 1,
-        required_unless_present_any = ["all", "id"],
-        conflicts_with_all = [
-            "all",
-            "id",
-            "status",
-            "runtime",
-            "name_contains",
-            "dry_run",
-            "yes",
-            "continue_on_error",
-            "max_failures"
-        ],
-        help = "Target session id (positional shorthand)."
-    )]
-    pub session_id: Option<String>,
-    #[arg(
-        long,
-        default_value_t = false,
-        required_unless_present_any = ["id", "session_id"],
-        help = "Apply operation to all matched sessions in scope."
-    )]
-    pub all: bool,
-    #[arg(
-        long,
-        value_enum,
-        requires = "all",
-        help = "Filter matched sessions by reconciled status."
-    )]
-    pub status: Option<ListStatusArg>,
-    #[arg(
-        long,
-        value_enum,
-        requires = "all",
-        help = "Filter matched sessions by runtime kind."
-    )]
-    pub runtime: Option<RuntimeArg>,
-    #[arg(
-        long,
-        requires = "all",
-        help = "Case-insensitive substring filter on session name."
-    )]
-    pub name_contains: Option<String>,
-    #[arg(
-        long,
-        default_value_t = false,
-        requires = "all",
-        help = "Preview matched sessions without applying stop."
-    )]
-    pub dry_run: bool,
-    #[arg(
-        long,
-        default_value_t = false,
-        requires = "all",
-        help = "Confirm global non-dry-run batch operation (required in global scope)."
-    )]
-    pub yes: bool,
-    #[arg(
-        long,
-        default_value_t = true,
-        action = clap::ArgAction::Set,
-        requires = "all",
-        help = "Continue processing matched sessions after individual failures (set false for fail-fast)."
-    )]
-    pub continue_on_error: bool,
-    #[arg(
-        long,
-        default_value_t = 0,
-        requires = "all",
-        help = "Maximum allowed failures before stopping batch apply; 0 means unlimited."
-    )]
-    pub max_failures: usize,
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Force kill if process is still alive after grace timeout."
-    )]
-    pub force: bool,
-    #[arg(
-        long,
-        default_value_t = 1500,
-        help = "Graceful stop timeout in milliseconds before force kill."
-    )]
-    pub grace_timeout_ms: u64,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct RestartArgs {
-    #[arg(
-        long,
-        required_unless_present_any = ["all", "session_id"],
-        conflicts_with_all = [
-            "all",
-            "session_id",
-            "status",
-            "runtime",
-            "name_contains",
-            "dry_run",
-            "yes",
-            "continue_on_error",
-            "max_failures"
-        ],
-        help = "Target session id."
-    )]
-    pub id: Option<String>,
-    #[arg(
-        value_name = "ID",
-        index = 1,
-        required_unless_present_any = ["all", "id"],
-        conflicts_with_all = [
-            "all",
-            "id",
-            "status",
-            "runtime",
-            "name_contains",
-            "dry_run",
-            "yes",
-            "continue_on_error",
-            "max_failures"
-        ],
-        help = "Target session id (positional shorthand)."
-    )]
-    pub session_id: Option<String>,
-    #[arg(
-        long,
-        default_value_t = false,
-        required_unless_present_any = ["id", "session_id"],
-        help = "Apply operation to all matched sessions in scope."
-    )]
-    pub all: bool,
-    #[arg(
-        long,
-        value_enum,
-        requires = "all",
-        help = "Filter matched sessions by reconciled status."
-    )]
-    pub status: Option<ListStatusArg>,
-    #[arg(
-        long,
-        value_enum,
-        requires = "all",
-        help = "Filter matched sessions by runtime kind."
-    )]
-    pub runtime: Option<RuntimeArg>,
-    #[arg(
-        long,
-        requires = "all",
-        help = "Case-insensitive substring filter on session name."
-    )]
-    pub name_contains: Option<String>,
-    #[arg(
-        long,
-        default_value_t = false,
-        requires = "all",
-        help = "Preview matched sessions without applying restart."
-    )]
-    pub dry_run: bool,
-    #[arg(
-        long,
-        default_value_t = false,
-        requires = "all",
-        help = "Confirm global non-dry-run batch operation (required in global scope)."
-    )]
-    pub yes: bool,
-    #[arg(
-        long,
-        default_value_t = true,
-        action = clap::ArgAction::Set,
-        requires = "all",
-        help = "Continue processing matched sessions after individual failures (set false for fail-fast)."
-    )]
-    pub continue_on_error: bool,
-    #[arg(
-        long,
-        default_value_t = 0,
-        requires = "all",
-        help = "Maximum allowed failures before stopping batch apply; 0 means unlimited."
-    )]
-    pub max_failures: usize,
-    #[arg(
-        long,
-        default_value_t = true,
-        action = clap::ArgAction::Set,
-        help = "Force kill if process is still alive after grace timeout."
-    )]
-    pub force: bool,
-    #[arg(
-        long,
-        default_value_t = false,
-        conflicts_with = "force",
-        help = "Shortcut to disable force kill fallback (equivalent to --force false)."
-    )]
-    pub no_force: bool,
-    #[arg(
-        long,
-        default_value_t = 150,
-        help = "Graceful stop timeout in milliseconds before optional force kill."
-    )]
-    pub grace_timeout_ms: u64,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct SuspendArgs {
-    #[arg(
-        long,
-        required_unless_present_any = ["all", "session_id"],
-        conflicts_with_all = [
-            "all",
-            "session_id",
-            "status",
-            "runtime",
-            "name_contains",
-            "dry_run",
-            "yes",
-            "continue_on_error",
-            "max_failures"
-        ],
-        help = "Target session id."
-    )]
-    pub id: Option<String>,
-    #[arg(
-        value_name = "ID",
-        index = 1,
-        required_unless_present_any = ["all", "id"],
-        conflicts_with_all = [
-            "all",
-            "id",
-            "status",
-            "runtime",
-            "name_contains",
-            "dry_run",
-            "yes",
-            "continue_on_error",
-            "max_failures"
-        ],
-        help = "Target session id (positional shorthand)."
-    )]
-    pub session_id: Option<String>,
-    #[arg(
-        long,
-        default_value_t = false,
-        required_unless_present_any = ["id", "session_id"],
-        help = "Apply operation to all matched sessions in scope."
-    )]
-    pub all: bool,
-    #[arg(
-        long,
-        value_enum,
-        requires = "all",
-        help = "Filter matched sessions by reconciled status."
-    )]
-    pub status: Option<ListStatusArg>,
-    #[arg(
-        long,
-        value_enum,
-        requires = "all",
-        help = "Filter matched sessions by runtime kind."
-    )]
-    pub runtime: Option<RuntimeArg>,
-    #[arg(
-        long,
-        requires = "all",
-        help = "Case-insensitive substring filter on session name."
-    )]
-    pub name_contains: Option<String>,
-    #[arg(
-        long,
-        default_value_t = false,
-        requires = "all",
-        help = "Preview matched sessions without applying suspend."
-    )]
-    pub dry_run: bool,
-    #[arg(
-        long,
-        default_value_t = false,
-        requires = "all",
-        help = "Confirm global non-dry-run batch operation (required in global scope)."
-    )]
-    pub yes: bool,
-    #[arg(
-        long,
-        default_value_t = true,
-        action = clap::ArgAction::Set,
-        requires = "all",
-        help = "Continue processing matched sessions after individual failures (set false for fail-fast)."
-    )]
-    pub continue_on_error: bool,
-    #[arg(
-        long,
-        default_value_t = 0,
-        requires = "all",
-        help = "Maximum allowed failures before stopping batch apply; 0 means unlimited."
-    )]
-    pub max_failures: usize,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct ResumeArgs {
-    #[arg(
-        long,
-        required_unless_present_any = ["all", "session_id"],
-        conflicts_with_all = [
-            "all",
-            "session_id",
-            "status",
-            "runtime",
-            "name_contains",
-            "dry_run",
-            "yes",
-            "continue_on_error",
-            "max_failures"
-        ],
-        help = "Target session id."
-    )]
-    pub id: Option<String>,
-    #[arg(
-        value_name = "ID",
-        index = 1,
-        required_unless_present_any = ["all", "id"],
-        conflicts_with_all = [
-            "all",
-            "id",
-            "status",
-            "runtime",
-            "name_contains",
-            "dry_run",
-            "yes",
-            "continue_on_error",
-            "max_failures"
-        ],
-        help = "Target session id (positional shorthand)."
-    )]
-    pub session_id: Option<String>,
-    #[arg(
-        long,
-        default_value_t = false,
-        required_unless_present_any = ["id", "session_id"],
-        help = "Apply operation to all matched sessions in scope."
-    )]
-    pub all: bool,
-    #[arg(
-        long,
-        value_enum,
-        requires = "all",
-        help = "Filter matched sessions by reconciled status."
-    )]
-    pub status: Option<ListStatusArg>,
-    #[arg(
-        long,
-        value_enum,
-        requires = "all",
-        help = "Filter matched sessions by runtime kind."
-    )]
-    pub runtime: Option<RuntimeArg>,
-    #[arg(
-        long,
-        requires = "all",
-        help = "Case-insensitive substring filter on session name."
-    )]
-    pub name_contains: Option<String>,
-    #[arg(
-        long,
-        default_value_t = false,
-        requires = "all",
-        help = "Preview matched sessions without applying resume."
-    )]
-    pub dry_run: bool,
-    #[arg(
-        long,
-        default_value_t = false,
-        requires = "all",
-        help = "Confirm global non-dry-run batch operation (required in global scope)."
-    )]
-    pub yes: bool,
-    #[arg(
-        long,
-        default_value_t = true,
-        action = clap::ArgAction::Set,
-        requires = "all",
-        help = "Continue processing matched sessions after individual failures (set false for fail-fast)."
-    )]
-    pub continue_on_error: bool,
-    #[arg(
-        long,
-        default_value_t = 0,
-        requires = "all",
-        help = "Maximum allowed failures before stopping batch apply; 0 means unlimited."
-    )]
-    pub max_failures: usize,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -960,31 +557,54 @@ fn parse_short_id_len(value: &str) -> Result<usize, String> {
     Ok(parsed)
 }
 
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| "value must be a positive integer".to_string())?;
+    if parsed == 0 {
+        return Err("value must be greater than 0".to_string());
+    }
+    Ok(parsed)
+}
+
+fn parse_cleanup_older_than_secs(value: &str) -> Result<u64, String> {
+    let raw = value.trim();
+    if raw.is_empty() {
+        return Err("older-than must not be empty".to_string());
+    }
+
+    let split_index = raw
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(raw.len());
+    if split_index == 0 {
+        return Err("older-than must start with a positive integer".to_string());
+    }
+
+    let amount = raw[..split_index]
+        .parse::<u64>()
+        .map_err(|_| "older-than must start with a positive integer".to_string())?;
+    if amount == 0 {
+        return Err("older-than must be greater than 0".to_string());
+    }
+
+    let unit = raw[split_index..].trim().to_ascii_lowercase();
+    let multiplier = match unit.as_str() {
+        "" | "s" => 1u64,
+        "m" => 60u64,
+        "h" => 60u64 * 60u64,
+        "d" => 60u64 * 60u64 * 24u64,
+        "w" => 60u64 * 60u64 * 24u64 * 7u64,
+        _ => {
+            return Err("older-than unit must be one of: s, m, h, d, w (example: 7d)".to_string());
+        }
+    };
+
+    amount
+        .checked_mul(multiplier)
+        .ok_or_else(|| "older-than value is too large".to_string())
+}
+
 impl SessionIdArgs {
-    pub fn resolved_id(&self) -> Option<&str> {
-        self.id.as_deref().or(self.session_id.as_deref())
-    }
-}
-
-impl StopArgs {
-    pub fn resolved_id(&self) -> Option<&str> {
-        self.id.as_deref().or(self.session_id.as_deref())
-    }
-}
-
-impl RestartArgs {
-    pub fn resolved_id(&self) -> Option<&str> {
-        self.id.as_deref().or(self.session_id.as_deref())
-    }
-}
-
-impl SuspendArgs {
-    pub fn resolved_id(&self) -> Option<&str> {
-        self.id.as_deref().or(self.session_id.as_deref())
-    }
-}
-
-impl ResumeArgs {
     pub fn resolved_id(&self) -> Option<&str> {
         self.id.as_deref().or(self.session_id.as_deref())
     }

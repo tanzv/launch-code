@@ -275,6 +275,75 @@ fn list_help_exposes_filter_flags() {
 }
 
 #[test]
+fn lifecycle_help_mentions_all_keyword_alias_for_all_batch_commands() {
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .arg("stop")
+        .arg("--help")
+        .output()
+        .expect("stop help should run");
+    assert!(stop_output.status.success(), "stop help should succeed");
+    let stop_stdout = String::from_utf8(stop_output.stdout).expect("stdout should be utf8");
+    assert!(
+        stop_stdout.contains("Use `all` to target all sessions"),
+        "stop help should document the positional all alias"
+    );
+    assert!(
+        stop_stdout.contains("--all"),
+        "stop help should expose --all flag"
+    );
+
+    let mut restart_cmd = cargo_bin_cmd!("launch-code");
+    let restart_output = restart_cmd
+        .arg("restart")
+        .arg("--help")
+        .output()
+        .expect("restart help should run");
+    assert!(
+        restart_output.status.success(),
+        "restart help should succeed"
+    );
+    let restart_stdout = String::from_utf8(restart_output.stdout).expect("stdout should be utf8");
+    assert!(
+        restart_stdout.contains("Use `all` to target all sessions"),
+        "restart help should document the positional all alias"
+    );
+    assert!(
+        restart_stdout.contains("--all"),
+        "restart help should expose --all flag"
+    );
+
+    let mut suspend_cmd = cargo_bin_cmd!("launch-code");
+    let suspend_output = suspend_cmd
+        .arg("suspend")
+        .arg("--help")
+        .output()
+        .expect("suspend help should run");
+    assert!(
+        suspend_output.status.success(),
+        "suspend help should succeed"
+    );
+    let suspend_stdout = String::from_utf8(suspend_output.stdout).expect("stdout should be utf8");
+    assert!(
+        suspend_stdout.contains("Use `all` to target all sessions"),
+        "suspend help should document the positional all alias"
+    );
+
+    let mut resume_cmd = cargo_bin_cmd!("launch-code");
+    let resume_output = resume_cmd
+        .arg("resume")
+        .arg("--help")
+        .output()
+        .expect("resume help should run");
+    assert!(resume_output.status.success(), "resume help should succeed");
+    let resume_stdout = String::from_utf8(resume_output.stdout).expect("stdout should be utf8");
+    assert!(
+        resume_stdout.contains("Use `all` to target all sessions"),
+        "resume help should document the positional all alias"
+    );
+}
+
+#[test]
 fn running_help_exposes_display_flags() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd
@@ -625,6 +694,10 @@ fn cleanup_help_exposes_status_and_dry_run_flags() {
     assert!(
         stdout.contains("--dry-run"),
         "cleanup help should expose --dry-run"
+    );
+    assert!(
+        stdout.contains("--older-than"),
+        "cleanup help should expose --older-than"
     );
     assert!(
         stdout.contains("stopped"),

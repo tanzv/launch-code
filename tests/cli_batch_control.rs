@@ -600,3 +600,151 @@ fn stop_all_global_dry_run_tolerates_broken_link_state_and_reports_link_error() 
     assert_eq!(link_errors.len(), 1);
     assert_eq!(link_errors[0]["link_name"], "workspace-bad");
 }
+
+#[test]
+fn stop_keyword_all_alias_supports_batch_dry_run_without_all_flag() {
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state(
+        tmp.path(),
+        json!({
+            "session-a": build_session("session-a", "api-a", "stopped")
+        }),
+    );
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("stop")
+        .arg("all")
+        .arg("--dry-run")
+        .arg("--status")
+        .arg("stopped")
+        .output()
+        .expect("stop all alias dry-run should run");
+    assert!(
+        output.status.success(),
+        "stop all alias dry-run should succeed"
+    );
+
+    let doc: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["action"], "stop");
+    assert_eq!(doc["scope"], "local");
+    assert_eq!(doc["dry_run"], true);
+    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
+    assert_eq!(doc["success_count"], 1);
+    assert_eq!(doc["failed_count"], 0);
+}
+
+#[test]
+fn restart_keyword_all_alias_supports_batch_dry_run_without_all_flag() {
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state(
+        tmp.path(),
+        json!({
+            "session-a": build_session("session-a", "api-a", "stopped")
+        }),
+    );
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("restart")
+        .arg("all")
+        .arg("--dry-run")
+        .arg("--status")
+        .arg("stopped")
+        .output()
+        .expect("restart all alias dry-run should run");
+    assert!(
+        output.status.success(),
+        "restart all alias dry-run should succeed"
+    );
+
+    let doc: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["action"], "restart");
+    assert_eq!(doc["scope"], "local");
+    assert_eq!(doc["dry_run"], true);
+    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
+    assert_eq!(doc["success_count"], 1);
+    assert_eq!(doc["failed_count"], 0);
+}
+
+#[test]
+fn suspend_keyword_all_alias_supports_batch_dry_run_without_all_flag() {
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state(
+        tmp.path(),
+        json!({
+            "session-a": build_session("session-a", "api-a", "stopped")
+        }),
+    );
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("suspend")
+        .arg("all")
+        .arg("--dry-run")
+        .arg("--status")
+        .arg("stopped")
+        .output()
+        .expect("suspend all alias dry-run should run");
+    assert!(
+        output.status.success(),
+        "suspend all alias dry-run should succeed"
+    );
+
+    let doc: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["action"], "suspend");
+    assert_eq!(doc["scope"], "local");
+    assert_eq!(doc["dry_run"], true);
+    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
+    assert_eq!(doc["success_count"], 1);
+    assert_eq!(doc["failed_count"], 0);
+}
+
+#[test]
+fn resume_keyword_all_alias_supports_batch_dry_run_without_all_flag() {
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state(
+        tmp.path(),
+        json!({
+            "session-a": build_session("session-a", "api-a", "stopped")
+        }),
+    );
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("resume")
+        .arg("all")
+        .arg("--dry-run")
+        .arg("--status")
+        .arg("stopped")
+        .output()
+        .expect("resume all alias dry-run should run");
+    assert!(
+        output.status.success(),
+        "resume all alias dry-run should succeed"
+    );
+
+    let doc: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["action"], "resume");
+    assert_eq!(doc["scope"], "local");
+    assert_eq!(doc["dry_run"], true);
+    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["processed_count"], 1);
+    assert_eq!(doc["success_count"], 1);
+    assert_eq!(doc["failed_count"], 0);
+}

@@ -37,22 +37,17 @@ pub(crate) fn api_list_sessions(store: &StateStore) -> Result<Vec<SessionRecord>
     if state.sessions.is_empty() {
         return Ok(Vec::new());
     }
-    if !state
-        .sessions
-        .values()
-        .any(session_requires_reconcile_for_list)
-    {
+    let ids_to_reconcile = collect_reconcile_candidate_ids(&state.sessions);
+    if ids_to_reconcile.is_empty() {
         return Ok(state.sessions.values().cloned().collect());
     }
 
-    store.update::<_, _, AppError>(|state| {
+    store.update::<_, _, AppError>(move |state| {
         let now = unix_timestamp_secs();
-        let ids: Vec<String> = state.sessions.keys().cloned().collect();
-        for id in ids {
-            let session = state
-                .sessions
-                .get_mut(&id)
-                .ok_or_else(|| AppError::SessionNotFound(id.clone()))?;
+        for id in &ids_to_reconcile {
+            let Some(session) = state.sessions.get_mut(id) else {
+                continue;
+            };
             super::reconcile_session(store, session, now)?;
         }
 
@@ -106,11 +101,20 @@ fn resolve_session_id_in_map(
 }
 
 fn session_requires_reconcile_for_list(session: &SessionRecord) -> bool {
-    session.pid.is_some()
-        || matches!(
-            session.status,
-            SessionStatus::Running | SessionStatus::Unknown
-        )
+    session.pid.is_some() || !matches!(session.status, SessionStatus::Stopped)
+}
+
+fn collect_reconcile_candidate_ids(sessions: &BTreeMap<String, SessionRecord>) -> Vec<String> {
+    sessions
+        .iter()
+        .filter_map(|(id, session)| {
+            if session_requires_reconcile_for_list(session) {
+                Some(id.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 pub(crate) fn api_cleanup_sessions(
@@ -118,15 +122,25 @@ pub(crate) fn api_cleanup_sessions(
     statuses: &[SessionStatus],
     dry_run: bool,
 ) -> Result<SessionCleanupResult, AppError> {
+    api_cleanup_sessions_with_options(store, statuses, None, dry_run)
+}
+
+pub(crate) fn api_cleanup_sessions_with_options(
+    store: &StateStore,
+    statuses: &[SessionStatus],
+    older_than_secs: Option<u64>,
+    dry_run: bool,
+) -> Result<SessionCleanupResult, AppError> {
     let statuses: Vec<SessionStatus> = statuses.to_vec();
-    let result = store.update::<_, _, AppError>(|state| {
+    let preloaded = store.load()?;
+    let ids_to_reconcile = collect_reconcile_candidate_ids(&preloaded.sessions);
+
+    let result = store.update::<_, _, AppError>(move |state| {
         let now = unix_timestamp_secs();
-        let ids: Vec<String> = state.sessions.keys().cloned().collect();
-        for id in ids {
-            let session = state
-                .sessions
-                .get_mut(&id)
-                .ok_or_else(|| AppError::SessionNotFound(id.clone()))?;
+        for id in &ids_to_reconcile {
+            let Some(session) = state.sessions.get_mut(id) else {
+                continue;
+            };
             super::reconcile_session(store, session, now)?;
         }
 
@@ -134,7 +148,10 @@ pub(crate) fn api_cleanup_sessions(
             .sessions
             .iter()
             .filter_map(|(id, session)| {
-                if statuses.iter().any(|value| value == &session.status) {
+                let status_matches = statuses.iter().any(|value| value == &session.status);
+                let age_matches = older_than_secs
+                    .is_none_or(|secs| now.saturating_sub(session.updated_at) >= secs);
+                if status_matches && age_matches {
                     Some(id.clone())
                 } else {
                     None

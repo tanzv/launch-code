@@ -41,12 +41,15 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - `lcode list` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--compact`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode running` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--wide`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode cleanup` defaults to global cleanup across all registered links.
-- `lcode stop --all`, `lcode restart --all`, `lcode suspend --all`, and `lcode resume --all` support batch lifecycle control in scope (`--local`, `--link`, or global default).
+- `lcode stop --all`/`lcode stop all`, `lcode restart --all`/`lcode restart all`, `lcode suspend --all`/`lcode suspend all`, and `lcode resume --all`/`lcode resume all` support batch lifecycle control in scope (`--local`, `--link`, or global default).
 - Global non-dry-run batch apply requires explicit `--yes` confirmation; use `--dry-run` for preview.
 - Batch lifecycle commands support failure control via `--continue-on-error` and `--max-failures`.
+- Batch lifecycle commands support planning controls via `--sort`, `--limit`, `--summary`, and `--jobs`.
+- `--jobs > 1` requires `--continue-on-error true` and `--max-failures 0`.
 - Global batch lifecycle commands tolerate unreadable/broken links and report them in `link_errors` with `link_error_count`.
 - Session-id commands auto-route by `--id` across links in global scope when `--link` is omitted (`stop/status/inspect/logs/restart/suspend/resume/attach/dap/doctor`).
 - Session-id lifecycle and diagnostics commands support positional shorthand (`lcode stop <id>`, `lcode status <id>`, `lcode logs <id>`, ...) and unique short-id prefixes.
+- Lifecycle commands support multi-id positional control (`lcode stop <id1> <id2>`, and same pattern for `restart`/`suspend`/`resume`).
 - `lcode ps` is an alias of `lcode list`.
 - `lcode project show` defaults to global project metadata aggregation across links.
 - Register links with `lcode link add --name <name> --path <workspace>` and use `--link <name>` to route commands.
@@ -153,16 +156,27 @@ lcode restart --id <session_id>
 lcode restart <session_id>
 lcode stop --id <session_id>
 lcode stop <session_id>
+lcode stop <id_1> <id_2>
+lcode restart <id_1> <id_2>
+lcode suspend <id_1> <id_2>
+lcode resume <id_1> <id_2>
 lcode stop --all --status running --yes
+lcode stop all --dry-run --status running
 lcode restart --all --dry-run --status running
+lcode restart all --dry-run --status running
 lcode suspend --all --dry-run --status running
+lcode suspend all --dry-run --status running
 lcode resume --all --dry-run --status suspended
+lcode resume all --dry-run --status suspended
+lcode stop --all --status running --sort status --limit 20 --summary --yes
+lcode stop --all --status running --jobs 4 --continue-on-error true --max-failures 0 --yes
 lcode suspend --all --status running --max-failures 1
 lcode suspend --all --status running --continue-on-error false
 lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
 lcode daemon --interval-ms 1000
 lcode cleanup
 lcode cleanup --dry-run --status stopped
+lcode cleanup --status stopped --older-than 7d
 lcode --local cleanup
 ```
 
@@ -340,6 +354,7 @@ Use `--json` and inspect `error` in stderr payloads:
 - `launch` reads named configurations from `launch.json`; use `start`/`debug` for direct runtime/entry launches.
 - `--log-mode stdout|tee` requires `--foreground`.
 - `--tail` cannot be combined with `--foreground`.
+- `--jobs > 1` is only valid when `--continue-on-error=true` and `--max-failures=0`.
 - Empty update payloads are rejected for `PUT` and `PATCH`.
 - List fields must be arrays of strings or `null`.
 - `DELETE /v1/project` accepts `{"fields":[...]}`.
@@ -353,10 +368,14 @@ Use JSON output in automation and assert:
 
 - `ok == true`
 - expected `items`/`message`/`project` payloads are present
+- for lifecycle batch JSON, validate `sort`/`limit`/`jobs`/`summary` and `summary_doc`
+- for global batch JSON, validate `link_errors` and `link_error_count`
 
 Relevant regression tests:
 
 ```bash
 cargo test -q cli_project_info cli_session_topology http_project cli_json_output state_store_persistence
 cargo test -q cli_link
+cargo test -q cli_batch_control
+cargo test -q cli_alias_lcode
 ```

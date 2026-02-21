@@ -58,16 +58,16 @@ fn run(cli: Cli) -> Result<(), AppError> {
     if should_use_global_batch_session_control(&cli) {
         let workspace_root = resolve_workspace_root()?;
         match &cli.command {
-            Commands::Stop(args) if args.all => {
+            Commands::Stop(args) if args.targets_all() => {
                 return app::execute_global_stop(args, &workspace_root);
             }
-            Commands::Restart(args) if args.all => {
+            Commands::Restart(args) if args.targets_all() => {
                 return app::execute_global_restart(args, &workspace_root);
             }
-            Commands::Suspend(args) if args.all => {
+            Commands::Suspend(args) if args.targets_all() => {
                 return app::execute_global_suspend(args, &workspace_root);
             }
-            Commands::Resume(args) if args.all => {
+            Commands::Resume(args) if args.targets_all() => {
                 return app::execute_global_resume(args, &workspace_root);
             }
             _ => {}
@@ -169,10 +169,10 @@ fn should_use_global_batch_session_control(cli: &Cli) -> bool {
         return false;
     }
     match &cli.command {
-        Commands::Stop(args) => args.all,
-        Commands::Restart(args) => args.all,
-        Commands::Suspend(args) => args.all,
-        Commands::Resume(args) => args.all,
+        Commands::Stop(args) => args.targets_all(),
+        Commands::Restart(args) => args.targets_all(),
+        Commands::Suspend(args) => args.targets_all(),
+        Commands::Resume(args) => args.targets_all(),
         _ => false,
     }
 }
@@ -203,10 +203,10 @@ fn command_session_id(command: &Commands) -> Option<&str> {
         Commands::Attach(args) => args.resolved_id(),
         Commands::Inspect(args) => args.resolved_id(),
         Commands::Logs(args) => args.resolved_id(),
-        Commands::Stop(args) => args.resolved_id(),
-        Commands::Restart(args) => args.resolved_id(),
-        Commands::Suspend(args) => args.resolved_id(),
-        Commands::Resume(args) => args.resolved_id(),
+        Commands::Stop(args) => args.single_target_id(),
+        Commands::Restart(args) => args.single_target_id(),
+        Commands::Suspend(args) => args.single_target_id(),
+        Commands::Resume(args) => args.single_target_id(),
         Commands::Status(args) => args.resolved_id(),
         Commands::Dap(args) => dap_command_session_id(&args.command),
         Commands::Doctor(args) => doctor_command_session_id(&args.command),

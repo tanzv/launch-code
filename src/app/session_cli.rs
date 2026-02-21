@@ -13,6 +13,8 @@ use crate::error::AppError;
 use crate::link_registry::load_registry;
 use crate::output;
 
+mod batch;
+
 #[derive(Debug, Clone)]
 struct SessionListRow {
     id: String,
@@ -63,55 +65,6 @@ struct GlobalCleanupRow {
     removed_session_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum BatchAction {
-    Stop,
-    Restart,
-    Suspend,
-    Resume,
-}
-
-#[derive(Debug, Clone)]
-struct BatchSelector {
-    status: Option<ListStatusArg>,
-    runtime: Option<RuntimeKind>,
-    name_filter: Option<String>,
-    dry_run: bool,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct BatchExecutionControl {
-    continue_on_error: bool,
-    max_failures: usize,
-}
-
-#[derive(Debug, Clone)]
-struct BatchSessionRow {
-    id: String,
-    status_before: &'static str,
-    status_after: Option<&'static str>,
-    link_name: Option<String>,
-    link_path: Option<String>,
-    ok: bool,
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct BatchLinkErrorRow {
-    link_name: Option<String>,
-    link_path: Option<String>,
-    error: String,
-}
-
-#[derive(Debug, Clone)]
-struct BatchExecutionResult {
-    rows: Vec<BatchSessionRow>,
-    selected_count: usize,
-    processed_count: usize,
-    link_errors: Vec<BatchLinkErrorRow>,
-    stopped_early: bool,
-}
-
 impl ListFilters {
     fn from_args(args: &ListArgs) -> Self {
         Self {
@@ -136,108 +89,20 @@ impl ListFilters {
     }
 }
 
-impl BatchSelector {
-    fn filters(&self) -> ListFilters {
-        ListFilters {
-            status_filter: self.status.clone(),
-            runtime_filter: self.runtime.clone(),
-            name_filter: self.name_filter.clone(),
-        }
-    }
-}
-
-impl BatchExecutionControl {
-    fn should_stop_after_failure(&self, failure_count: usize) -> bool {
-        if !self.continue_on_error {
-            return true;
-        }
-        self.max_failures > 0 && failure_count >= self.max_failures
-    }
-}
-
 pub(super) fn handle_stop(store: &StateStore, args: &StopArgs) -> Result<(), AppError> {
-    if args.all {
-        let selector = selector_from_stop_args(args);
-        let control = control_from_stop_args(args);
-        return handle_batch_control_local(
-            store,
-            BatchAction::Stop,
-            selector,
-            control,
-            args.force,
-            args.grace_timeout_ms,
-        );
-    }
-    let Some(session_id) = args.resolved_id() else {
-        return Ok(());
-    };
-    let session =
-        super::api_stop_session_with_options(store, session_id, args.force, args.grace_timeout_ms)?;
-    let output = format!("session_id={} status=stopped", session.id);
-    print_session_command_output("stop", &session, output);
-    Ok(())
+    batch::handle_stop(store, args)
 }
 
 pub(super) fn handle_restart(store: &StateStore, args: &RestartArgs) -> Result<(), AppError> {
-    if args.all {
-        let selector = selector_from_restart_args(args);
-        let control = control_from_restart_args(args);
-        let force = args.force && !args.no_force;
-        return handle_batch_control_local(
-            store,
-            BatchAction::Restart,
-            selector,
-            control,
-            force,
-            args.grace_timeout_ms,
-        );
-    }
-    let Some(session_id) = args.resolved_id() else {
-        return Ok(());
-    };
-    let force = args.force && !args.no_force;
-    let session =
-        super::api_restart_session_with_options(store, session_id, force, args.grace_timeout_ms)?;
-    let output = format_status_like_message(&session);
-    print_session_command_output("restart", &session, output);
-    Ok(())
+    batch::handle_restart(store, args)
 }
 
 pub(super) fn handle_suspend(store: &StateStore, args: &SuspendArgs) -> Result<(), AppError> {
-    if args.all {
-        let selector = selector_from_suspend_args(args);
-        let control = control_from_suspend_args(args);
-        return handle_batch_control_local(
-            store,
-            BatchAction::Suspend,
-            selector,
-            control,
-            false,
-            0,
-        );
-    }
-    let Some(session_id) = args.resolved_id() else {
-        return Ok(());
-    };
-    let session = super::api_suspend_session(store, session_id)?;
-    let output = format!("session_id={} status=suspended", session.id);
-    print_session_command_output("suspend", &session, output);
-    Ok(())
+    batch::handle_suspend(store, args)
 }
 
 pub(super) fn handle_resume(store: &StateStore, args: &ResumeArgs) -> Result<(), AppError> {
-    if args.all {
-        let selector = selector_from_resume_args(args);
-        let control = control_from_resume_args(args);
-        return handle_batch_control_local(store, BatchAction::Resume, selector, control, false, 0);
-    }
-    let Some(session_id) = args.resolved_id() else {
-        return Ok(());
-    };
-    let session = super::api_resume_session(store, session_id)?;
-    let output = format!("session_id={} status=running", session.id);
-    print_session_command_output("resume", &session, output);
-    Ok(())
+    batch::handle_resume(store, args)
 }
 
 pub(super) fn handle_status(store: &StateStore, args: &SessionIdArgs) -> Result<(), AppError> {
@@ -253,7 +118,8 @@ pub(super) fn handle_status(store: &StateStore, args: &SessionIdArgs) -> Result<
 pub(super) fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_args(args);
     let render = list_render_options_from_list_args(args);
-    let rows = collect_rows_from_store(store, &filters, None, None)?;
+    let include_topology = should_include_topology(render);
+    let rows = collect_rows_from_store(store, &filters, None, None, include_topology)?;
     print_list_rows(&rows, render);
     Ok(())
 }
@@ -261,7 +127,8 @@ pub(super) fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), App
 pub(super) fn handle_running(store: &StateStore, args: &RunningArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_running_args(args);
     let render = list_render_options_from_running_args(args);
-    let rows = collect_rows_from_store(store, &filters, None, None)?;
+    let include_topology = should_include_topology(render);
+    let rows = collect_rows_from_store(store, &filters, None, None, include_topology)?;
     print_list_rows(&rows, render);
     Ok(())
 }
@@ -286,17 +153,23 @@ fn handle_list_global_with_filters(
     let registry = load_registry()?;
     let mut seen_paths = BTreeSet::new();
     let mut rows = Vec::new();
+    let include_topology = should_include_topology(render);
 
     for item in registry.list() {
         if !seen_paths.insert(item.path.clone()) {
             continue;
         }
         let store = StateStore::new(&item.path);
-        let mut scoped_rows =
-            match collect_rows_from_store(&store, filters, Some(item.name), Some(item.path)) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
+        let mut scoped_rows = match collect_rows_from_store(
+            &store,
+            filters,
+            Some(item.name),
+            Some(item.path),
+            include_topology,
+        ) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
         rows.append(&mut scoped_rows);
     }
 
@@ -310,6 +183,23 @@ fn handle_list_global_with_filters(
 
     print_list_rows(&rows, render);
     Ok(())
+}
+
+fn cache_global_rows_session_routes(rows: &[SessionListRow]) {
+    let mut grouped: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for row in rows {
+        let Some(link_path) = row.link_path.as_ref() else {
+            continue;
+        };
+        grouped
+            .entry(link_path.clone())
+            .or_default()
+            .push(row.id.clone());
+    }
+
+    for (path, session_ids) in grouped {
+        let _ = crate::session_lookup::upsert_sessions_for_path(session_ids, Path::new(&path));
+    }
 }
 
 fn list_render_options_from_list_args(args: &ListArgs) -> ListRenderOptions {
@@ -360,7 +250,12 @@ fn list_render_view_from_format(format: ListFormatArg) -> ListRenderView {
 
 pub(super) fn handle_cleanup(store: &StateStore, args: &CleanupArgs) -> Result<(), AppError> {
     let statuses = resolve_cleanup_statuses(args);
-    let result = super::api_cleanup_sessions(store, &statuses, args.dry_run)?;
+    let result = super::api_cleanup_sessions_with_options(
+        store,
+        &statuses,
+        args.older_than_secs,
+        args.dry_run,
+    )?;
     let matched_count = result.matched_session_ids.len();
     let removed_count = result.removed_session_ids.len();
 
@@ -368,6 +263,7 @@ pub(super) fn handle_cleanup(store: &StateStore, args: &CleanupArgs) -> Result<(
         output::print_json_doc(&json!({
             "ok": true,
             "dry_run": result.dry_run,
+            "older_than_secs": args.older_than_secs,
             "matched_count": matched_count,
             "removed_count": removed_count,
             "kept_count": result.kept_count,
@@ -381,6 +277,9 @@ pub(super) fn handle_cleanup(store: &StateStore, args: &CleanupArgs) -> Result<(
         "session_cleanup_dry_run={} matched={} removed={} kept={}",
         result.dry_run, matched_count, removed_count, result.kept_count
     );
+    if let Some(older_than_secs) = args.older_than_secs {
+        message.push_str(&format!(" older_than_secs={older_than_secs}"));
+    }
     if !result.removed_session_ids.is_empty() {
         message.push_str(&format!(
             " removed_ids={}",
@@ -415,7 +314,12 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
             continue;
         }
 
-        let result = match super::api_cleanup_sessions(&store, &statuses, args.dry_run) {
+        let result = match super::api_cleanup_sessions_with_options(
+            &store,
+            &statuses,
+            args.older_than_secs,
+            args.dry_run,
+        ) {
             Ok(value) => value,
             Err(_) => continue,
         };
@@ -467,6 +371,7 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
             "ok": true,
             "scope": "global",
             "dry_run": args.dry_run,
+            "older_than_secs": args.older_than_secs,
             "link_count": rows.len(),
             "matched_count": matched_count,
             "removed_count": removed_count,
@@ -486,6 +391,9 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
         removed_count,
         kept_count
     );
+    if let Some(older_than_secs) = args.older_than_secs {
+        message.push_str(&format!(" older_than_secs={older_than_secs}"));
+    }
     if !removed_session_ids.is_empty() {
         message.push_str(&format!(" removed_ids={}", removed_session_ids.join(",")));
     }
@@ -507,19 +415,19 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
 }
 
 pub(super) fn handle_stop_global_default(args: &StopArgs) -> Result<(), AppError> {
-    handle_batch_control_global_stop(args)
+    batch::handle_stop_global_default(args)
 }
 
 pub(super) fn handle_restart_global_default(args: &RestartArgs) -> Result<(), AppError> {
-    handle_batch_control_global_restart(args)
+    batch::handle_restart_global_default(args)
 }
 
 pub(super) fn handle_suspend_global_default(args: &SuspendArgs) -> Result<(), AppError> {
-    handle_batch_control_global_suspend(args)
+    batch::handle_suspend_global_default(args)
 }
 
 pub(super) fn handle_resume_global_default(args: &ResumeArgs) -> Result<(), AppError> {
-    handle_batch_control_global_resume(args)
+    batch::handle_resume_global_default(args)
 }
 
 fn status_label(status: &SessionStatus) -> &'static str {
@@ -674,15 +582,51 @@ fn truncate_compact_field(value: &str, max_chars: usize, no_trunc: bool) -> Stri
     format!("{prefix}...")
 }
 
+fn should_include_topology(render: ListRenderOptions) -> bool {
+    output::is_json_mode() || !matches!(render.view, ListRenderView::Compact)
+}
+
 fn collect_rows_from_store(
     store: &StateStore,
     filters: &ListFilters,
     link_name: Option<String>,
     link_path: Option<String>,
+    include_topology: bool,
 ) -> Result<Vec<SessionListRow>, AppError> {
     let sessions = super::api_list_sessions(store)?;
     if sessions.is_empty() {
         return Ok(Vec::new());
+    }
+
+    if !include_topology {
+        let mut rows = Vec::new();
+        for session in sessions {
+            if !matches_list_filters(filters, &session) {
+                continue;
+            }
+
+            let debug_endpoint = session
+                .debug_meta
+                .as_ref()
+                .map(|meta| format!("{}:{}", meta.host, meta.active_port));
+
+            rows.push(SessionListRow {
+                id: session.id,
+                status: status_label(&session.status),
+                runtime: super::spec_ops::runtime_label(&session.spec.runtime),
+                mode: super::spec_ops::mode_label(&session.spec.mode),
+                pid: session.pid,
+                restart_count: session.restart_count,
+                name: session.spec.name,
+                entry: session.spec.entry,
+                debug_endpoint,
+                parent_session_id: None,
+                child_session_ids: Vec::new(),
+                link_name: link_name.clone(),
+                link_path: link_path.clone(),
+            });
+        }
+        return Ok(rows);
     }
 
     let session_map: BTreeMap<String, SessionRecord> = sessions
@@ -829,544 +773,4 @@ fn resolve_cleanup_statuses(args: &CleanupArgs) -> Vec<SessionStatus> {
             CleanupStatusArg::Unknown => SessionStatus::Unknown,
         })
         .collect()
-}
-
-fn selector_from_stop_args(args: &StopArgs) -> BatchSelector {
-    BatchSelector {
-        status: args.status.clone(),
-        runtime: args.runtime.as_ref().map(super::spec_ops::to_runtime_kind),
-        name_filter: args
-            .name_contains
-            .as_ref()
-            .map(|value| value.to_lowercase()),
-        dry_run: args.dry_run,
-    }
-}
-
-fn selector_from_restart_args(args: &RestartArgs) -> BatchSelector {
-    BatchSelector {
-        status: args.status.clone(),
-        runtime: args.runtime.as_ref().map(super::spec_ops::to_runtime_kind),
-        name_filter: args
-            .name_contains
-            .as_ref()
-            .map(|value| value.to_lowercase()),
-        dry_run: args.dry_run,
-    }
-}
-
-fn selector_from_suspend_args(args: &SuspendArgs) -> BatchSelector {
-    BatchSelector {
-        status: args.status.clone(),
-        runtime: args.runtime.as_ref().map(super::spec_ops::to_runtime_kind),
-        name_filter: args
-            .name_contains
-            .as_ref()
-            .map(|value| value.to_lowercase()),
-        dry_run: args.dry_run,
-    }
-}
-
-fn selector_from_resume_args(args: &ResumeArgs) -> BatchSelector {
-    BatchSelector {
-        status: args.status.clone(),
-        runtime: args.runtime.as_ref().map(super::spec_ops::to_runtime_kind),
-        name_filter: args
-            .name_contains
-            .as_ref()
-            .map(|value| value.to_lowercase()),
-        dry_run: args.dry_run,
-    }
-}
-
-fn control_from_stop_args(args: &StopArgs) -> BatchExecutionControl {
-    BatchExecutionControl {
-        continue_on_error: args.continue_on_error,
-        max_failures: args.max_failures,
-    }
-}
-
-fn control_from_restart_args(args: &RestartArgs) -> BatchExecutionControl {
-    BatchExecutionControl {
-        continue_on_error: args.continue_on_error,
-        max_failures: args.max_failures,
-    }
-}
-
-fn control_from_suspend_args(args: &SuspendArgs) -> BatchExecutionControl {
-    BatchExecutionControl {
-        continue_on_error: args.continue_on_error,
-        max_failures: args.max_failures,
-    }
-}
-
-fn control_from_resume_args(args: &ResumeArgs) -> BatchExecutionControl {
-    BatchExecutionControl {
-        continue_on_error: args.continue_on_error,
-        max_failures: args.max_failures,
-    }
-}
-
-fn cache_global_rows_session_routes(rows: &[SessionListRow]) {
-    let mut grouped: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for row in rows {
-        let Some(link_path) = row.link_path.as_ref() else {
-            continue;
-        };
-        grouped
-            .entry(link_path.clone())
-            .or_default()
-            .push(row.id.clone());
-    }
-
-    for (path, session_ids) in grouped {
-        let _ = crate::session_lookup::upsert_sessions_for_path(session_ids, Path::new(&path));
-    }
-}
-
-fn handle_batch_control_local(
-    store: &StateStore,
-    action: BatchAction,
-    selector: BatchSelector,
-    control: BatchExecutionControl,
-    force: bool,
-    grace_timeout_ms: u64,
-) -> Result<(), AppError> {
-    let filters = selector.filters();
-    let mut failure_count = 0usize;
-    let result = execute_batch_control_for_store(
-        store,
-        action,
-        &filters,
-        selector.dry_run,
-        control,
-        &mut failure_count,
-        force,
-        grace_timeout_ms,
-        None,
-        None,
-    )?;
-    print_batch_control_result(action, "local", selector.dry_run, control, result);
-    Ok(())
-}
-
-fn handle_batch_control_global_stop(args: &StopArgs) -> Result<(), AppError> {
-    ensure_global_batch_apply_confirmation("stop", args.dry_run, args.yes)?;
-    let _ = super::link_ops::auto_prune_stale_links_for_global_scan();
-    let selector = selector_from_stop_args(args);
-    let control = control_from_stop_args(args);
-    let filters = selector.filters();
-    let result = execute_batch_control_global(
-        BatchAction::Stop,
-        &filters,
-        selector.dry_run,
-        control,
-        args.force,
-        args.grace_timeout_ms,
-    )?;
-    print_batch_control_result(
-        BatchAction::Stop,
-        "global",
-        selector.dry_run,
-        control,
-        result,
-    );
-    Ok(())
-}
-
-fn handle_batch_control_global_restart(args: &RestartArgs) -> Result<(), AppError> {
-    ensure_global_batch_apply_confirmation("restart", args.dry_run, args.yes)?;
-    let _ = super::link_ops::auto_prune_stale_links_for_global_scan();
-    let selector = selector_from_restart_args(args);
-    let control = control_from_restart_args(args);
-    let filters = selector.filters();
-    let force = args.force && !args.no_force;
-    let result = execute_batch_control_global(
-        BatchAction::Restart,
-        &filters,
-        selector.dry_run,
-        control,
-        force,
-        args.grace_timeout_ms,
-    )?;
-    print_batch_control_result(
-        BatchAction::Restart,
-        "global",
-        selector.dry_run,
-        control,
-        result,
-    );
-    Ok(())
-}
-
-fn handle_batch_control_global_suspend(args: &SuspendArgs) -> Result<(), AppError> {
-    ensure_global_batch_apply_confirmation("suspend", args.dry_run, args.yes)?;
-    let _ = super::link_ops::auto_prune_stale_links_for_global_scan();
-    let selector = selector_from_suspend_args(args);
-    let control = control_from_suspend_args(args);
-    let filters = selector.filters();
-    let result = execute_batch_control_global(
-        BatchAction::Suspend,
-        &filters,
-        selector.dry_run,
-        control,
-        false,
-        0,
-    )?;
-    print_batch_control_result(
-        BatchAction::Suspend,
-        "global",
-        selector.dry_run,
-        control,
-        result,
-    );
-    Ok(())
-}
-
-fn handle_batch_control_global_resume(args: &ResumeArgs) -> Result<(), AppError> {
-    ensure_global_batch_apply_confirmation("resume", args.dry_run, args.yes)?;
-    let _ = super::link_ops::auto_prune_stale_links_for_global_scan();
-    let selector = selector_from_resume_args(args);
-    let control = control_from_resume_args(args);
-    let filters = selector.filters();
-    let result = execute_batch_control_global(
-        BatchAction::Resume,
-        &filters,
-        selector.dry_run,
-        control,
-        false,
-        0,
-    )?;
-    print_batch_control_result(
-        BatchAction::Resume,
-        "global",
-        selector.dry_run,
-        control,
-        result,
-    );
-    Ok(())
-}
-
-fn ensure_global_batch_apply_confirmation(
-    action_label: &str,
-    dry_run: bool,
-    confirmed: bool,
-) -> Result<(), AppError> {
-    if dry_run || confirmed {
-        return Ok(());
-    }
-    Err(AppError::ConfirmationRequired(format!(
-        "global `{action_label} --all` requires `--yes`; use `--dry-run` to preview."
-    )))
-}
-
-fn execute_batch_control_global(
-    action: BatchAction,
-    filters: &ListFilters,
-    dry_run: bool,
-    control: BatchExecutionControl,
-    force: bool,
-    grace_timeout_ms: u64,
-) -> Result<BatchExecutionResult, AppError> {
-    let registry = load_registry()?;
-    let mut seen_paths = BTreeSet::new();
-    let mut failure_count = 0usize;
-    let mut rows = Vec::new();
-    let mut link_errors = Vec::new();
-    let mut selected_count = 0usize;
-    let mut stopped_early = false;
-
-    for item in registry.list() {
-        if !seen_paths.insert(item.path.clone()) {
-            continue;
-        }
-        let store = StateStore::new(&item.path);
-        let link_name = item.name.clone();
-        let link_path = item.path.clone();
-
-        match execute_batch_control_for_store(
-            &store,
-            action,
-            filters,
-            dry_run,
-            control,
-            &mut failure_count,
-            force,
-            grace_timeout_ms,
-            Some(link_name.clone()),
-            Some(link_path.clone()),
-        ) {
-            Ok(mut scoped) => {
-                selected_count = selected_count.saturating_add(scoped.selected_count);
-                rows.append(&mut scoped.rows);
-                if scoped.stopped_early {
-                    stopped_early = true;
-                    break;
-                }
-            }
-            Err(err) => {
-                failure_count = failure_count.saturating_add(1);
-                link_errors.push(BatchLinkErrorRow {
-                    link_name: Some(link_name),
-                    link_path: Some(link_path),
-                    error: err.to_string(),
-                });
-                if control.should_stop_after_failure(failure_count) {
-                    stopped_early = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    rows.sort_by(|left, right| {
-        left.id
-            .cmp(&right.id)
-            .then_with(|| left.link_name.cmp(&right.link_name))
-    });
-    link_errors.sort_by(|left, right| {
-        left.link_name
-            .cmp(&right.link_name)
-            .then_with(|| left.link_path.cmp(&right.link_path))
-    });
-
-    let processed_count = rows.len();
-    Ok(BatchExecutionResult {
-        rows,
-        selected_count,
-        processed_count,
-        link_errors,
-        stopped_early,
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn execute_batch_control_for_store(
-    store: &StateStore,
-    action: BatchAction,
-    filters: &ListFilters,
-    dry_run: bool,
-    control: BatchExecutionControl,
-    failure_count: &mut usize,
-    force: bool,
-    grace_timeout_ms: u64,
-    link_name: Option<String>,
-    link_path: Option<String>,
-) -> Result<BatchExecutionResult, AppError> {
-    let sessions = super::api_list_sessions(store)?;
-    let mut matched_sessions: Vec<SessionRecord> = sessions
-        .into_iter()
-        .filter(|session| matches_batch_control_filters(action, filters, session))
-        .collect();
-    matched_sessions.sort_by(|left, right| left.id.cmp(&right.id));
-    let total_matched = matched_sessions.len();
-
-    let mut rows = Vec::with_capacity(matched_sessions.len());
-    for session in matched_sessions {
-        let status_before = status_label(&session.status);
-
-        if dry_run {
-            rows.push(BatchSessionRow {
-                id: session.id,
-                status_before,
-                status_after: Some(status_before),
-                link_name: link_name.clone(),
-                link_path: link_path.clone(),
-                ok: true,
-                error: None,
-            });
-            continue;
-        }
-
-        let result = match action {
-            BatchAction::Stop => {
-                super::api_stop_session_with_options(store, &session.id, force, grace_timeout_ms)
-            }
-            BatchAction::Restart => {
-                super::api_restart_session_with_options(store, &session.id, force, grace_timeout_ms)
-            }
-            BatchAction::Suspend => super::api_suspend_session(store, &session.id),
-            BatchAction::Resume => super::api_resume_session(store, &session.id),
-        };
-
-        match result {
-            Ok(updated) => rows.push(BatchSessionRow {
-                id: updated.id,
-                status_before,
-                status_after: Some(status_label(&updated.status)),
-                link_name: link_name.clone(),
-                link_path: link_path.clone(),
-                ok: true,
-                error: None,
-            }),
-            Err(err) => {
-                rows.push(BatchSessionRow {
-                    id: session.id,
-                    status_before,
-                    status_after: None,
-                    link_name: link_name.clone(),
-                    link_path: link_path.clone(),
-                    ok: false,
-                    error: Some(err.to_string()),
-                });
-                *failure_count = failure_count.saturating_add(1);
-                if control.should_stop_after_failure(*failure_count) {
-                    break;
-                }
-            }
-        }
-    }
-
-    let stopped_early = rows.len() < total_matched;
-    let processed_count = rows.len();
-    Ok(BatchExecutionResult {
-        rows,
-        selected_count: total_matched,
-        processed_count,
-        link_errors: Vec::new(),
-        stopped_early,
-    })
-}
-
-fn matches_batch_control_filters(
-    action: BatchAction,
-    filters: &ListFilters,
-    session: &SessionRecord,
-) -> bool {
-    let status_match = if let Some(status_filter) = &filters.status_filter {
-        matches_list_status(status_filter, &session.status)
-    } else {
-        default_batch_status_match(action, &session.status)
-    };
-    if !status_match {
-        return false;
-    }
-    if let Some(runtime_filter) = &filters.runtime_filter {
-        if session.spec.runtime != *runtime_filter {
-            return false;
-        }
-    }
-    if let Some(name_filter) = &filters.name_filter {
-        if !session.spec.name.to_lowercase().contains(name_filter) {
-            return false;
-        }
-    }
-    true
-}
-
-fn default_batch_status_match(action: BatchAction, status: &SessionStatus) -> bool {
-    match action {
-        BatchAction::Stop => !matches!(status, SessionStatus::Stopped),
-        BatchAction::Restart => matches!(status, SessionStatus::Running | SessionStatus::Suspended),
-        BatchAction::Suspend => matches!(status, SessionStatus::Running),
-        BatchAction::Resume => matches!(status, SessionStatus::Suspended),
-    }
-}
-
-fn print_batch_control_result(
-    action: BatchAction,
-    scope: &str,
-    dry_run: bool,
-    control: BatchExecutionControl,
-    result: BatchExecutionResult,
-) {
-    let BatchExecutionResult {
-        rows,
-        selected_count,
-        processed_count,
-        link_errors,
-        stopped_early,
-    } = result;
-    let success_count = rows.iter().filter(|row| row.ok).count();
-    let session_failed_count = rows.len().saturating_sub(success_count);
-    let link_error_count = link_errors.len();
-    let failed_count = session_failed_count.saturating_add(link_error_count);
-    let action_label = match action {
-        BatchAction::Stop => "stop",
-        BatchAction::Restart => "restart",
-        BatchAction::Suspend => "suspend",
-        BatchAction::Resume => "resume",
-    };
-
-    if output::is_json_mode() {
-        let items: Vec<serde_json::Value> = rows
-            .iter()
-            .map(|row| {
-                json!({
-                    "id": row.id,
-                    "status_before": row.status_before,
-                    "status_after": row.status_after,
-                    "link_name": row.link_name,
-                    "link_path": row.link_path,
-                    "ok": row.ok,
-                    "error": row.error,
-                })
-            })
-            .collect();
-        output::print_json_doc(&json!({
-            "ok": true,
-            "action": action_label,
-            "scope": scope,
-            "all": true,
-            "dry_run": dry_run,
-            "continue_on_error": control.continue_on_error,
-            "max_failures": control.max_failures,
-            "stopped_early": stopped_early,
-            "matched_count": selected_count,
-            "processed_count": processed_count,
-            "success_count": success_count,
-            "session_failed_count": session_failed_count,
-            "link_error_count": link_error_count,
-            "failed_count": failed_count,
-            "link_errors": link_errors.iter().map(|row| {
-                json!({
-                    "link_name": row.link_name,
-                    "link_path": row.link_path,
-                    "error": row.error,
-                })
-            }).collect::<Vec<_>>(),
-            "items": items,
-        }));
-        return;
-    }
-
-    output::print_message(&format!(
-        "session_batch_action={action_label} scope={scope} dry_run={dry_run} continue_on_error={} max_failures={} stopped_early={} matched={} processed={} success={success_count} failed={failed_count} link_errors={link_error_count}",
-        control.continue_on_error,
-        control.max_failures,
-        stopped_early,
-        selected_count,
-        processed_count,
-    ));
-
-    if rows.is_empty() && link_errors.is_empty() {
-        return;
-    }
-
-    if !rows.is_empty() {
-        let mut lines = Vec::with_capacity(rows.len() + 1);
-        lines.push("ID\tSTATUS_BEFORE\tSTATUS_AFTER\tRESULT\tLINK\tERROR".to_string());
-        for row in &rows {
-            let status_after = row.status_after.unwrap_or("-");
-            let result = if row.ok { "ok" } else { "failed" };
-            let link = row.link_name.clone().unwrap_or_else(|| "-".to_string());
-            let error = row.error.clone().unwrap_or_else(|| "-".to_string());
-            lines.push(format!(
-                "{}\t{}\t{}\t{}\t{}\t{}",
-                row.id, row.status_before, status_after, result, link, error
-            ));
-        }
-        output::print_lines(&lines);
-    }
-
-    if !link_errors.is_empty() {
-        let mut lines = Vec::with_capacity(link_errors.len() + 1);
-        lines.push("LINK\tPATH\tERROR".to_string());
-        for row in &link_errors {
-            let link = row.link_name.clone().unwrap_or_else(|| "-".to_string());
-            let path = row.link_path.clone().unwrap_or_else(|| "-".to_string());
-            lines.push(format!("{}\t{}\t{}", link, path, row.error));
-        }
-        output::print_lines(&lines);
-    }
 }

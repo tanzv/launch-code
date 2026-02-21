@@ -10,8 +10,10 @@ Recommended command: `lcode` (compatibility command: `launch-code`).
 - Workspace session persistence (`.launch-code/state.json`)
 - Atomic state updates for concurrent CLI/HTTP writers (multi-process safe persistence)
 - Process lifecycle controls (`stop`, `restart`, `suspend`, `resume`)
-- Batch lifecycle controls (`stop --all`, `restart --all`, `suspend --all`, `resume --all`) with scope-aware filtering
-- Batch failure controls (`--continue-on-error`, `--max-failures`) for `--all` lifecycle commands
+- Batch lifecycle controls (`stop --all`/`stop all`, `restart --all`/`restart all`, `suspend --all`/`suspend all`, `resume --all`/`resume all`) with scope-aware filtering
+- Batch failure controls (`--continue-on-error`, `--max-failures`) for batch lifecycle commands
+- Batch planning controls (`--sort`, `--limit`, `--summary`, `--jobs`) for batch lifecycle commands
+- Multi-id lifecycle control (`stop <id1> <id2>`, `restart <id1> <id2>`, `suspend <id1> <id2>`, `resume <id1> <id2>`)
 - Global non-dry-run batch lifecycle apply requires explicit `--yes` confirmation
 - Session state cleanup for stale records (`cleanup`, global-by-default)
 - Graceful/forced stop strategy (`stop --grace-timeout-ms`, optional `--force`)
@@ -180,11 +182,22 @@ lcode list
 lcode ps
 lcode cleanup
 lcode cleanup --dry-run --status stopped
+lcode cleanup --status stopped --older-than 7d
 lcode --local cleanup
 lcode stop --all --status running --yes
+lcode stop all --dry-run --status running
 lcode restart --all --dry-run --status running
+lcode restart all --dry-run --status running
 lcode suspend --all --dry-run --status running
+lcode suspend all --dry-run --status running
 lcode resume --all --dry-run --status suspended
+lcode resume all --dry-run --status suspended
+lcode stop <id_1> <id_2>
+lcode restart <id_1> <id_2>
+lcode suspend <id_1> <id_2>
+lcode resume <id_1> <id_2>
+lcode stop --all --status running --sort status --limit 20 --summary --yes
+lcode stop --all --status running --jobs 4 --continue-on-error true --max-failures 0 --yes
 lcode suspend --all --status running --max-failures 1
 lcode suspend --all --status running --continue-on-error false
 lcode suspend --id <session_id>
@@ -222,6 +235,22 @@ Session-id commands (`status`, `inspect`, `logs`, `attach`, `stop`, `restart`, `
 - `--id <session_id>`
 - positional shorthand `<session_id>`
 
+For lifecycle batch operations, `stop` / `restart` / `suspend` / `resume` also accept positional `all` as a shorthand for `--all`.
+
+Lifecycle commands also support positional multi-id control:
+
+- `lcode stop <id_1> <id_2>`
+- `lcode restart <id_1> <id_2>`
+- `lcode suspend <id_1> <id_2>`
+- `lcode resume <id_1> <id_2>`
+
+Batch apply planning controls:
+
+- `--sort <id|name|status|runtime>`
+- `--limit <N>`
+- `--summary`
+- `--jobs <N>` (requires `--continue-on-error true` and `--max-failures 0` when `N > 1`)
+
 `start` / `debug` / `config run` env override order:
 
 - Saved profile env values are loaded first.
@@ -246,7 +275,8 @@ Success responses:
 
 - Message style: `{"ok":true,"message":"..."}`
 - Session command style (`status`/`stop`/`restart`/`suspend`/`resume`): `{"ok":true,"action":"status","message":"...","session":{...}}`
-- Batch command style (`stop/restart/suspend/resume --all`): `{"ok":true,"action":"stop","scope":"global","all":true,"matched_count":2,"processed_count":2,"success_count":2,"session_failed_count":0,"link_error_count":0,"failed_count":0,"link_errors":[],"items":[...]}`
+- Batch command style (`stop/restart/suspend/resume --all` or `stop/restart all`): `{"ok":true,"action":"stop","scope":"global","all":true,"sort":"id","limit":null,"jobs":1,"summary":false,"matched_count":2,"processed_count":2,"success_count":2,"session_failed_count":0,"link_error_count":0,"failed_count":0,"link_errors":[],"summary_doc":{"items":[...]},"items":[...]}`
+- Multi-target command style (`stop/restart/suspend/resume <id_1> <id_2>`): `{"ok":true,"action":"stop","all":false,"target_count":2,"processed_count":2,"success_count":2,"failed_count":0,"items":[...]}`
 - List style: `{"ok":true,"items":[...]}`
 - Text block style: `{"ok":true,"text":"..."}`
 
@@ -613,5 +643,6 @@ Export/import bundle format:
 
 ```bash
 cargo test --all -- --nocapture
+cargo test -q --test cli_batch_control --test cli_alias_lcode --test cli_json_output --test cli_help
 cargo clippy --all-targets --all-features -- -D warnings
 ```

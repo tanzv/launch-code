@@ -45,8 +45,8 @@ pub(crate) use project_api::{
     api_update_project_info,
 };
 pub(crate) use session_api::{
-    api_cleanup_sessions, api_debug_session, api_get_session, api_inspect_session,
-    api_list_sessions, api_restart_session_with_options, api_resume_session,
+    api_cleanup_sessions, api_cleanup_sessions_with_options, api_debug_session, api_get_session,
+    api_inspect_session, api_list_sessions, api_restart_session_with_options, api_resume_session,
     api_stop_session_with_options, api_suspend_session,
 };
 
