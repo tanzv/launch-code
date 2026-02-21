@@ -14,6 +14,7 @@ use crate::link_registry::load_registry;
 use crate::output;
 
 mod batch;
+mod list_cache;
 
 #[derive(Debug, Clone)]
 struct SessionListRow {
@@ -593,7 +594,7 @@ fn collect_rows_from_store(
     link_path: Option<String>,
     include_topology: bool,
 ) -> Result<Vec<SessionListRow>, AppError> {
-    let sessions = super::api_list_sessions(store)?;
+    let sessions = list_cache::load_sessions_for_listing(store)?;
     if sessions.is_empty() {
         return Ok(Vec::new());
     }
