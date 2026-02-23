@@ -30,6 +30,7 @@ pub(super) fn build_launch_spec(
         args: args.args.clone(),
         cwd: args.cwd.clone(),
         env,
+        env_remove: Vec::new(),
         managed: args.managed,
         mode,
         debug,

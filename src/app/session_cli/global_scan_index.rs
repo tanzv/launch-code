@@ -208,6 +208,7 @@ mod tests {
                 args: Vec::new(),
                 cwd: ".".to_string(),
                 env: BTreeMap::new(),
+                env_remove: Vec::new(),
                 managed: false,
                 mode: LaunchMode::Run,
                 debug: None,

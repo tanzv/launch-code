@@ -48,7 +48,7 @@ pub enum AppError {
     PythonDebugpyUnavailable,
     #[error("debug mode currently supports python and node runtimes only: {0}")]
     UnsupportedDebugRuntime(String),
-    #[error("dap operations currently support python runtime only: {0}")]
+    #[error("dap operations are unavailable for this runtime/backend: {0}")]
     UnsupportedDapRuntime(String),
     #[error("http server error: {0}")]
     Http(String),

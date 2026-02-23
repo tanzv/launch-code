@@ -29,7 +29,7 @@ Recommended command: `lcode` (compatibility command: `launch-code`).
 - Debug port conflict fallback with session metadata output
 - Structured CLI output (`--json`) with stable machine-readable error codes
 - Optional phase timing telemetry (`--trace-time`) for command latency diagnostics
-- Doctor debug diagnostics with structured remediation codes (`D001`-`D004`)
+- Doctor debug diagnostics with structured remediation codes (`D001`-`D005`)
 
 ## Install and Build
 
@@ -56,6 +56,7 @@ State scope:
 - `lcode running` is a shortcut for listing only running sessions in the current scope (compact view by default)
 - `lcode list` supports display options `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--compact`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, and `--no-headers`
 - `lcode running` supports display options `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--wide`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, and `--no-headers`, plus runtime/name filters
+- `lcode list` and `lcode running` support watch mode with `--watch [INTERVAL]` and `--watch-count <N>`
 - `lcode cleanup` defaults to global cleanup across registered links (unless `--local`/`--link` is used)
 - Global `list`/`running`/`cleanup`/`project show` can auto-prune stale links when link registry is very large
 - Session-id commands (for example `stop`, `status`, `inspect`, `logs`, `restart`, `suspend`, `resume`, `attach`, `dap`, `doctor`) auto-route by `--id` across links when global scope is active and `--link` is omitted
@@ -76,7 +77,7 @@ State scope:
 - `docs/python-debug-manual.md`: End-to-end Python debug workflow for CLI and HTTP.
 - `docs/examples/python-debug-demo/app.py`: Minimal Python script for breakpoint and stepping demos.
 
-## Python Debug Requirements
+## Debug Requirements
 
 Python debug mode uses `debugpy`.
 Node debug mode is supported for process startup and endpoint metadata.
@@ -91,6 +92,19 @@ Optional interpreter override for run/debug sessions:
 ```bash
 lcode debug --runtime python --entry app.py --cwd . --env PYTHON_BIN=/path/to/python
 lcode debug --runtime python --entry app.py --cwd . --subprocess true
+```
+
+Node DAP bridge adapter resolution order:
+
+1. `LCODE_NODE_DAP_ADAPTER_CMD` (JSON array command; highest priority)
+2. `js-debug-adapter` found in `PATH`
+3. VSCode/Cursor JavaScript debugger extension (`dapDebugServer.js`)
+
+Useful environment variables:
+
+```bash
+export LCODE_NODE_DAP_ADAPTER_CMD='["node","/path/to/js-debug/src/dapDebugServer.js"]'
+export LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY=1
 ```
 
 ## CLI Commands
@@ -129,6 +143,8 @@ lcode running --format id
 lcode running --short-id-len 8
 lcode running -q
 lcode running --no-headers
+lcode running --watch
+lcode running --watch 1s --watch-count 10
 lcode list --compact
 lcode list --format compact
 lcode list --format short
@@ -137,6 +153,8 @@ lcode list --short-id-len 16
 lcode list --compact --no-trunc
 lcode list --compact --no-headers
 lcode list -q
+lcode list --watch
+lcode list --watch 500ms --watch-count 20
 lcode --link demo list
 lcode --local list
 lcode link prune --dry-run
@@ -259,6 +277,7 @@ Batch apply planning controls:
 - Saved profile env values are loaded first.
 - `--env-file` values are applied in declaration order (`--env-file a --env-file b`, so `b` overrides `a`).
 - `--env KEY=VALUE` values are applied last and override both saved env and env-file values.
+- In `launch.json`, `envFile` values load first, then `env` overrides; `env: {"KEY": null}` unsets `KEY` from the inherited process environment for launched commands.
 
 `start` / `debug` startup log behavior:
 
@@ -323,6 +342,7 @@ lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
 The response contains:
 
 - `session` and `inspect` snapshots
+- `debug.adapter` probe result (`source`, `program`, `args`, or explicit failure reason)
 - `debug.threads` and `debug.events` probe results
 - `diagnostics[]` entries with `code`, `level`, `summary`, `detail`, and `suggested_actions`
 
@@ -332,6 +352,7 @@ Diagnostic codes:
 - `D002`: Failed to read debug events.
 - `D003`: Session is not running during failed debug checks.
 - `D004`: Debugger warning signature detected in recent log tail.
+- `D005`: Node debug adapter is unavailable or misconfigured.
 
 ## HTTP Control Plane
 
@@ -549,7 +570,7 @@ Supported configuration fields:
 - `program`
 - `args`
 - `cwd`
-- `env`
+- `env` (string/number/bool values are stringified; `null` unsets inherited variables)
 - `envFile`
 - `python`
 - `pythonPath`

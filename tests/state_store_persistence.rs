@@ -29,6 +29,7 @@ fn state_store_persists_sessions_to_disk() {
                 args: vec!["--port".to_string(), "8000".to_string()],
                 cwd: ".".to_string(),
                 env: BTreeMap::new(),
+                env_remove: Vec::new(),
                 managed: false,
                 mode: LaunchMode::Run,
                 debug: None,
@@ -90,6 +91,78 @@ fn state_store_loads_legacy_state_without_schema_version() {
     assert_eq!(
         loaded.schema_version,
         launch_code::model::APP_STATE_SCHEMA_VERSION
+    );
+}
+
+#[test]
+fn state_store_migrates_legacy_debug_meta_fields_from_runtime() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let state_dir = tmp.path().join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+    fs::write(
+        &state_path,
+        r#"{
+  "schema_version": 1,
+  "profiles": {},
+  "sessions": {
+    "session-1": {
+      "id": "session-1",
+      "spec": {
+        "name": "py-debug",
+        "runtime": "python",
+        "entry": "app.py",
+        "args": [],
+        "cwd": ".",
+        "env": {},
+        "managed": false,
+        "mode": "debug",
+        "debug": {
+          "host": "127.0.0.1",
+          "port": 5678,
+          "wait_for_client": true,
+          "subprocess": true
+        },
+        "prelaunch_task": null,
+        "poststop_task": null
+      },
+      "status": "running",
+      "pid": 12345,
+      "supervisor_pid": null,
+      "log_path": null,
+      "debug_meta": {
+        "host": "127.0.0.1",
+        "requested_port": 5678,
+        "active_port": 5678,
+        "fallback_applied": false,
+        "reconnect_policy": "auto-retry"
+      },
+      "created_at": 1,
+      "updated_at": 2,
+      "last_exit_code": null,
+      "restart_count": 0
+    }
+  }
+}
+"#,
+    )
+    .expect("legacy debug state should be written");
+
+    let store = StateStore::new(tmp.path());
+    let loaded = store.load().expect("legacy debug state should load");
+    let session = loaded
+        .sessions
+        .get("session-1")
+        .expect("session should be present");
+    let meta = session
+        .debug_meta
+        .as_ref()
+        .expect("debug meta should be present");
+    assert_eq!(meta.adapter_kind, "python-debugpy");
+    assert_eq!(meta.transport, "tcp");
+    assert!(
+        meta.capabilities.iter().any(|value| value == "dap"),
+        "python debug meta should include dap capability"
     );
 }
 
@@ -191,6 +264,7 @@ fn state_store_update_serializes_concurrent_writes() {
                                 args: Vec::new(),
                                 cwd: ".".to_string(),
                                 env: BTreeMap::new(),
+                                env_remove: Vec::new(),
                                 managed: false,
                                 mode: LaunchMode::Run,
                                 debug: None,

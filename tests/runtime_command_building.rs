@@ -10,6 +10,7 @@ fn python_run_command_is_built_from_entry_and_args() {
         args: vec!["--port".to_string(), "8000".to_string()],
         cwd: ".".to_string(),
         env: Default::default(),
+        env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Run,
         debug: None,
@@ -30,6 +31,7 @@ fn python_debug_command_uses_debugpy_wait_for_client() {
         args: vec!["--env".to_string(), "dev".to_string()],
         cwd: ".".to_string(),
         env: Default::default(),
+        env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
         debug: Some(DebugConfig {
@@ -70,6 +72,7 @@ fn python_debug_command_can_disable_debugpy_subprocess_injection() {
         args: vec![],
         cwd: ".".to_string(),
         env: Default::default(),
+        env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
         debug: Some(DebugConfig {
@@ -107,6 +110,7 @@ fn node_debug_command_uses_host_port_and_wait_flag() {
         args: vec!["--env".to_string(), "dev".to_string()],
         cwd: ".".to_string(),
         env: Default::default(),
+        env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
         debug: Some(DebugConfig {
@@ -141,6 +145,7 @@ fn node_debug_command_can_disable_wait_for_client() {
         args: vec![],
         cwd: ".".to_string(),
         env: Default::default(),
+        env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
         debug: Some(DebugConfig {

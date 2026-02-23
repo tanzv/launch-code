@@ -295,6 +295,23 @@ pub struct ListArgs {
         help = "Do not print table headers for table/compact formats."
     )]
     pub no_headers: bool,
+    #[arg(
+        long = "watch",
+        value_name = "INTERVAL",
+        num_args = 0..=1,
+        default_missing_value = "2s",
+        value_parser = parse_watch_interval_ms,
+        help = "Refresh list output repeatedly every interval (examples: 500ms, 2s). Defaults to 2s when provided without a value."
+    )]
+    pub watch_interval_ms: Option<u64>,
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = parse_positive_usize,
+        requires = "watch_interval_ms",
+        help = "Stop watch mode after N refresh cycles."
+    )]
+    pub watch_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -344,6 +361,23 @@ pub struct RunningArgs {
         help = "Do not print table headers for table/compact formats."
     )]
     pub no_headers: bool,
+    #[arg(
+        long = "watch",
+        value_name = "INTERVAL",
+        num_args = 0..=1,
+        default_missing_value = "2s",
+        value_parser = parse_watch_interval_ms,
+        help = "Refresh running output repeatedly every interval (examples: 500ms, 2s). Defaults to 2s when provided without a value."
+    )]
+    pub watch_interval_ms: Option<u64>,
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = parse_positive_usize,
+        requires = "watch_interval_ms",
+        help = "Stop watch mode after N refresh cycles."
+    )]
+    pub watch_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -611,6 +645,41 @@ fn parse_cleanup_older_than_secs(value: &str) -> Result<u64, String> {
     amount
         .checked_mul(multiplier)
         .ok_or_else(|| "older-than value is too large".to_string())
+}
+
+fn parse_watch_interval_ms(value: &str) -> Result<u64, String> {
+    let raw = value.trim();
+    if raw.is_empty() {
+        return Err("watch interval must not be empty".to_string());
+    }
+
+    let split_index = raw
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(raw.len());
+    if split_index == 0 {
+        return Err("watch interval must start with a positive integer".to_string());
+    }
+
+    let amount = raw[..split_index]
+        .parse::<u64>()
+        .map_err(|_| "watch interval must start with a positive integer".to_string())?;
+    if amount == 0 {
+        return Err("watch interval must be greater than 0".to_string());
+    }
+
+    let unit = raw[split_index..].trim().to_ascii_lowercase();
+    let multiplier = match unit.as_str() {
+        "" | "s" => 1000u64,
+        "ms" => 1u64,
+        "m" => 60u64 * 1000u64,
+        _ => {
+            return Err("watch interval unit must be one of: ms, s, m (example: 2s)".to_string());
+        }
+    };
+
+    amount
+        .checked_mul(multiplier)
+        .ok_or_else(|| "watch interval value is too large".to_string())
 }
 
 impl SessionIdArgs {

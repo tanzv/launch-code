@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use fs2::FileExt;
 use thiserror::Error;
 
-use crate::model::{APP_STATE_SCHEMA_VERSION, AppState};
+use crate::model::{APP_STATE_SCHEMA_VERSION, AppState, RuntimeKind};
 
 const STATE_DIR: &str = ".launch-code";
 const STATE_FILE: &str = "state.json";
@@ -153,12 +153,55 @@ fn migrate_state(state: &mut AppState) -> Result<(), StateError> {
     {
         state.project_info = None;
     }
+    migrate_legacy_debug_meta(state);
 
     if state.schema_version < APP_STATE_SCHEMA_VERSION {
         state.schema_version = APP_STATE_SCHEMA_VERSION;
     }
 
     Ok(())
+}
+
+fn migrate_legacy_debug_meta(state: &mut AppState) {
+    for session in state.sessions.values_mut() {
+        let Some(meta) = session.debug_meta.as_mut() else {
+            continue;
+        };
+
+        if meta.adapter_kind.trim().is_empty() || meta.adapter_kind == "unknown" {
+            meta.adapter_kind = default_adapter_kind(&session.spec.runtime).to_string();
+        }
+        if meta.transport.trim().is_empty() {
+            meta.transport = "tcp".to_string();
+        }
+        if meta.capabilities.is_empty() {
+            meta.capabilities = default_capabilities(&session.spec.runtime)
+                .iter()
+                .map(|value| value.to_string())
+                .collect();
+        }
+    }
+}
+
+fn default_adapter_kind(runtime: &RuntimeKind) -> &'static str {
+    match runtime {
+        RuntimeKind::Python => "python-debugpy",
+        RuntimeKind::Node => "node-inspector",
+        RuntimeKind::Rust => "unknown",
+    }
+}
+
+fn default_capabilities(runtime: &RuntimeKind) -> &'static [&'static str] {
+    match runtime {
+        RuntimeKind::Python => &[
+            "vscode_attach",
+            "dap",
+            "dap_bootstrap",
+            "dap_subprocess_adopt",
+        ],
+        RuntimeKind::Node => &["vscode_attach", "inspector_attach", "dap_bridge"],
+        RuntimeKind::Rust => &["vscode_attach"],
+    }
 }
 
 fn sync_state_dir(path: &Path) -> Result<(), StateError> {

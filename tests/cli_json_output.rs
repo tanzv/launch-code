@@ -373,6 +373,8 @@ fn json_dap_rejects_node_runtime_with_stable_error_code() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd
         .env("LAUNCH_CODE_HOME", tmp.path())
+        .env_remove("LCODE_NODE_DAP_ADAPTER_CMD")
+        .env("LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY", "1")
         .arg("--json")
         .arg("dap")
         .arg("threads")
@@ -392,8 +394,8 @@ fn json_dap_rejects_node_runtime_with_stable_error_code() {
     assert!(
         doc["message"]
             .as_str()
-            .is_some_and(|message| message.contains("python runtime only")),
-        "error message should explain dap runtime support"
+            .is_some_and(|message| message.contains("LCODE_NODE_DAP_ADAPTER_CMD")),
+        "error message should explain node dap adapter configuration"
     );
 }
 

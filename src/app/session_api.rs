@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use launch_code::model::{LaunchSpec, SessionRecord, SessionStatus, unix_timestamp_secs};
 use launch_code::process::{
-    is_process_alive, resume_process, run_shell_task, stop_process_with_options, suspend_process,
+    is_process_alive, resume_process, run_shell_task_with_env_control, stop_process_with_options,
+    suspend_process,
 };
 use launch_code::runtime::build_command;
 use launch_code::state::StateStore;
@@ -13,7 +14,13 @@ use serde_json::json;
 
 use crate::error::AppError;
 
-type ShellTaskSpec = (String, String, BTreeMap<String, String>, String);
+type ShellTaskSpec = (
+    String,
+    String,
+    BTreeMap<String, String>,
+    Vec<String>,
+    String,
+);
 const SESSION_CONTROL_MAX_RETRIES: usize = 3;
 
 #[derive(Debug, Clone)]
@@ -369,8 +376,14 @@ fn api_stop_session_once(
         Ok((session.clone(), post_task))
     })?;
 
-    if let Some((task, cwd, env_map, log_path)) = post_task {
-        run_shell_task(&task, Path::new(&cwd), &env_map, Path::new(&log_path))?;
+    if let Some((task, cwd, env_map, env_remove, log_path)) = post_task {
+        run_shell_task_with_env_control(
+            &task,
+            Path::new(&cwd),
+            &env_map,
+            &env_remove,
+            Path::new(&log_path),
+        )?;
     }
 
     Ok(session_clone)
@@ -460,6 +473,7 @@ fn build_post_stop_task(session: &SessionRecord) -> Option<ShellTaskSpec> {
             task,
             session.spec.cwd.clone(),
             session.spec.env.clone(),
+            session.spec.env_remove.clone(),
             log_path,
         ));
     }

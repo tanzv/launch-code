@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -43,7 +43,7 @@ struct LaunchConfiguration {
     program: Option<String>,
     args: Option<Vec<String>>,
     cwd: Option<String>,
-    env: Option<BTreeMap<String, String>>,
+    env: Option<BTreeMap<String, LaunchEnvValue>>,
     #[serde(rename = "envFile")]
     env_file: Option<String>,
     #[serde(rename = "python")]
@@ -65,6 +65,15 @@ struct LaunchConfiguration {
     post_debug_task: Option<String>,
     #[serde(rename = "postStopTask")]
     post_stop_task: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum LaunchEnvValue {
+    String(String),
+    Number(serde_json::Number),
+    Bool(bool),
+    Null(()),
 }
 
 #[derive(Debug, Clone)]
@@ -104,18 +113,31 @@ pub fn load_launch_spec(
         .map(|value| resolve_path_string(&workspace, value))?;
 
     let mut env_map = BTreeMap::new();
+    let mut env_remove = BTreeSet::new();
     if let Some(env_file) = config.env_file.as_deref() {
         let env_path = resolve_path_string(&workspace, env_file);
         env_map.extend(parse_env_file(Path::new(&env_path))?);
     }
 
     if let Some(map) = config.env {
-        env_map.extend(map);
+        for (key, value) in map {
+            match value {
+                LaunchEnvValue::Null(()) => {
+                    env_map.remove(&key);
+                    env_remove.insert(key);
+                }
+                other => {
+                    env_map.insert(key.clone(), env_value_to_string(other));
+                    env_remove.remove(&key);
+                }
+            }
+        }
     }
 
     if let Some(python) = config.python.or(config.python_path) {
         let resolved = resolve_path_string(&workspace, &python);
         env_map.insert("PYTHON_BIN".to_string(), resolved);
+        env_remove.remove("PYTHON_BIN");
     }
 
     let mut mode = request.mode.clone();
@@ -149,6 +171,7 @@ pub fn load_launch_spec(
         args: config.args.unwrap_or_default(),
         cwd,
         env: env_map,
+        env_remove: env_remove.into_iter().collect(),
         managed,
         mode,
         debug,
@@ -260,4 +283,55 @@ fn parse_env_file(path: &Path) -> Result<BTreeMap<String, String>, ConfigError> 
         EnvFileError::InvalidLine(line) => ConfigError::InvalidEnvFileLine(line),
         EnvFileError::Io(io) => ConfigError::Io(io),
     })
+}
+
+fn env_value_to_string(value: LaunchEnvValue) -> String {
+    match value {
+        LaunchEnvValue::String(raw) => raw,
+        LaunchEnvValue::Number(raw) => raw.to_string(),
+        LaunchEnvValue::Bool(raw) => raw.to_string(),
+        LaunchEnvValue::Null(()) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn load_launch_spec_supports_env_null_unset_and_scalar_env_values() {
+        let tmp = tempdir().expect("temp dir should exist");
+        let workspace = tmp.path();
+        let vscode_dir = workspace.join(".vscode");
+        fs::create_dir_all(&vscode_dir).expect("vscode dir should exist");
+
+        let env_file = workspace.join(".env");
+        fs::write(&env_file, "FROM_FILE=1\nREMOVE_ME=from-file\n")
+            .expect("env file should be written");
+
+        let launch_path = vscode_dir.join("launch.json");
+        fs::write(
+            &launch_path,
+            "{\n  \"version\": \"0.2.0\",\n  \"configurations\": [\n    {\n      \"name\": \"Env Null Config\",\n      \"type\": \"python\",\n      \"request\": \"launch\",\n      \"program\": \"${workspaceFolder}/app.py\",\n      \"cwd\": \"${workspaceFolder}\",\n      \"envFile\": \"${workspaceFolder}/.env\",\n      \"env\": {\n        \"REMOVE_ME\": null,\n        \"NUMERIC\": 7,\n        \"FLAG\": true\n      }\n    }\n  ]\n}\n",
+        )
+        .expect("launch file should be written");
+
+        let request = LaunchRequest {
+            name: "Env Null Config".to_string(),
+            mode: LaunchMode::Run,
+            managed_override: None,
+            launch_file: Some(launch_path),
+        };
+        let spec = load_launch_spec(workspace, &request).expect("launch spec should load");
+
+        assert_eq!(spec.env.get("FROM_FILE"), Some(&"1".to_string()));
+        assert_eq!(spec.env.get("NUMERIC"), Some(&"7".to_string()));
+        assert_eq!(spec.env.get("FLAG"), Some(&"true".to_string()));
+        assert!(!spec.env.contains_key("REMOVE_ME"));
+        assert!(
+            spec.env_remove.iter().any(|item| item == "REMOVE_ME"),
+            "env_remove should contain env-null key"
+        );
+    }
 }

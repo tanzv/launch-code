@@ -11,12 +11,10 @@ use crate::error::AppError;
 use super::codec;
 use super::shared::{DapPendingRequest, DapProxyInner, DapWaiter, push_event};
 
-#[allow(dead_code)]
 #[derive(Debug)]
-pub(crate) struct PythonAdapterDapProxy {
+pub(crate) struct StdioAdapterDapProxy {
     host: String,
     port: u16,
-    python_bin: String,
     child: Mutex<std::process::Child>,
     writer: Mutex<std::process::ChildStdin>,
     inner: Mutex<DapProxyInner>,
@@ -24,15 +22,15 @@ pub(crate) struct PythonAdapterDapProxy {
     next_seq: AtomicU64,
 }
 
-#[allow(dead_code)]
-impl PythonAdapterDapProxy {
+impl StdioAdapterDapProxy {
     pub(super) fn spawn(
-        python_bin: String,
+        program: String,
+        args: Vec<String>,
         host: String,
         port: u16,
     ) -> Result<Arc<Self>, AppError> {
-        let mut cmd = std::process::Command::new(&python_bin);
-        cmd.args(["-m", "debugpy.adapter"])
+        let mut cmd = std::process::Command::new(&program);
+        cmd.args(args.iter())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit());
@@ -50,7 +48,6 @@ impl PythonAdapterDapProxy {
         let proxy = Arc::new(Self {
             host,
             port,
-            python_bin,
             child: Mutex::new(child),
             writer: Mutex::new(stdin),
             inner: Mutex::new(DapProxyInner {
@@ -190,14 +187,13 @@ impl PythonAdapterDapProxy {
     }
 }
 
-impl DapWaiter for PythonAdapterDapProxy {
+impl DapWaiter for StdioAdapterDapProxy {
     fn remove_waiter(&self, seq: u64) -> Result<(), AppError> {
-        PythonAdapterDapProxy::remove_waiter(self, seq)
+        StdioAdapterDapProxy::remove_waiter(self, seq)
     }
 }
 
-#[allow(dead_code)]
-fn dap_stdio_reader_loop(proxy: Arc<PythonAdapterDapProxy>, stdout: std::process::ChildStdout) {
+fn dap_stdio_reader_loop(proxy: Arc<StdioAdapterDapProxy>, stdout: std::process::ChildStdout) {
     let mut reader = BufReader::new(stdout);
     loop {
         let msg = match codec::read_message(&mut reader) {

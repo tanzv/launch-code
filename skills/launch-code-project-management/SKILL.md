@@ -41,6 +41,9 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Use `--trace-time` on commands to emit phase-level timing metrics to stderr for latency diagnostics.
 - `lcode list` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--compact`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode running` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--wide`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
+- `lcode list` and `lcode running` support watch mode via `--watch [INTERVAL]` and `--watch-count <N>`.
+- `start` / `debug` / `config run` merge environment values in this order: saved profile env (if any), then `--env-file` values in declaration order, then `--env KEY=VALUE` overrides.
+- `lcode launch` supports `envFile` and `env` fields from `launch.json`; `env` overrides keys loaded from `envFile`, and `env` keys set to `null` are removed from inherited process environment.
 - `lcode cleanup` defaults to global cleanup across all registered links.
 - `lcode stop --all`/`lcode stop all`, `lcode restart --all`/`lcode restart all`, `lcode suspend --all`/`lcode suspend all`, and `lcode resume --all`/`lcode resume all` support batch lifecycle control in scope (`--local`, `--link`, or global default).
 - Global non-dry-run batch apply requires explicit `--yes` confirmation; use `--dry-run` for preview.
@@ -78,10 +81,12 @@ lcode --help
 
 ```bash
 lcode start --runtime python --entry app.py --cwd .
+lcode start --runtime python --entry app.py --cwd . --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
 lcode start --runtime python --entry app.py --cwd . --foreground --log-mode stdout
 lcode start --runtime python --entry app.py --cwd . --foreground --log-mode tee
 lcode start --runtime python --entry app.py --cwd . --tail
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
+lcode debug --runtime python --entry app.py --cwd . --env-file ./.env.base --env DEBUG=1
 ```
 
 ### 1.1 Link bootstrap and routing
@@ -102,6 +107,8 @@ lcode running --format id
 lcode running --short-id-len 8
 lcode running -q
 lcode running --no-headers
+lcode running --watch
+lcode running --watch 1s --watch-count 10
 lcode list --compact
 lcode list --format compact
 lcode list --format short
@@ -109,6 +116,8 @@ lcode list --format id
 lcode list --short-id-len 16
 lcode list --compact --no-trunc
 lcode list --compact --no-headers
+lcode list --watch
+lcode list --watch 500ms --watch-count 20
 lcode --link demo status --id <session_id>
 ```
 
@@ -119,12 +128,38 @@ lcode launch --name "Python Demo" --mode run
 lcode launch --name "Python Demo" --mode debug
 ```
 
+`lcode launch` reads `.vscode/launch.json` by default, and supports `${workspaceFolder}`, `${workspaceFolderBasename}`, and `${env:VAR_NAME}` variable expansion in path-like fields.
+
+Example `launch.json` snippet:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Env Demo",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/app.py",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "DEBUG": "1",
+        "API_URL": "http://127.0.0.1:9000"
+      }
+    }
+  ]
+}
+```
+
 ### 3. Saved profile workflow (`config`)
 
 ```bash
 lcode config save --name "Python Debug" --runtime python --entry app.py --cwd . --mode debug
 lcode config validate --name "Python Debug"
 lcode config run --name "Python Debug"
+lcode config run --name "Python Debug" --clear-env --env-file ./run.env
+lcode config run --name "Python Debug" --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
 lcode config list
 lcode config show --name "Python Debug"
 ```
@@ -141,7 +176,11 @@ lcode running --wide
 lcode running --format id
 lcode running -q
 lcode running --no-headers
+lcode running --watch
+lcode running --watch 1s --watch-count 10
 lcode list --compact --no-headers
+lcode list --watch
+lcode list --watch 500ms --watch-count 20
 lcode status --id <session_id>
 lcode status <session_id>
 lcode inspect --id <session_id> --tail 100
@@ -244,7 +283,13 @@ lcode dap step-out --id <session_id> --thread-id 1
 
 Use `lcode dap adopt-subprocess --id <session_id>` when child-process debug events need to be promoted to managed sessions.
 
-Use `lcode doctor debug --id <session_id>` for one-shot diagnostics that combine session status, inspect output, threads, events, and structured remediation tips.
+Node DAP bridge adapter resolution order:
+
+1. `LCODE_NODE_DAP_ADAPTER_CMD` (JSON array command, highest priority)
+2. `js-debug-adapter` available in `PATH`
+3. VSCode/Cursor JavaScript debugger extension (`dapDebugServer.js`)
+
+Use `lcode doctor debug --id <session_id>` for one-shot diagnostics that combine session status, adapter probe, inspect output, threads, events, and structured remediation tips.
 
 ## HTTP Control Plane
 
@@ -308,7 +353,8 @@ curl -sS -X DELETE \
 | `stop` times out | Worker ignores graceful signal | `lcode inspect --id <session_id> --tail 100` | `lcode stop --id <session_id> --force --grace-timeout-ms 100` |
 | `start` fails with `invalid_start_options` | Incompatible startup flags | Check `--foreground`, `--tail`, and `--log-mode` combination | Use `--tail` only for background mode; use `--log-mode stdout|tee` only with `--foreground` |
 | `debug` fails with `unsupported_debug_runtime` | Debug mode is requested for unsupported runtime | Check `--runtime` and profile `mode` | Use Python/Node runtime for debug mode, or switch Rust to run mode |
-| `dap` fails with `unsupported_dap_runtime` | DAP operations are requested for non-Python runtime | Check target session runtime from `lcode list` | Use Python debug sessions for `dap` commands, or attach Node sessions from IDE using `attach_vscode` metadata |
+| `start`/`debug`/`config run` fails with `invalid_env_file_line` | Env file contains malformed lines | Open the referenced env file and verify each non-empty non-comment line is `KEY=VALUE` | Fix invalid lines or remove shell-only syntax unsupported by parser |
+| `dap` fails with `unsupported_dap_runtime` | Runtime/backend is unsupported or Node adapter is not configured | Check target runtime via `lcode list` and run `lcode doctor debug --id <session_id>` | Use Python/Node debug sessions for `dap`; for Node set `LCODE_NODE_DAP_ADAPTER_CMD` or install `js-debug-adapter` |
 | `list` shows `no sessions` unexpectedly | No linked workspace contains sessions, or links are missing | `lcode link list` then `lcode --link <name> list` | Register correct workspace links, or run from the project once to bootstrap link metadata |
 | `list` is slow in global mode | Large stale link registry (missing/temp workspaces) | `lcode --json link prune --dry-run` | Run `lcode link prune` and re-run `lcode list` |
 | No useful log lines | Wrong filters or log path not present | Remove filters and retry `logs --tail 500` | Use `inspect` `log.text` and simplify regex/include filters |
@@ -316,6 +362,7 @@ curl -sS -X DELETE \
 | `doctor debug` reports `D001` | DAP thread request failed | `lcode dap threads --id <session_id>` | Restart session or increase `--timeout-ms` |
 | `doctor debug` reports `D002` | DAP event channel not healthy | `lcode dap events --id <session_id> --max 20 --timeout-ms 1500` | Restart session and re-check transport |
 | `doctor debug` reports `D003` | Session not running during debug checks | `lcode status --id <session_id>` | `lcode restart --id <session_id>` |
+| `doctor debug` reports `D005` | Node adapter cannot be resolved (`invalid_env`, `auto_discovery_disabled`, or `not_found`) | Check `debug.adapter` in `lcode doctor debug --id <session_id> --json` | Set `LCODE_NODE_DAP_ADAPTER_CMD` or install `js-debug-adapter`; unset `LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY` when needed |
 | HTTP request returns `401` | Missing/invalid bearer token | Confirm `Authorization: Bearer <TOKEN>` | Restart `serve` with expected token and retry |
 | `cleanup` removes nothing | Target sessions are still `running`/`suspended` | `lcode list --status stopped` and `--status unknown` | Stop sessions first, then run cleanup |
 | `--link <name>` fails | Link not registered | `lcode link list` | Add or fix link with `lcode link add --name <name> --path <workspace>` |
@@ -328,6 +375,7 @@ curl -sS -X DELETE \
 - `D002`: Event stream probe failed (proxy/channel unavailable).
 - `D003`: Session is not running while debug checks fail.
 - `D004`: Debugger warning signature detected in inspect log tail.
+- `D005`: Node adapter is unavailable or misconfigured.
 
 ## Error Code Quick Reference
 
@@ -354,6 +402,7 @@ Use `--json` and inspect `error` in stderr payloads:
 ## Validation Rules
 
 - `launch` reads named configurations from `launch.json`; use `start`/`debug` for direct runtime/entry launches.
+- `launch` supports `envFile` + `env`, with `env` taking precedence over duplicated keys.
 - `--log-mode stdout|tee` requires `--foreground`.
 - `--tail` cannot be combined with `--foreground`.
 - `--jobs > 1` is only valid when `--continue-on-error=true` and `--max-failures=0`.

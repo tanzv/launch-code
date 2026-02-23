@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::thread;
+use std::time::Duration;
 use std::time::Instant;
 
 use launch_code::model::{RuntimeKind, SessionRecord, SessionStatus};
@@ -119,6 +121,24 @@ pub(super) fn handle_status(store: &StateStore, args: &SessionIdArgs) -> Result<
 }
 
 pub(super) fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
+    if let Some(interval_ms) = args.watch_interval_ms {
+        let max_cycles = args.watch_count.unwrap_or(usize::MAX);
+        let mut cycle = 0usize;
+        loop {
+            cycle = cycle.saturating_add(1);
+            execute_list_once(store, args)?;
+            if cycle >= max_cycles {
+                break;
+            }
+            thread::sleep(Duration::from_millis(interval_ms));
+        }
+        return Ok(());
+    }
+
+    execute_list_once(store, args)
+}
+
+fn execute_list_once(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
     let started_at = Instant::now();
     let filters = ListFilters::from_args(args);
     let render = list_render_options_from_list_args(args);
@@ -138,6 +158,24 @@ pub(super) fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), App
 }
 
 pub(super) fn handle_running(store: &StateStore, args: &RunningArgs) -> Result<(), AppError> {
+    if let Some(interval_ms) = args.watch_interval_ms {
+        let max_cycles = args.watch_count.unwrap_or(usize::MAX);
+        let mut cycle = 0usize;
+        loop {
+            cycle = cycle.saturating_add(1);
+            execute_running_once(store, args)?;
+            if cycle >= max_cycles {
+                break;
+            }
+            thread::sleep(Duration::from_millis(interval_ms));
+        }
+        return Ok(());
+    }
+
+    execute_running_once(store, args)
+}
+
+fn execute_running_once(store: &StateStore, args: &RunningArgs) -> Result<(), AppError> {
     let started_at = Instant::now();
     let filters = ListFilters::from_running_args(args);
     let render = list_render_options_from_running_args(args);
@@ -159,12 +197,38 @@ pub(super) fn handle_running(store: &StateStore, args: &RunningArgs) -> Result<(
 pub(super) fn handle_list_global_default(args: &ListArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_args(args);
     let render = list_render_options_from_list_args(args);
+    if let Some(interval_ms) = args.watch_interval_ms {
+        let max_cycles = args.watch_count.unwrap_or(usize::MAX);
+        let mut cycle = 0usize;
+        loop {
+            cycle = cycle.saturating_add(1);
+            handle_list_global_with_filters("list", &filters, render)?;
+            if cycle >= max_cycles {
+                break;
+            }
+            thread::sleep(Duration::from_millis(interval_ms));
+        }
+        return Ok(());
+    }
     handle_list_global_with_filters("list", &filters, render)
 }
 
 pub(super) fn handle_running_global_default(args: &RunningArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_running_args(args);
     let render = list_render_options_from_running_args(args);
+    if let Some(interval_ms) = args.watch_interval_ms {
+        let max_cycles = args.watch_count.unwrap_or(usize::MAX);
+        let mut cycle = 0usize;
+        loop {
+            cycle = cycle.saturating_add(1);
+            handle_list_global_with_filters("running", &filters, render)?;
+            if cycle >= max_cycles {
+                break;
+            }
+            thread::sleep(Duration::from_millis(interval_ms));
+        }
+        return Ok(());
+    }
     handle_list_global_with_filters("running", &filters, render)
 }
 
@@ -511,7 +575,9 @@ fn format_status_like_message(session: &SessionRecord) -> String {
     );
     if let Some(meta) = &session.debug_meta {
         output.push_str(&format!(
-            " debug_host={} debug_port={} requested_debug_port={} debug_fallback={} reconnect_policy={} debug_endpoint={}:{}",
+            " debug_adapter={} debug_transport={} debug_host={} debug_port={} requested_debug_port={} debug_fallback={} reconnect_policy={} debug_endpoint={}:{}",
+            meta.adapter_kind,
+            meta.transport,
             meta.host,
             meta.active_port,
             meta.requested_port,

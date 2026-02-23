@@ -44,7 +44,17 @@ pub fn spawn_process(
     env: &BTreeMap<String, String>,
     log_path: &Path,
 ) -> Result<u32, ProcessError> {
-    spawn_process_with_file_log(command, cwd, env, log_path)
+    spawn_process_with_env_control(command, cwd, env, &[], log_path)
+}
+
+pub fn spawn_process_with_env_control(
+    command: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    env_remove: &[String],
+    log_path: &Path,
+) -> Result<u32, ProcessError> {
+    spawn_process_with_file_log(command, cwd, env, env_remove, log_path)
 }
 
 pub fn run_process_foreground(
@@ -54,13 +64,24 @@ pub fn run_process_foreground(
     log_path: &Path,
     log_mode: ProcessLogMode,
 ) -> Result<(u32, Option<i32>), ProcessError> {
+    run_process_foreground_with_env_control(command, cwd, env, &[], log_path, log_mode)
+}
+
+pub fn run_process_foreground_with_env_control(
+    command: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    env_remove: &[String],
+    log_path: &Path,
+    log_mode: ProcessLogMode,
+) -> Result<(u32, Option<i32>), ProcessError> {
     if command.is_empty() {
         return Err(ProcessError::EmptyCommand);
     }
 
     match log_mode {
         ProcessLogMode::Stdout => {
-            let mut cmd = base_process_command(command, cwd, env);
+            let mut cmd = base_process_command(command, cwd, env, env_remove);
             cmd.stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit());
@@ -76,7 +97,7 @@ pub fn run_process_foreground(
                 .append(true)
                 .open(log_path)?;
             let stderr_log = stdout_log.try_clone()?;
-            let mut cmd = base_process_command(command, cwd, env);
+            let mut cmd = base_process_command(command, cwd, env, env_remove);
             cmd.stdin(Stdio::inherit())
                 .stdout(Stdio::from(stdout_log))
                 .stderr(Stdio::from(stderr_log));
@@ -85,7 +106,7 @@ pub fn run_process_foreground(
             let status = child.wait()?;
             Ok((pid, status.code()))
         }
-        ProcessLogMode::Tee => run_process_foreground_tee(command, cwd, env, log_path),
+        ProcessLogMode::Tee => run_process_foreground_tee(command, cwd, env, env_remove, log_path),
     }
 }
 
@@ -93,6 +114,7 @@ fn spawn_process_with_file_log(
     command: &[String],
     cwd: &Path,
     env: &BTreeMap<String, String>,
+    env_remove: &[String],
     log_path: &Path,
 ) -> Result<u32, ProcessError> {
     if command.is_empty() {
@@ -107,7 +129,7 @@ fn spawn_process_with_file_log(
         .open(log_path)?;
     let stderr_log = stdout_log.try_clone()?;
 
-    let mut cmd = base_process_command(command, cwd, env);
+    let mut cmd = base_process_command(command, cwd, env, env_remove);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log));
@@ -127,9 +149,15 @@ fn spawn_process_with_file_log(
     Ok(child.id())
 }
 
-fn base_process_command(command: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Command {
+fn base_process_command(
+    command: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    env_remove: &[String],
+) -> Command {
     let mut cmd = Command::new(&command[0]);
-    cmd.args(&command[1..]).current_dir(cwd).envs(env.iter());
+    cmd.args(&command[1..]).current_dir(cwd);
+    apply_environment(&mut cmd, env, env_remove);
     cmd
 }
 
@@ -144,6 +172,7 @@ fn run_process_foreground_tee(
     command: &[String],
     cwd: &Path,
     env: &BTreeMap<String, String>,
+    env_remove: &[String],
     log_path: &Path,
 ) -> Result<(u32, Option<i32>), ProcessError> {
     ensure_log_parent(log_path)?;
@@ -153,7 +182,7 @@ fn run_process_foreground_tee(
         .open(log_path)?;
     let stderr_log = stdout_log.try_clone()?;
 
-    let mut cmd = base_process_command(command, cwd, env);
+    let mut cmd = base_process_command(command, cwd, env, env_remove);
     cmd.stdin(Stdio::inherit())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -406,6 +435,16 @@ pub fn run_shell_task(
     env: &BTreeMap<String, String>,
     log_path: &Path,
 ) -> Result<(), ProcessError> {
+    run_shell_task_with_env_control(task_command, cwd, env, &[], log_path)
+}
+
+pub fn run_shell_task_with_env_control(
+    task_command: &str,
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+    env_remove: &[String],
+    log_path: &Path,
+) -> Result<(), ProcessError> {
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -418,10 +457,10 @@ pub fn run_shell_task(
 
     let mut cmd = task_command_command(task_command);
     cmd.current_dir(cwd)
-        .envs(env.iter())
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log));
+    apply_environment(&mut cmd, env, env_remove);
 
     let status = cmd.status()?;
     if status.success() {
@@ -432,6 +471,13 @@ pub fn run_shell_task(
         command: task_command.to_string(),
         exit_code: status.code(),
     })
+}
+
+fn apply_environment(cmd: &mut Command, env: &BTreeMap<String, String>, env_remove: &[String]) {
+    for key in env_remove {
+        cmd.env_remove(key);
+    }
+    cmd.envs(env.iter());
 }
 
 #[cfg(unix)]

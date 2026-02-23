@@ -19,12 +19,14 @@ use std::time::Duration;
 
 use launch_code::config::{LaunchRequest, load_launch_spec};
 use launch_code::debug::resolve_debug_config;
+use launch_code::debug_backend::DebugBackendKind;
 use launch_code::model::{
-    AppState, DebugConfig, DebugSessionMeta, LaunchMode, LaunchSpec, RuntimeKind, SessionRecord,
-    SessionStatus, unix_timestamp_secs,
+    AppState, DebugConfig, DebugSessionMeta, LaunchMode, LaunchSpec, SessionRecord, SessionStatus,
+    unix_timestamp_secs,
 };
 use launch_code::process::{
-    ProcessLogMode, is_process_alive, run_process_foreground, run_shell_task, spawn_process,
+    ProcessLogMode, is_process_alive, run_process_foreground_with_env_control,
+    run_shell_task_with_env_control, spawn_process_with_env_control,
 };
 use launch_code::runtime::build_command;
 use launch_code::runtime::python_executable;
@@ -345,10 +347,11 @@ pub(super) fn handle_start_spec(
     if options.foreground {
         ensure_debug_runtime_ready(&spec)?;
         let command = build_command(&spec)?;
-        let (pid, exit_code) = run_process_foreground(
+        let (pid, exit_code) = run_process_foreground_with_env_control(
             &command,
             Path::new(&spec.cwd),
             &spec.env,
+            &spec.env_remove,
             &log_path,
             options.log_mode,
         )?;
@@ -526,7 +529,14 @@ fn spawn_session_worker(
     let command = build_command(spec)?;
     let log_path = existing_log_path.unwrap_or_else(|| default_log_path(store, session_id));
 
-    spawn_process(&command, Path::new(&spec.cwd), &spec.env, &log_path).map_err(AppError::from)
+    spawn_process_with_env_control(
+        &command,
+        Path::new(&spec.cwd),
+        &spec.env,
+        &spec.env_remove,
+        &log_path,
+    )
+    .map_err(AppError::from)
 }
 
 fn ensure_debug_runtime_ready(spec: &LaunchSpec) -> Result<(), AppError> {
@@ -534,18 +544,20 @@ fn ensure_debug_runtime_ready(spec: &LaunchSpec) -> Result<(), AppError> {
         return Ok(());
     }
 
-    if !matches!(spec.runtime, RuntimeKind::Python) {
+    let Some(backend) = DebugBackendKind::for_runtime(&spec.runtime) else {
+        return Ok(());
+    };
+    if !backend.requires_python_debugpy() {
         return Ok(());
     }
 
     let interpreter = python_executable(spec);
-    let status = ProcessCommand::new(interpreter)
-        .arg("-c")
-        .arg("import debugpy")
-        .current_dir(&spec.cwd)
-        .envs(spec.env.iter())
-        .output()?
-        .status;
+    let mut cmd = ProcessCommand::new(interpreter);
+    cmd.arg("-c").arg("import debugpy").current_dir(&spec.cwd);
+    for key in &spec.env_remove {
+        cmd.env_remove(key);
+    }
+    let status = cmd.envs(spec.env.iter()).output()?.status;
 
     if status.success() {
         Ok(())
@@ -558,28 +570,31 @@ fn prepare_debug_spec(spec: &mut LaunchSpec) -> Result<Option<DebugSessionMeta>,
     if !matches!(spec.mode, LaunchMode::Debug) {
         return Ok(None);
     }
-    if !matches!(spec.runtime, RuntimeKind::Python | RuntimeKind::Node) {
-        return Err(AppError::UnsupportedDebugRuntime(
-            spec_ops::runtime_label(&spec.runtime).to_string(),
-        ));
-    }
+    let backend = DebugBackendKind::for_runtime(&spec.runtime).ok_or_else(|| {
+        AppError::UnsupportedDebugRuntime(spec_ops::runtime_label(&spec.runtime).to_string())
+    })?;
 
     let debug = spec.debug.clone().unwrap_or_default();
     let resolved = resolve_debug_config(&debug)?;
     spec.debug = Some(resolved.config.clone());
 
-    Ok(Some(DebugSessionMeta {
-        host: resolved.config.host.clone(),
-        requested_port: resolved.requested_port,
-        active_port: resolved.config.port,
-        fallback_applied: resolved.fallback_applied,
-        reconnect_policy: "auto-retry".to_string(),
-    }))
+    Ok(Some(backend.build_session_meta(
+        resolved.config.host.clone(),
+        resolved.requested_port,
+        resolved.config.port,
+        resolved.fallback_applied,
+    )))
 }
 
 fn run_prelaunch_task_if_any(spec: &LaunchSpec, log_path: &Path) -> Result<(), AppError> {
     if let Some(task) = &spec.prelaunch_task {
-        run_shell_task(task, Path::new(&spec.cwd), &spec.env, log_path)?;
+        run_shell_task_with_env_control(
+            task,
+            Path::new(&spec.cwd),
+            &spec.env,
+            &spec.env_remove,
+            log_path,
+        )?;
     }
     Ok(())
 }
@@ -594,7 +609,9 @@ fn default_log_path(store: &StateStore, session_id: &str) -> PathBuf {
 fn append_debug_meta_output(output: &mut String, meta: Option<&DebugSessionMeta>) {
     if let Some(meta) = meta {
         output.push_str(&format!(
-            " debug_host={} debug_port={} requested_debug_port={} debug_fallback={} debug_endpoint={}:{}",
+            " debug_adapter={} debug_transport={} debug_host={} debug_port={} requested_debug_port={} debug_fallback={} debug_endpoint={}:{}",
+            meta.adapter_kind,
+            meta.transport,
             meta.host,
             meta.active_port,
             meta.requested_port,
@@ -624,38 +641,8 @@ fn build_debug_session_doc(session: &SessionRecord, meta: &DebugSessionMeta) -> 
         "endpoint": format!("{}:{}", meta.host, meta.active_port),
     });
 
-    if matches!(session.spec.runtime, RuntimeKind::Python) {
-        let attach = json!({
-            "name": format!("Attach ({})", session.spec.name),
-            "type": "python",
-            "request": "attach",
-            "connect": {
-                "host": meta.host,
-                "port": meta.active_port
-            },
-            "justMyCode": false,
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ]
-        });
-        if let Some(obj) = doc.as_object_mut() {
-            obj.insert("attach_vscode".to_string(), attach);
-        }
-    }
-    if matches!(session.spec.runtime, RuntimeKind::Node) {
-        let attach = json!({
-            "name": format!("Attach ({})", session.spec.name),
-            "type": "pwa-node",
-            "request": "attach",
-            "address": meta.host,
-            "port": meta.active_port,
-            "restart": true,
-            "localRoot": "${workspaceFolder}",
-            "remoteRoot": "."
-        });
+    if let Some(backend) = DebugBackendKind::for_runtime(&session.spec.runtime) {
+        let attach = backend.vscode_attach(&session.spec.name, &meta.host, meta.active_port);
         if let Some(obj) = doc.as_object_mut() {
             obj.insert("attach_vscode".to_string(), attach);
         }

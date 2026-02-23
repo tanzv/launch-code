@@ -276,6 +276,14 @@ fn list_help_exposes_filter_flags() {
         stdout.contains("--short-id-len"),
         "list help should expose --short-id-len option"
     );
+    assert!(
+        stdout.contains("--watch"),
+        "list help should expose --watch option"
+    );
+    assert!(
+        stdout.contains("--watch-count"),
+        "list help should expose --watch-count option"
+    );
 }
 
 #[test]
@@ -393,6 +401,14 @@ fn running_help_exposes_display_flags() {
     assert!(
         stdout.contains("--short-id-len"),
         "running help should expose --short-id-len option"
+    );
+    assert!(
+        stdout.contains("--watch"),
+        "running help should expose --watch option"
+    );
+    assert!(
+        stdout.contains("--watch-count"),
+        "running help should expose --watch-count option"
     );
 }
 

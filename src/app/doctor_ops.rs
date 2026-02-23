@@ -1,16 +1,21 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use launch_code::model::{SessionRecord, SessionStatus};
+use launch_code::model::{RuntimeKind, SessionRecord, SessionStatus};
 use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::cli::{DoctorArgs, DoctorCommands, DoctorDebugArgs};
-use crate::dap::{DapRegistry, proxy_for_session, send_request_with_retry};
+use crate::dap::{
+    DapRegistry, NodeAdapterResolution, inspect_node_adapter_resolution, proxy_for_session,
+    send_request_with_retry,
+};
 use crate::error::AppError;
 use crate::output;
 
 const MAX_DOCTOR_EVENTS: usize = 1000;
+const NODE_DAP_ADAPTER_CMD_ENV: &str = "LCODE_NODE_DAP_ADAPTER_CMD";
+const NODE_DAP_DISABLE_AUTO_DISCOVERY_ENV: &str = "LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY";
 
 pub(super) fn handle_doctor(store: &StateStore, args: &DoctorArgs) -> Result<(), AppError> {
     match &args.command {
@@ -21,6 +26,7 @@ pub(super) fn handle_doctor(store: &StateStore, args: &DoctorArgs) -> Result<(),
 fn handle_doctor_debug(store: &StateStore, args: &DoctorDebugArgs) -> Result<(), AppError> {
     let session = super::api_get_session(store, &args.id)?;
     let inspect = super::api_inspect_session(store, &args.id, args.tail)?;
+    let adapter = collect_adapter_probe(&session);
 
     let timeout = clamp_timeout(args.timeout_ms);
     let max_events = args.max_events.clamp(1, MAX_DOCTOR_EVENTS);
@@ -55,7 +61,7 @@ fn handle_doctor_debug(store: &StateStore, args: &DoctorDebugArgs) -> Result<(),
         Err(err) => error_doc(&err),
     };
 
-    let diagnostics = collect_diagnostics(&session, &inspect, &threads, &events);
+    let diagnostics = collect_diagnostics(&session, &inspect, &adapter, &threads, &events);
 
     let doc = json!({
         "ok": true,
@@ -63,6 +69,7 @@ fn handle_doctor_debug(store: &StateStore, args: &DoctorDebugArgs) -> Result<(),
         "session": session,
         "inspect": inspect,
         "debug": {
+            "adapter": adapter,
             "threads": threads,
             "events": events
         },
@@ -74,7 +81,7 @@ fn handle_doctor_debug(store: &StateStore, args: &DoctorDebugArgs) -> Result<(),
         return Ok(());
     }
 
-    print_text_summary(&session, &threads, &events, &diagnostics);
+    print_text_summary(&session, &adapter, &threads, &events, &diagnostics);
     Ok(())
 }
 
@@ -112,6 +119,7 @@ fn dap_failure_message(response: &serde_json::Value) -> Option<String> {
 
 fn print_text_summary(
     session: &SessionRecord,
+    adapter: &serde_json::Value,
     threads: &serde_json::Value,
     events: &serde_json::Value,
     diagnostics: &[serde_json::Value],
@@ -126,6 +134,16 @@ fn print_text_summary(
         status_label(&session.status),
         pid
     );
+
+    if adapter["ok"].as_bool().unwrap_or(false) {
+        let source = adapter["source"].as_str().unwrap_or("unknown");
+        let command = adapter["command"].as_str().unwrap_or("-");
+        println!("adapter_ok=true source={source} command={command}");
+    } else {
+        let source = adapter["source"].as_str().unwrap_or("unknown");
+        let message = adapter["message"].as_str().unwrap_or("unknown");
+        println!("adapter_ok=false source={source} message={message}");
+    }
 
     if threads["ok"].as_bool().unwrap_or(false) {
         let count = threads["response"]["body"]["threads"]
@@ -172,12 +190,28 @@ fn status_label(status: &SessionStatus) -> &'static str {
 fn collect_diagnostics(
     session: &SessionRecord,
     inspect: &serde_json::Value,
+    adapter: &serde_json::Value,
     threads: &serde_json::Value,
     events: &serde_json::Value,
 ) -> Vec<serde_json::Value> {
     let mut diagnostics = Vec::new();
     let threads_ok = threads["ok"].as_bool().unwrap_or(false);
     let events_ok = events["ok"].as_bool().unwrap_or(false);
+    let adapter_ok = adapter["ok"].as_bool().unwrap_or(false);
+
+    if matches!(session.spec.runtime, RuntimeKind::Node) && !adapter_ok {
+        let detail = adapter["message"]
+            .as_str()
+            .unwrap_or("node debug adapter is unavailable")
+            .to_string();
+        diagnostics.push(diagnostic_doc(
+            "D005",
+            "error",
+            "Node debug adapter is unavailable",
+            detail,
+            build_node_adapter_actions(&session.id, adapter),
+        ));
+    }
 
     if !matches!(session.status, SessionStatus::Running) && (!threads_ok || !events_ok) {
         diagnostics.push(diagnostic_doc(
@@ -278,6 +312,98 @@ fn build_thread_actions(session_id: &str, message: &str) -> Vec<String> {
     }
 
     actions
+}
+
+fn build_node_adapter_actions(session_id: &str, adapter: &serde_json::Value) -> Vec<String> {
+    let source = adapter["source"].as_str().unwrap_or("unknown");
+    let mut actions = vec![format!(
+        "Set `{NODE_DAP_ADAPTER_CMD_ENV}` to a JSON array command, for example [\"node\",\"/path/to/js-debug/src/dapDebugServer.js\"]."
+    )];
+
+    if source == "auto_discovery_disabled" {
+        actions.insert(
+            0,
+            format!(
+                "Unset `{NODE_DAP_DISABLE_AUTO_DISCOVERY_ENV}` or set it to `0` to allow PATH/VSCode discovery."
+            ),
+        );
+    }
+
+    if source == "not_found" {
+        actions.insert(
+            0,
+            "Install `js-debug-adapter` in PATH or install the VSCode/Cursor JavaScript debugger extension."
+                .to_string(),
+        );
+    }
+
+    actions.push(format!(
+        "Re-run `lcode doctor debug --id {session_id}` after adapter configuration."
+    ));
+    actions
+}
+
+fn collect_adapter_probe(session: &SessionRecord) -> serde_json::Value {
+    match session.spec.runtime {
+        RuntimeKind::Python => json!({
+            "ok": true,
+            "runtime": "python",
+            "backend": "python-debugpy",
+            "source": "builtin",
+            "command": "tcp://debugpy"
+        }),
+        RuntimeKind::Node => match inspect_node_adapter_resolution() {
+            NodeAdapterResolution::Command(command) => {
+                let rendered = render_command(&command.program, &command.args);
+                json!({
+                    "ok": true,
+                    "runtime": "node",
+                    "backend": "node-inspector",
+                    "source": command.source.label(),
+                    "program": command.program,
+                    "args": command.args,
+                    "command": rendered
+                })
+            }
+            NodeAdapterResolution::InvalidEnv { message } => json!({
+                "ok": false,
+                "runtime": "node",
+                "backend": "node-inspector",
+                "source": "invalid_env",
+                "message": format!("invalid {NODE_DAP_ADAPTER_CMD_ENV}: {message}")
+            }),
+            NodeAdapterResolution::AutoDiscoveryDisabled => json!({
+                "ok": false,
+                "runtime": "node",
+                "backend": "node-inspector",
+                "source": "auto_discovery_disabled",
+                "message": format!("auto discovery disabled by {NODE_DAP_DISABLE_AUTO_DISCOVERY_ENV}")
+            }),
+            NodeAdapterResolution::NotFound => json!({
+                "ok": false,
+                "runtime": "node",
+                "backend": "node-inspector",
+                "source": "not_found",
+                "message": format!("node adapter not found; set {NODE_DAP_ADAPTER_CMD_ENV} or install js-debug adapter in PATH/VSCode extensions")
+            }),
+        },
+        RuntimeKind::Rust => json!({
+            "ok": false,
+            "runtime": "rust",
+            "backend": "unsupported",
+            "source": "unsupported",
+            "message": "dap operations are unavailable for this runtime/backend"
+        }),
+    }
+}
+
+fn render_command(program: &str, args: &[String]) -> String {
+    let mut command = String::from(program);
+    for arg in args {
+        command.push(' ');
+        command.push_str(arg);
+    }
+    command
 }
 
 fn detect_debug_warning_line(inspect: &serde_json::Value) -> Option<String> {

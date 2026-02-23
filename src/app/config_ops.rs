@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
+use launch_code::debug_backend::DebugBackendKind;
 use launch_code::model::{DebugConfig, LaunchMode, LaunchSpec, RuntimeKind};
 use launch_code::runtime::{build_command, python_executable};
 use launch_code::state::StateStore;
@@ -149,15 +150,18 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
 
     if args.clear_env {
         spec.env.clear();
+        spec.env_remove.clear();
     }
 
     for env_file in &args.env_file {
         let env_map = super::spec_ops::parse_env_file_map(env_file)?;
+        remove_env_remove_keys(&mut spec.env_remove, env_map.keys());
         spec.env.extend(env_map);
     }
 
     if !args.env.is_empty() {
         let overrides = super::spec_ops::parse_env_map(&args.env)?;
+        remove_env_remove_keys(&mut spec.env_remove, overrides.keys());
         spec.env.extend(overrides);
     }
 
@@ -302,6 +306,7 @@ fn build_profile_spec(args: &ConfigSaveArgs) -> Result<LaunchSpec, AppError> {
         args: args.args.clone(),
         cwd: args.cwd.clone(),
         env: super::spec_ops::parse_env_map(&args.env)?,
+        env_remove: Vec::new(),
         managed: args.managed,
         mode,
         debug,
@@ -363,12 +368,12 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
     checks.push("command_buildable=true".to_string());
 
     if matches!(spec.mode, LaunchMode::Debug) {
-        if !matches!(spec.runtime, RuntimeKind::Python | RuntimeKind::Node) {
+        let Some(backend) = DebugBackendKind::for_runtime(&spec.runtime) else {
             return Err(AppError::ProfileValidationFailed(format!(
                 "debug mode currently supports python and node runtimes only; found {}",
                 super::spec_ops::runtime_label(&spec.runtime)
             )));
-        }
+        };
 
         if spec.debug.is_none() {
             return Err(AppError::ProfileValidationFailed(
@@ -377,12 +382,14 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
         }
         checks.push("debug_config_present=true".to_string());
 
-        if matches!(spec.runtime, RuntimeKind::Python) {
+        if backend.requires_python_debugpy() {
             let interpreter = python_executable(spec);
-            let status = ProcessCommand::new(&interpreter)
-                .arg("-c")
-                .arg("import debugpy")
-                .current_dir(cwd)
+            let mut cmd = ProcessCommand::new(&interpreter);
+            cmd.arg("-c").arg("import debugpy").current_dir(cwd);
+            for key in &spec.env_remove {
+                cmd.env_remove(key);
+            }
+            let status = cmd
                 .envs(spec.env.iter())
                 .output()
                 .map_err(|err| {
@@ -401,4 +408,13 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
     }
 
     Ok(checks)
+}
+
+fn remove_env_remove_keys<'a>(
+    env_remove: &mut Vec<String>,
+    keys: impl Iterator<Item = &'a String>,
+) {
+    for key in keys {
+        env_remove.retain(|item| item != key);
+    }
 }

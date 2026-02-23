@@ -49,6 +49,38 @@ fn write_state_with_debug_session_status(
     port: u16,
     status: &str,
 ) {
+    write_state_with_runtime_debug_session_status(root, "python", host, port, status);
+}
+
+fn write_state_with_runtime_debug_session_status(
+    root: &std::path::Path,
+    runtime: &str,
+    host: &str,
+    port: u16,
+    status: &str,
+) {
+    let (name, entry, reconnect_policy, adapter_kind, capabilities) = match runtime {
+        "node" => (
+            "node-debug",
+            "app.js",
+            "manual-reconnect",
+            "node-inspector",
+            json!(["vscode_attach", "inspector_attach", "dap_bridge"]),
+        ),
+        _ => (
+            "py-debug",
+            "app.py",
+            "auto-retry",
+            "python-debugpy",
+            json!([
+                "vscode_attach",
+                "dap",
+                "dap_bootstrap",
+                "dap_subprocess_adopt"
+            ]),
+        ),
+    };
+
     let state_dir = root.join(".launch-code");
     fs::create_dir_all(&state_dir).expect("state dir should exist");
     let state_path = state_dir.join("state.json");
@@ -58,9 +90,9 @@ fn write_state_with_debug_session_status(
             "session-1": {
                 "id": "session-1",
                 "spec": {
-                    "name": "py-debug",
-                    "runtime": "python",
-                    "entry": "app.py",
+                    "name": name,
+                    "runtime": runtime,
+                    "entry": entry,
                     "args": [],
                     "cwd": ".",
                     "env": {},
@@ -84,7 +116,10 @@ fn write_state_with_debug_session_status(
                     "requested_port": port,
                     "active_port": port,
                     "fallback_applied": false,
-                    "reconnect_policy": "auto-retry"
+                    "reconnect_policy": reconnect_policy,
+                    "adapter_kind": adapter_kind,
+                    "transport": "tcp",
+                    "capabilities": capabilities
                 },
                 "created_at": 1,
                 "updated_at": 2,
@@ -317,5 +352,45 @@ fn cli_doctor_debug_reports_event_channel_and_status_diagnostics() {
     assert!(
         diagnostics.iter().any(|item| item["code"] == "D003"),
         "D003 should be emitted when session is not running"
+    );
+}
+
+#[test]
+fn cli_doctor_debug_reports_node_adapter_diagnostic_when_unavailable() {
+    let port = reserve_unbound_local_port();
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state_with_runtime_debug_session_status(tmp.path(), "node", "127.0.0.1", port, "stopped");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .env_remove("LCODE_NODE_DAP_ADAPTER_CMD")
+        .env("LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY", "1")
+        .arg("--json")
+        .arg("doctor")
+        .arg("debug")
+        .arg("--id")
+        .arg("session-1")
+        .arg("--timeout-ms")
+        .arg("300")
+        .output()
+        .expect("doctor debug should run");
+
+    assert!(
+        output.status.success(),
+        "doctor debug should return diagnostics"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["debug"]["adapter"]["ok"], false);
+    assert_eq!(doc["debug"]["adapter"]["source"], "auto_discovery_disabled");
+
+    let diagnostics = doc["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array");
+    assert!(
+        diagnostics.iter().any(|item| item["code"] == "D005"),
+        "D005 should be emitted when node adapter is unavailable"
     );
 }

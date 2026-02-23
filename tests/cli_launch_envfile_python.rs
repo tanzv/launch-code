@@ -119,3 +119,69 @@ fn launch_supports_env_file_and_python_interpreter_override() {
         .success()
         .stdout(contains("stopped"));
 }
+
+#[test]
+fn launch_env_null_unsets_inherited_variable() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let workspace = tmp.path();
+    let vscode_dir = workspace.join(".vscode");
+    fs::create_dir_all(&vscode_dir).expect("vscode dir should exist");
+
+    let script_path = workspace.join("app_unset_env.py");
+    fs::write(
+        &script_path,
+        "import os\nimport pathlib\nimport time\n\nprobe = pathlib.Path('env_null_probe.txt')\nprobe.write_text('present' if 'LCODE_ENV_NULL_TEST' in os.environ else 'missing')\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let launch_path = vscode_dir.join("launch.json");
+    fs::write(
+        &launch_path,
+        "{\n  \"version\": \"0.2.0\",\n  \"configurations\": [\n    {\n      \"name\": \"Python Env Null Config\",\n      \"type\": \"python\",\n      \"request\": \"launch\",\n      \"program\": \"${workspaceFolder}/app_unset_env.py\",\n      \"cwd\": \"${workspaceFolder}\",\n      \"env\": {\n        \"LCODE_ENV_NULL_TEST\": null\n      }\n    }\n  ]\n}\n",
+    )
+    .expect("launch json should be written");
+
+    let mut launch_cmd = cargo_bin_cmd!("launch-code");
+    let launch_assert = launch_cmd
+        .env("LAUNCH_CODE_HOME", workspace)
+        .env("LCODE_ENV_NULL_TEST", "present-in-parent")
+        .arg("launch")
+        .arg("--name")
+        .arg("Python Env Null Config")
+        .arg("--mode")
+        .arg("run")
+        .arg("--launch-file")
+        .arg(launch_path.to_string_lossy().to_string())
+        .assert()
+        .success()
+        .stdout(contains("session_id="));
+
+    let launch_output = String::from_utf8(launch_assert.get_output().stdout.clone())
+        .expect("launch output should be utf8");
+    let session_id = parse_session_id(&launch_output).expect("session id should be present");
+
+    let probe_path = workspace.join("env_null_probe.txt");
+    for _ in 0..40 {
+        if probe_path.exists() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let probe = fs::read_to_string(&probe_path).expect("probe output should exist");
+    assert_eq!(probe.trim(), "missing");
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    stop_cmd
+        .env("LAUNCH_CODE_HOME", workspace)
+        .arg("stop")
+        .arg("--id")
+        .arg(session_id)
+        .arg("--force")
+        .assert()
+        .success();
+}

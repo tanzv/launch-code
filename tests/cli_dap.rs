@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
@@ -90,6 +91,65 @@ fn write_state_with_debug_session(root: &std::path::Path, host: &str, port: u16)
 
     fs::write(&state_path, serde_json::to_string_pretty(&state).unwrap())
         .expect("state should be written");
+}
+
+fn write_state_with_node_debug_session(root: &std::path::Path, host: &str, port: u16) {
+    let state_dir = root.join(".launch-code");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    let state_path = state_dir.join("state.json");
+
+    let state = json!({
+        "sessions": {
+            "session-node": {
+                "id": "session-node",
+                "spec": {
+                    "name": "node-debug",
+                    "runtime": "node",
+                    "entry": "app.js",
+                    "args": [],
+                    "cwd": ".",
+                    "env": {},
+                    "managed": false,
+                    "mode": "debug",
+                    "debug": {
+                        "host": host,
+                        "port": port,
+                        "wait_for_client": true,
+                        "subprocess": true
+                    },
+                    "prelaunch_task": null,
+                    "poststop_task": null
+                },
+                "status": "running",
+                "pid": null,
+                "supervisor_pid": null,
+                "log_path": null,
+                "debug_meta": {
+                    "host": host,
+                    "requested_port": port,
+                    "active_port": port,
+                    "fallback_applied": false,
+                    "reconnect_policy": "manual-reconnect",
+                    "adapter_kind": "node-inspector",
+                    "transport": "tcp",
+                    "capabilities": ["vscode_attach", "inspector_attach", "dap_bridge"]
+                },
+                "created_at": 1,
+                "updated_at": 2,
+                "last_exit_code": null,
+                "restart_count": 0
+            }
+        }
+    });
+
+    fs::write(&state_path, serde_json::to_string_pretty(&state).unwrap())
+        .expect("state should be written");
+}
+
+fn discover_python_bin() -> Option<&'static str> {
+    ["python", "python3"]
+        .into_iter()
+        .find(|candidate| Command::new(candidate).arg("--version").output().is_ok())
 }
 
 #[test]
@@ -1583,4 +1643,146 @@ fn cli_dap_variables_requests_variables_with_paging_options() {
     assert_eq!(doc["response"]["body"]["variables"][0]["name"], "x");
 
     let _ = server.join();
+}
+
+#[test]
+fn cli_dap_threads_supports_node_bridge_adapter_when_configured() {
+    let Some(python_bin) = discover_python_bin() else {
+        eprintln!("python is unavailable; skipping node dap bridge test");
+        return;
+    };
+
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state_with_node_debug_session(tmp.path(), "127.0.0.1", 9229);
+
+    let script_path = tmp.path().join("mock_node_dap_adapter.py");
+    let log_path = tmp.path().join("mock_node_dap_commands.log");
+    let script = r#"import json
+import pathlib
+import sys
+
+log_path = pathlib.Path(sys.argv[1])
+expected_port = int(sys.argv[2])
+
+def log(value):
+    with log_path.open("a", encoding="utf-8") as stream:
+        stream.write(value + "\n")
+
+def read_message():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        text = line.decode("utf-8").strip("\r\n")
+        if text == "":
+            break
+        name, value = text.split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+
+    length = int(headers.get("content-length", "0"))
+    if length <= 0:
+        return None
+    payload = sys.stdin.buffer.read(length)
+    if not payload:
+        return None
+    return json.loads(payload.decode("utf-8"))
+
+def write_message(message):
+    payload = json.dumps(message).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(payload)}\r\n\r\n".encode("utf-8"))
+    sys.stdout.buffer.write(payload)
+    sys.stdout.buffer.flush()
+
+threads_seen = 0
+seq = 1
+
+while True:
+    request = read_message()
+    if request is None:
+        break
+
+    command = request.get("command", "")
+    log(command)
+
+    response = {
+        "seq": seq,
+        "type": "response",
+        "request_seq": request.get("seq", 0),
+        "success": True,
+        "command": command,
+        "body": {},
+    }
+    seq += 1
+
+    if command == "threads":
+        threads_seen += 1
+        if threads_seen == 1:
+            response["success"] = False
+            response["message"] = "Server is not available"
+        else:
+            response["body"] = {"threads": [{"id": 9, "name": "Main"}]}
+    elif command == "attach":
+        arguments = request.get("arguments", {})
+        if arguments.get("address") != "127.0.0.1" or int(arguments.get("port", 0)) != expected_port:
+            response["success"] = False
+            response["message"] = "attach arguments mismatch"
+    elif command in ("initialize", "configurationDone"):
+        pass
+    else:
+        response["success"] = False
+        response["message"] = "unsupported command"
+
+    write_message(response)
+"#;
+    fs::write(&script_path, script).expect("mock node adapter script should be written");
+
+    let adapter_cmd = serde_json::to_string(&json!([
+        python_bin,
+        script_path.to_string_lossy().to_string(),
+        log_path.to_string_lossy().to_string(),
+        "9229"
+    ]))
+    .expect("adapter command json");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .env("LCODE_NODE_DAP_ADAPTER_CMD", adapter_cmd)
+        .arg("dap")
+        .arg("threads")
+        .arg("--id")
+        .arg("session-node")
+        .arg("--timeout-ms")
+        .arg("3000")
+        .output()
+        .expect("node dap threads should run");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(
+        output.status.success(),
+        "node dap threads should succeed, stdout: {stdout}, stderr: {stderr}"
+    );
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["response"]["command"], "threads");
+    assert_eq!(doc["response"]["body"]["threads"][0]["id"], 9);
+
+    let log = fs::read_to_string(&log_path).expect("adapter command log should be readable");
+    let commands = log
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<&str>>();
+    assert_eq!(
+        commands,
+        vec![
+            "threads",
+            "initialize",
+            "attach",
+            "configurationDone",
+            "threads"
+        ]
+    );
 }

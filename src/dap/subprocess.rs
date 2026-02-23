@@ -1,8 +1,10 @@
 use launch_code::model::{
-    AppState, DebugConfig, DebugSessionMeta, SessionRecord, SessionStatus, unix_timestamp_secs,
+    AppState, DebugConfig, SessionRecord, SessionStatus, unix_timestamp_secs,
 };
 use launch_code::state::StateStore;
 use serde_json::json;
+
+use launch_code::debug_backend::DebugBackendKind;
 
 use crate::error::AppError;
 
@@ -92,13 +94,12 @@ pub(super) fn register_subprocess_session(
                 pid: target.process_id,
                 supervisor_pid: parent.pid.or(parent.supervisor_pid),
                 log_path: parent.log_path.clone(),
-                debug_meta: Some(DebugSessionMeta {
-                    host: target.host.clone(),
-                    requested_port: target.port,
-                    active_port: target.port,
-                    fallback_applied: false,
-                    reconnect_policy: "auto-retry".to_string(),
-                }),
+                debug_meta: Some(DebugBackendKind::PythonDebugpy.build_session_meta(
+                    target.host.clone(),
+                    target.port,
+                    target.port,
+                    false,
+                )),
                 created_at: now,
                 updated_at: now,
                 last_exit_code: None,

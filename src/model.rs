@@ -49,6 +49,14 @@ fn default_true() -> bool {
     true
 }
 
+fn default_debug_adapter_kind() -> String {
+    "unknown".to_string()
+}
+
+fn default_debug_transport() -> String {
+    "tcp".to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LaunchSpec {
     pub name: String,
@@ -57,6 +65,8 @@ pub struct LaunchSpec {
     pub args: Vec<String>,
     pub cwd: String,
     pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_remove: Vec<String>,
     pub managed: bool,
     pub mode: LaunchMode,
     pub debug: Option<DebugConfig>,
@@ -83,6 +93,12 @@ pub struct DebugSessionMeta {
     pub active_port: u16,
     pub fallback_applied: bool,
     pub reconnect_policy: String,
+    #[serde(default = "default_debug_adapter_kind")]
+    pub adapter_kind: String,
+    #[serde(default = "default_debug_transport")]
+    pub transport: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
