@@ -400,6 +400,39 @@ fn json_dap_rejects_node_runtime_with_stable_error_code() {
 }
 
 #[test]
+fn json_doctor_runtime_strict_reports_stable_error_code() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .env_remove("LCODE_NODE_DAP_ADAPTER_CMD")
+        .env("LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY", "1")
+        .arg("--json")
+        .arg("doctor")
+        .arg("runtime")
+        .arg("--runtime")
+        .arg("node")
+        .arg("--strict")
+        .output()
+        .expect("doctor runtime strict should run");
+
+    assert!(
+        !output.status.success(),
+        "doctor runtime strict should fail when node adapter is unavailable"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let stdout_doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(stdout_doc["ok"], true);
+    assert_eq!(stdout_doc["strict"], true);
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let err_doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(err_doc["ok"], false);
+    assert_eq!(err_doc["error"], "runtime_readiness_failed");
+}
+
+#[test]
 fn json_list_output_is_structured() {
     let tmp = tempdir().expect("temp dir should exist");
 

@@ -1,6 +1,11 @@
 mod config_ops;
 mod dap_cli;
+mod doctor_debug_adapter;
+mod doctor_debug_diagnostics;
+mod doctor_debug_ops;
+mod doctor_debug_render;
 mod doctor_ops;
+mod doctor_runtime_ops;
 mod link_ops;
 mod log_ops;
 mod project_api;

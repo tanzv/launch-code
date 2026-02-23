@@ -445,6 +445,10 @@ fn doctor_help_exposes_runtime_subcommand_and_filter() {
         runtime_stdout.contains("--runtime"),
         "doctor runtime help should expose --runtime filter"
     );
+    assert!(
+        runtime_stdout.contains("--strict"),
+        "doctor runtime help should expose --strict mode"
+    );
 }
 
 #[test]

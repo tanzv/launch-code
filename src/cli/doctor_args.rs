@@ -44,4 +44,10 @@ pub struct DoctorDebugArgs {
 pub struct DoctorRuntimeArgs {
     #[arg(long, value_enum, help = "Filter runtime checks by runtime kind.")]
     pub runtime: Option<RuntimeArg>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Exit with non-zero status if selected runtimes do not satisfy strict readiness checks."
+    )]
+    pub strict: bool,
 }

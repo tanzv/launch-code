@@ -216,6 +216,7 @@ lcode suspend --all --status running --continue-on-error false
 lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
 lcode doctor runtime
 lcode doctor runtime --runtime node
+lcode doctor runtime --runtime node --strict --json
 lcode daemon --interval-ms 1000
 lcode cleanup
 lcode cleanup --dry-run --status stopped
@@ -293,6 +294,7 @@ Node DAP bridge adapter resolution order:
 
 Use `lcode doctor debug --id <session_id>` for one-shot diagnostics that combine session status, adapter probe, inspect output, threads, events, and structured remediation tips.
 Use `lcode doctor runtime` to validate runtime prerequisites (`run_ready`, `debug_ready`, `dap_ready`) across Python/Node/Rust before debugging workflows.
+Use `lcode doctor runtime --strict` in CI gates. Strict mode fails with non-zero exit and `runtime_readiness_failed` when required readiness checks are not satisfied.
 
 ## HTTP Control Plane
 
@@ -397,6 +399,7 @@ Use `--json` and inspect `error` in stderr payloads:
 - `invalid_log_regex`: `logs` regex or exclude-regex is invalid.
 - `invalid_start_options`: Startup flag combination is invalid (`--tail` with `--foreground`, or non-file log mode without foreground).
 - `python_debugpy_unavailable`: `debugpy` not importable in selected Python.
+- `runtime_readiness_failed`: `doctor runtime --strict` detected runtimes that do not satisfy strict readiness.
 - `dap_error`: DAP transport or adapter request failed.
 - `http_error`: HTTP client/server side request handling failed.
 - `link_not_found`: Requested workspace link does not exist.

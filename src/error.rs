@@ -60,6 +60,8 @@ pub enum AppError {
     InvalidLinkPath(String),
     #[error("invalid start options: {0}")]
     InvalidStartOptions(String),
+    #[error("runtime readiness failed: {0}")]
+    RuntimeReadinessFailed(String),
     #[error("confirmation required: {0}")]
     ConfirmationRequired(String),
 }
@@ -95,6 +97,7 @@ impl AppError {
             Self::LinkNotFound(_) => "link_not_found",
             Self::InvalidLinkPath(_) => "invalid_link_path",
             Self::InvalidStartOptions(_) => "invalid_start_options",
+            Self::RuntimeReadinessFailed(_) => "runtime_readiness_failed",
             Self::ConfirmationRequired(_) => "confirmation_required",
         }
     }
@@ -110,6 +113,7 @@ impl AppError {
             | Self::UnsupportedDapRuntime(_) => 2,
             Self::InvalidLinkPath(_) => 2,
             Self::InvalidStartOptions(_) => 2,
+            Self::RuntimeReadinessFailed(_) => 2,
             Self::ConfirmationRequired(_) => 2,
             Self::SessionNotFound(_)
             | Self::SessionIdAmbiguous(_)

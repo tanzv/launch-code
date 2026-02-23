@@ -190,6 +190,7 @@ lcode dap events --id <session_id> --max 50 --timeout-ms 1000
 lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
 lcode doctor runtime
 lcode doctor runtime --runtime node
+lcode doctor runtime --runtime node --strict --json
 lcode inspect --id <session_id> --tail 50
 lcode inspect <session_id> --tail 50
 lcode logs --id <session_id> --tail 200 --follow
@@ -327,6 +328,7 @@ Representative error codes:
 - `python_debugpy_unavailable`
 - `unsupported_debug_runtime`
 - `unsupported_dap_runtime`
+- `runtime_readiness_failed`
 - `dap_error`
 - `http_error`
 
@@ -364,6 +366,7 @@ Run:
 ```bash
 lcode doctor runtime --json
 lcode doctor runtime --runtime node --json
+lcode doctor runtime --runtime node --strict --json
 ```
 
 The response contains:
@@ -371,7 +374,13 @@ The response contains:
 - `checks[]` entries for selected runtimes (`python`, `node`, `rust`)
 - `run_ready`, `debug_ready`, and `dap_ready` readiness flags
 - `probes[]` with command-level evidence (`runtime_command`, `debugpy_import`, `dap_adapter`, `cargo_command`, `rustc_command`)
-- `summary` counters and `not_fully_ready` runtime names
+- `summary` counters, `not_fully_ready`, and strict-readiness aggregation fields
+
+`--strict` behavior:
+
+- `python` and `node` require `run_ready && debug_ready && dap_ready`
+- `rust` requires `run_ready` only (debug backend is not implemented yet)
+- command exits non-zero with `runtime_readiness_failed` when strict checks fail
 
 ## HTTP Control Plane
 

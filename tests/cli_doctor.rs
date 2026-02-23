@@ -483,3 +483,60 @@ fn cli_doctor_runtime_reports_node_adapter_probe_when_discovery_is_disabled() {
     assert_eq!(adapter_probe["ok"], false);
     assert_eq!(adapter_probe["source"], "auto_discovery_disabled");
 }
+
+#[test]
+fn cli_doctor_runtime_strict_exits_non_zero_when_runtime_is_not_ready() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .env_remove("LCODE_NODE_DAP_ADAPTER_CMD")
+        .env("LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY", "1")
+        .arg("--json")
+        .arg("doctor")
+        .arg("runtime")
+        .arg("--runtime")
+        .arg("node")
+        .arg("--strict")
+        .output()
+        .expect("doctor runtime strict should run");
+
+    assert!(
+        !output.status.success(),
+        "strict runtime doctor should fail when runtime is not ready"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let stdout_doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(stdout_doc["strict"], true);
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    let err_doc: Value = serde_json::from_str(&stderr).expect("stderr json");
+    assert_eq!(err_doc["ok"], false);
+    assert_eq!(err_doc["error"], "runtime_readiness_failed");
+}
+
+#[test]
+fn cli_doctor_runtime_strict_accepts_rust_run_readiness() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("doctor")
+        .arg("runtime")
+        .arg("--runtime")
+        .arg("rust")
+        .arg("--strict")
+        .output()
+        .expect("doctor runtime strict should run");
+
+    assert!(
+        output.status.success(),
+        "rust strict check should pass when run readiness is satisfied"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["strict"], true);
+    let checks = doc["checks"].as_array().expect("checks should be an array");
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0]["runtime"], "rust");
+}
