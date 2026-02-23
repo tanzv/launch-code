@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::time::Instant;
 
 use launch_code::model::{RuntimeKind, SessionRecord, SessionStatus};
 use launch_code::state::StateStore;
@@ -14,6 +15,7 @@ use crate::link_registry::load_registry;
 use crate::output;
 
 mod batch;
+mod global_scan_index;
 mod list_cache;
 
 #[derive(Debug, Clone)]
@@ -117,62 +119,111 @@ pub(super) fn handle_status(store: &StateStore, args: &SessionIdArgs) -> Result<
 }
 
 pub(super) fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
+    let started_at = Instant::now();
     let filters = ListFilters::from_args(args);
     let render = list_render_options_from_list_args(args);
     let include_topology = should_include_topology(render);
+    let collect_started_at = Instant::now();
     let rows = collect_rows_from_store(store, &filters, None, None, include_topology)?;
+    let collect_rows_ms = collect_started_at.elapsed().as_millis();
+    let render_started_at = Instant::now();
     print_list_rows(&rows, render);
+    let render_ms = render_started_at.elapsed().as_millis();
+    output::print_trace(&format!(
+        "trace_time command=list scope=local collect_rows_ms={collect_rows_ms} render_ms={render_ms} total_ms={} rows={}",
+        started_at.elapsed().as_millis(),
+        rows.len()
+    ));
     Ok(())
 }
 
 pub(super) fn handle_running(store: &StateStore, args: &RunningArgs) -> Result<(), AppError> {
+    let started_at = Instant::now();
     let filters = ListFilters::from_running_args(args);
     let render = list_render_options_from_running_args(args);
     let include_topology = should_include_topology(render);
+    let collect_started_at = Instant::now();
     let rows = collect_rows_from_store(store, &filters, None, None, include_topology)?;
+    let collect_rows_ms = collect_started_at.elapsed().as_millis();
+    let render_started_at = Instant::now();
     print_list_rows(&rows, render);
+    let render_ms = render_started_at.elapsed().as_millis();
+    output::print_trace(&format!(
+        "trace_time command=running scope=local collect_rows_ms={collect_rows_ms} render_ms={render_ms} total_ms={} rows={}",
+        started_at.elapsed().as_millis(),
+        rows.len()
+    ));
     Ok(())
 }
 
 pub(super) fn handle_list_global_default(args: &ListArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_args(args);
     let render = list_render_options_from_list_args(args);
-    handle_list_global_with_filters(&filters, render)
+    handle_list_global_with_filters("list", &filters, render)
 }
 
 pub(super) fn handle_running_global_default(args: &RunningArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_running_args(args);
     let render = list_render_options_from_running_args(args);
-    handle_list_global_with_filters(&filters, render)
+    handle_list_global_with_filters("running", &filters, render)
 }
 
 fn handle_list_global_with_filters(
+    command_label: &str,
     filters: &ListFilters,
     render: ListRenderOptions,
 ) -> Result<(), AppError> {
+    let started_at = Instant::now();
     let _ = super::link_ops::auto_prune_stale_links_for_global_scan();
+    let load_links_started_at = Instant::now();
     let registry = load_registry()?;
+    let load_links_ms = load_links_started_at.elapsed().as_millis();
     let mut seen_paths = BTreeSet::new();
     let mut rows = Vec::new();
     let include_topology = should_include_topology(render);
+    let mut scan_index = global_scan_index::GlobalListScanIndex::load_best_effort();
+    let mut skipped_links = 0usize;
+    let mut load_sessions_ms = 0u128;
+    let mut build_rows_ms = 0u128;
 
     for item in registry.list() {
         if !seen_paths.insert(item.path.clone()) {
             continue;
         }
+
         let store = StateStore::new(&item.path);
-        let mut scoped_rows = match collect_rows_from_store(
-            &store,
+        let state_signature = global_scan_index::read_state_signature(&store.state_file_path());
+        if state_signature.as_ref().is_some_and(|signature| {
+            scan_index.should_skip_for_filters(&item.path, signature, filters)
+        }) {
+            skipped_links = skipped_links.saturating_add(1);
+            continue;
+        }
+
+        let load_sessions_started_at = Instant::now();
+        let sessions = match list_cache::load_sessions_for_listing(&store) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        load_sessions_ms =
+            load_sessions_ms.saturating_add(load_sessions_started_at.elapsed().as_millis());
+
+        if let Some(signature) = state_signature {
+            scan_index.update_link_summary(&item.path, signature, &sessions);
+        }
+
+        let build_rows_started_at = Instant::now();
+        let mut scoped_rows = collect_rows_from_sessions(
+            sessions,
             filters,
             Some(item.name),
             Some(item.path),
             include_topology,
-        ) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
+        );
+        build_rows_ms = build_rows_ms.saturating_add(build_rows_started_at.elapsed().as_millis());
         rows.append(&mut scoped_rows);
     }
+    scan_index.persist_best_effort();
 
     cache_global_rows_session_routes(&rows);
 
@@ -182,7 +233,15 @@ fn handle_list_global_with_filters(
             .then_with(|| left.link_name.cmp(&right.link_name))
     });
 
+    let render_started_at = Instant::now();
     print_list_rows(&rows, render);
+    let render_ms = render_started_at.elapsed().as_millis();
+    output::print_trace(&format!(
+        "trace_time command={command_label} scope=global links={} skipped_links={skipped_links} load_links_ms={load_links_ms} load_sessions_ms={load_sessions_ms} build_rows_ms={build_rows_ms} render_ms={render_ms} total_ms={} rows={}",
+        seen_paths.len(),
+        started_at.elapsed().as_millis(),
+        rows.len()
+    ));
     Ok(())
 }
 
@@ -595,8 +654,24 @@ fn collect_rows_from_store(
     include_topology: bool,
 ) -> Result<Vec<SessionListRow>, AppError> {
     let sessions = list_cache::load_sessions_for_listing(store)?;
+    Ok(collect_rows_from_sessions(
+        sessions,
+        filters,
+        link_name,
+        link_path,
+        include_topology,
+    ))
+}
+
+fn collect_rows_from_sessions(
+    sessions: Vec<SessionRecord>,
+    filters: &ListFilters,
+    link_name: Option<String>,
+    link_path: Option<String>,
+    include_topology: bool,
+) -> Vec<SessionListRow> {
     if sessions.is_empty() {
-        return Ok(Vec::new());
+        return Vec::new();
     }
 
     if !include_topology {
@@ -627,7 +702,7 @@ fn collect_rows_from_store(
                 link_path: link_path.clone(),
             });
         }
-        return Ok(rows);
+        return rows;
     }
 
     let session_map: BTreeMap<String, SessionRecord> = sessions
@@ -666,7 +741,7 @@ fn collect_rows_from_store(
         });
     }
 
-    Ok(rows)
+    rows
 }
 
 fn matches_list_filters(filters: &ListFilters, session: &SessionRecord) -> bool {

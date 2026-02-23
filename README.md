@@ -28,6 +28,7 @@ Recommended command: `lcode` (compatibility command: `launch-code`).
 - `preLaunchTask` and `postStopTask` hooks for launch configurations
 - Debug port conflict fallback with session metadata output
 - Structured CLI output (`--json`) with stable machine-readable error codes
+- Optional phase timing telemetry (`--trace-time`) for command latency diagnostics
 - Doctor debug diagnostics with structured remediation codes (`D001`-`D004`)
 
 ## Install and Build
@@ -60,6 +61,7 @@ State scope:
 - Session-id commands (for example `stop`, `status`, `inspect`, `logs`, `restart`, `suspend`, `resume`, `attach`, `dap`, `doctor`) auto-route by `--id` across links when global scope is active and `--link` is omitted
 - Session-id lifecycle and diagnostics commands support unique short-id prefixes in addition to full id (for example `lcode status 249b103f`)
 - Session lookup cache is stored at `$HOME/.launch-code/session-index.json` to accelerate repeated cross-link `--id` routing
+- Global list/running scan index is stored at `$HOME/.launch-code/list-global-index.json` to skip links with no matching status
 - `lcode project show` defaults to global project metadata aggregation across links
 - Use `lcode link add --name <name> --path <workspace>` to register a workspace explicitly
 - Use `lcode link prune` to clean stale links (missing paths and temporary empty workspaces)
@@ -67,6 +69,7 @@ State scope:
 - Set `LCODE_AUTO_PRUNE_VERBOSE=1` to emit auto-prune telemetry to stderr during global scans
 - Use `--link <name>` to route commands to one linked workspace
 - Use `--local` to force current workspace scope (`LAUNCH_CODE_HOME` or current directory)
+- Use `--trace-time` to print command phase timings to stderr (`load_links`, `load_sessions`, `render`, etc.)
 
 ## Documentation
 

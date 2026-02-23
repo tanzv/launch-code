@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde_json::json;
 
 static JSON_MODE: AtomicBool = AtomicBool::new(false);
+static TRACE_TIME_MODE: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_json_mode(enabled: bool) {
     JSON_MODE.store(enabled, Ordering::Relaxed);
@@ -10,6 +11,20 @@ pub(crate) fn set_json_mode(enabled: bool) {
 
 pub(crate) fn is_json_mode() -> bool {
     JSON_MODE.load(Ordering::Relaxed)
+}
+
+pub(crate) fn set_trace_time_mode(enabled: bool) {
+    TRACE_TIME_MODE.store(enabled, Ordering::Relaxed);
+}
+
+pub(crate) fn is_trace_time_mode() -> bool {
+    TRACE_TIME_MODE.load(Ordering::Relaxed)
+}
+
+pub(crate) fn print_trace(message: &str) {
+    if is_trace_time_mode() {
+        eprintln!("{message}");
+    }
 }
 
 pub(crate) fn print_message(message: &str) {

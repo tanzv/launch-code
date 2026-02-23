@@ -1,7 +1,9 @@
 use launch_code::model::RuntimeKind;
 use launch_code::state::StateStore;
 
-use crate::cli::{BatchSortArg, ListStatusArg, RestartArgs, ResumeArgs, StopArgs, SuspendArgs};
+use crate::cli::{
+    BatchFilterArgs, BatchSortArg, ListStatusArg, RestartArgs, ResumeArgs, StopArgs, SuspendArgs,
+};
 use crate::error::AppError;
 
 use super::ListFilters;
@@ -288,134 +290,81 @@ pub(super) fn handle_resume_global_default(args: &ResumeArgs) -> Result<(), AppE
 }
 
 fn selector_from_stop_args(args: &StopArgs) -> BatchSelector {
-    BatchSelector {
-        status: args.batch.status.clone(),
-        runtime: args
-            .batch
-            .runtime
-            .as_ref()
-            .map(super::super::spec_ops::to_runtime_kind),
-        name_filter: args
-            .batch
-            .name_contains
-            .as_ref()
-            .map(|value| value.to_lowercase()),
-        dry_run: args.batch.dry_run,
-    }
+    selector_from_batch(&args.batch)
 }
 
 fn selector_from_restart_args(args: &RestartArgs) -> BatchSelector {
-    BatchSelector {
-        status: args.batch.status.clone(),
-        runtime: args
-            .batch
-            .runtime
-            .as_ref()
-            .map(super::super::spec_ops::to_runtime_kind),
-        name_filter: args
-            .batch
-            .name_contains
-            .as_ref()
-            .map(|value| value.to_lowercase()),
-        dry_run: args.batch.dry_run,
-    }
+    selector_from_batch(&args.batch)
 }
 
 fn selector_from_suspend_args(args: &SuspendArgs) -> BatchSelector {
-    BatchSelector {
-        status: args.batch.status.clone(),
-        runtime: args
-            .batch
-            .runtime
-            .as_ref()
-            .map(super::super::spec_ops::to_runtime_kind),
-        name_filter: args
-            .batch
-            .name_contains
-            .as_ref()
-            .map(|value| value.to_lowercase()),
-        dry_run: args.batch.dry_run,
-    }
+    selector_from_batch(&args.batch)
 }
 
 fn selector_from_resume_args(args: &ResumeArgs) -> BatchSelector {
+    selector_from_batch(&args.batch)
+}
+
+fn selector_from_batch(batch: &BatchFilterArgs) -> BatchSelector {
     BatchSelector {
-        status: args.batch.status.clone(),
-        runtime: args
-            .batch
+        status: batch.status.clone(),
+        runtime: batch
             .runtime
             .as_ref()
             .map(super::super::spec_ops::to_runtime_kind),
-        name_filter: args
-            .batch
+        name_filter: batch
             .name_contains
             .as_ref()
             .map(|value| value.to_lowercase()),
-        dry_run: args.batch.dry_run,
+        dry_run: batch.dry_run,
     }
 }
 
 fn control_from_stop_args(args: &StopArgs) -> BatchExecutionControl {
-    BatchExecutionControl {
-        continue_on_error: args.batch.continue_on_error,
-        max_failures: args.batch.max_failures,
-    }
+    control_from_batch(&args.batch)
 }
 
 fn control_from_restart_args(args: &RestartArgs) -> BatchExecutionControl {
-    BatchExecutionControl {
-        continue_on_error: args.batch.continue_on_error,
-        max_failures: args.batch.max_failures,
-    }
+    control_from_batch(&args.batch)
 }
 
 fn control_from_suspend_args(args: &SuspendArgs) -> BatchExecutionControl {
-    BatchExecutionControl {
-        continue_on_error: args.batch.continue_on_error,
-        max_failures: args.batch.max_failures,
-    }
+    control_from_batch(&args.batch)
 }
 
 fn control_from_resume_args(args: &ResumeArgs) -> BatchExecutionControl {
+    control_from_batch(&args.batch)
+}
+
+fn control_from_batch(batch: &BatchFilterArgs) -> BatchExecutionControl {
     BatchExecutionControl {
-        continue_on_error: args.batch.continue_on_error,
-        max_failures: args.batch.max_failures,
+        continue_on_error: batch.continue_on_error,
+        max_failures: batch.max_failures,
     }
 }
 
 fn plan_from_stop_args(args: &StopArgs) -> BatchExecutionPlan {
-    BatchExecutionPlan {
-        sort: args.batch.sort.unwrap_or(BatchSortArg::Id),
-        limit: args.batch.limit,
-        summary: args.batch.summary,
-        jobs: args.batch.jobs,
-    }
+    plan_from_batch(&args.batch)
 }
 
 fn plan_from_restart_args(args: &RestartArgs) -> BatchExecutionPlan {
-    BatchExecutionPlan {
-        sort: args.batch.sort.unwrap_or(BatchSortArg::Id),
-        limit: args.batch.limit,
-        summary: args.batch.summary,
-        jobs: args.batch.jobs,
-    }
+    plan_from_batch(&args.batch)
 }
 
 fn plan_from_suspend_args(args: &SuspendArgs) -> BatchExecutionPlan {
-    BatchExecutionPlan {
-        sort: args.batch.sort.unwrap_or(BatchSortArg::Id),
-        limit: args.batch.limit,
-        summary: args.batch.summary,
-        jobs: args.batch.jobs,
-    }
+    plan_from_batch(&args.batch)
 }
 
 fn plan_from_resume_args(args: &ResumeArgs) -> BatchExecutionPlan {
+    plan_from_batch(&args.batch)
+}
+
+fn plan_from_batch(batch: &BatchFilterArgs) -> BatchExecutionPlan {
     BatchExecutionPlan {
-        sort: args.batch.sort.unwrap_or(BatchSortArg::Id),
-        limit: args.batch.limit,
-        summary: args.batch.summary,
-        jobs: args.batch.jobs,
+        sort: batch.sort.unwrap_or(BatchSortArg::Id),
+        limit: batch.limit,
+        summary: batch.summary,
+        jobs: batch.jobs,
     }
 }
 

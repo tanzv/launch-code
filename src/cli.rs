@@ -21,7 +21,9 @@ pub use dap_args::{
     DapVariablesFilterArg,
 };
 pub use doctor_args::{DoctorArgs, DoctorCommands, DoctorDebugArgs};
-pub use lifecycle_args::{BatchSortArg, RestartArgs, ResumeArgs, StopArgs, SuspendArgs};
+pub use lifecycle_args::{
+    BatchFilterArgs, BatchSortArg, RestartArgs, ResumeArgs, StopArgs, SuspendArgs,
+};
 pub use link_args::{LinkAddArgs, LinkArgs, LinkCommands, LinkNameArgs, LinkPruneArgs};
 pub use project_args::{
     ProjectArgs, ProjectClearArgs, ProjectCommands, ProjectListArgs, ProjectListFieldArg,
@@ -45,6 +47,13 @@ pub struct Cli {
         help = "Emit structured JSON output for command results and errors."
     )]
     pub json: bool,
+    #[arg(
+        long,
+        global = true,
+        default_value_t = false,
+        help = "Emit command phase timing metrics to stderr."
+    )]
+    pub trace_time: bool,
     #[arg(
         long = "global",
         global = true,

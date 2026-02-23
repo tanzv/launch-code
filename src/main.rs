@@ -21,6 +21,7 @@ use crate::error::AppError;
 fn main() {
     let cli = Cli::parse();
     output::set_json_mode(cli.json);
+    output::set_trace_time_mode(cli.trace_time);
 
     if let Err(err) = run(cli) {
         if output::is_json_mode() {

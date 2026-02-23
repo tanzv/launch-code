@@ -38,6 +38,7 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
 - `lcode list` defaults to global aggregation across all registered links.
 - `lcode running` lists only running sessions across the current scope (compact view by default).
+- Use `--trace-time` on commands to emit phase-level timing metrics to stderr for latency diagnostics.
 - `lcode list` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--compact`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode running` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--wide`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode cleanup` defaults to global cleanup across all registered links.
@@ -47,6 +48,7 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Batch lifecycle commands support planning controls via `--sort`, `--limit`, `--summary`, and `--jobs`.
 - `--jobs > 1` requires `--continue-on-error true` and `--max-failures 0`.
 - Global batch lifecycle commands tolerate unreadable/broken links and report them in `link_errors` with `link_error_count`.
+- Global list/running maintain a link-level scan index at `$HOME/.launch-code/list-global-index.json` to skip links with zero matching statuses.
 - Session-id commands auto-route by `--id` across links in global scope when `--link` is omitted (`stop/status/inspect/logs/restart/suspend/resume/attach/dap/doctor`).
 - Session-id lifecycle and diagnostics commands support positional shorthand (`lcode stop <id>`, `lcode status <id>`, `lcode logs <id>`, ...) and unique short-id prefixes.
 - Lifecycle commands support multi-id positional control (`lcode stop <id1> <id2>`, and same pattern for `restart`/`suspend`/`resume`).

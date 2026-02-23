@@ -55,6 +55,10 @@ fn top_level_help_includes_command_descriptions() {
         stdout.contains("--link"),
         "top-level help should expose link scope flag"
     );
+    assert!(
+        stdout.contains("--trace-time"),
+        "top-level help should expose trace timing flag"
+    );
 }
 
 #[test]
