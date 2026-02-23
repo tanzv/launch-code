@@ -413,6 +413,41 @@ fn running_help_exposes_display_flags() {
 }
 
 #[test]
+fn doctor_help_exposes_runtime_subcommand_and_filter() {
+    let mut doctor_cmd = cargo_bin_cmd!("launch-code");
+    let doctor_output = doctor_cmd
+        .arg("doctor")
+        .arg("--help")
+        .output()
+        .expect("doctor help should run");
+    assert!(doctor_output.status.success(), "doctor help should succeed");
+
+    let doctor_stdout = String::from_utf8(doctor_output.stdout).expect("stdout should be utf8");
+    assert!(
+        doctor_stdout.contains("runtime"),
+        "doctor help should include runtime subcommand"
+    );
+
+    let mut runtime_cmd = cargo_bin_cmd!("launch-code");
+    let runtime_output = runtime_cmd
+        .arg("doctor")
+        .arg("runtime")
+        .arg("--help")
+        .output()
+        .expect("doctor runtime help should run");
+    assert!(
+        runtime_output.status.success(),
+        "doctor runtime help should succeed"
+    );
+
+    let runtime_stdout = String::from_utf8(runtime_output.stdout).expect("stdout should be utf8");
+    assert!(
+        runtime_stdout.contains("--runtime"),
+        "doctor runtime help should expose --runtime filter"
+    );
+}
+
+#[test]
 fn serve_help_exposes_worker_and_queue_options() {
     let mut cmd = cargo_bin_cmd!("launch-code");
     let output = cmd

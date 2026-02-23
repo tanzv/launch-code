@@ -20,7 +20,7 @@ pub use dap_args::{
     DapStackTraceArgs, DapStepArgs, DapTerminateArgs, DapThreadsArgs, DapVariablesArgs,
     DapVariablesFilterArg,
 };
-pub use doctor_args::{DoctorArgs, DoctorCommands, DoctorDebugArgs};
+pub use doctor_args::{DoctorArgs, DoctorCommands, DoctorDebugArgs, DoctorRuntimeArgs};
 pub use lifecycle_args::{
     BatchFilterArgs, BatchSortArg, RestartArgs, ResumeArgs, StopArgs, SuspendArgs,
 };

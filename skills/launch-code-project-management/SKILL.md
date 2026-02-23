@@ -214,6 +214,8 @@ lcode stop --all --status running --jobs 4 --continue-on-error true --max-failur
 lcode suspend --all --status running --max-failures 1
 lcode suspend --all --status running --continue-on-error false
 lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
+lcode doctor runtime
+lcode doctor runtime --runtime node
 lcode daemon --interval-ms 1000
 lcode cleanup
 lcode cleanup --dry-run --status stopped
@@ -290,6 +292,7 @@ Node DAP bridge adapter resolution order:
 3. VSCode/Cursor JavaScript debugger extension (`dapDebugServer.js`)
 
 Use `lcode doctor debug --id <session_id>` for one-shot diagnostics that combine session status, adapter probe, inspect output, threads, events, and structured remediation tips.
+Use `lcode doctor runtime` to validate runtime prerequisites (`run_ready`, `debug_ready`, `dap_ready`) across Python/Node/Rust before debugging workflows.
 
 ## HTTP Control Plane
 

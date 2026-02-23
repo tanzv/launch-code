@@ -30,6 +30,7 @@ Recommended command: `lcode` (compatibility command: `launch-code`).
 - Structured CLI output (`--json`) with stable machine-readable error codes
 - Optional phase timing telemetry (`--trace-time`) for command latency diagnostics
 - Doctor debug diagnostics with structured remediation codes (`D001`-`D005`)
+- Runtime readiness diagnostics with `lcode doctor runtime`
 
 ## Install and Build
 
@@ -187,6 +188,8 @@ lcode dap scopes --id <session_id> --frame-id 301
 lcode dap variables --id <session_id> --variables-reference 7001 --filter named --start 0 --count 20
 lcode dap events --id <session_id> --max 50 --timeout-ms 1000
 lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
+lcode doctor runtime
+lcode doctor runtime --runtime node
 lcode inspect --id <session_id> --tail 50
 lcode inspect <session_id> --tail 50
 lcode logs --id <session_id> --tail 200 --follow
@@ -353,6 +356,22 @@ Diagnostic codes:
 - `D003`: Session is not running during failed debug checks.
 - `D004`: Debugger warning signature detected in recent log tail.
 - `D005`: Node debug adapter is unavailable or misconfigured.
+
+### Runtime Doctor Diagnostics
+
+Run:
+
+```bash
+lcode doctor runtime --json
+lcode doctor runtime --runtime node --json
+```
+
+The response contains:
+
+- `checks[]` entries for selected runtimes (`python`, `node`, `rust`)
+- `run_ready`, `debug_ready`, and `dap_ready` readiness flags
+- `probes[]` with command-level evidence (`runtime_command`, `debugpy_import`, `dap_adapter`, `cargo_command`, `rustc_command`)
+- `summary` counters and `not_fully_ready` runtime names
 
 ## HTTP Control Plane
 
