@@ -413,7 +413,7 @@ fn cli_doctor_runtime_reports_matrix_in_json() {
     assert_eq!(doc["ok"], true);
 
     let checks = doc["checks"].as_array().expect("checks should be an array");
-    assert_eq!(checks.len(), 3, "runtime doctor should include 3 runtimes");
+    assert_eq!(checks.len(), 4, "runtime doctor should include 4 runtimes");
     assert!(
         checks.iter().any(|item| item["runtime"] == "python"),
         "python runtime check should exist"
@@ -426,7 +426,11 @@ fn cli_doctor_runtime_reports_matrix_in_json() {
         checks.iter().any(|item| item["runtime"] == "rust"),
         "rust runtime check should exist"
     );
-    assert_eq!(doc["summary"]["runtime_count"], 3);
+    assert!(
+        checks.iter().any(|item| item["runtime"] == "go"),
+        "go runtime check should exist"
+    );
+    assert_eq!(doc["summary"]["runtime_count"], 4);
 }
 
 #[test]
@@ -449,6 +453,28 @@ fn cli_doctor_runtime_supports_runtime_filter() {
     let checks = doc["checks"].as_array().expect("checks should be an array");
     assert_eq!(checks.len(), 1, "runtime filter should keep one runtime");
     assert_eq!(checks[0]["runtime"], "node");
+}
+
+#[test]
+fn cli_doctor_runtime_supports_go_runtime_filter() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("doctor")
+        .arg("runtime")
+        .arg("--runtime")
+        .arg("go")
+        .output()
+        .expect("doctor runtime should run");
+
+    assert!(output.status.success(), "doctor runtime should succeed");
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    let checks = doc["checks"].as_array().expect("checks should be an array");
+    assert_eq!(checks.len(), 1, "runtime filter should keep one runtime");
+    assert_eq!(checks[0]["runtime"], "go");
 }
 
 #[test]

@@ -62,6 +62,7 @@ pub(super) fn to_runtime_kind(runtime: &RuntimeArg) -> RuntimeKind {
         RuntimeArg::Python => RuntimeKind::Python,
         RuntimeArg::Node => RuntimeKind::Node,
         RuntimeArg::Rust => RuntimeKind::Rust,
+        RuntimeArg::Go => RuntimeKind::Go,
     }
 }
 
@@ -77,6 +78,7 @@ pub(super) fn runtime_label(runtime: &RuntimeKind) -> &'static str {
         RuntimeKind::Python => "python",
         RuntimeKind::Node => "node",
         RuntimeKind::Rust => "rust",
+        RuntimeKind::Go => "go",
     }
 }
 

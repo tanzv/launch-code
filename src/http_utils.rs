@@ -129,6 +129,7 @@ fn http_status_for_error(err: &AppError) -> (tiny_http::StatusCode, &'static str
             (tiny_http::StatusCode(409), "stop_timeout")
         }
         AppError::PythonDebugpyUnavailable => (tiny_http::StatusCode(412), "debugpy_unavailable"),
+        AppError::GoDlvUnavailable => (tiny_http::StatusCode(412), "dlv_unavailable"),
         AppError::UnsupportedDebugRuntime(_) => {
             (tiny_http::StatusCode(422), "unsupported_debug_runtime")
         }

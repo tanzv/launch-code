@@ -38,6 +38,6 @@
 ## 版本与能力边界
 
 - 默认作用域为全局链接视角（可用 `--local`/`--link` 覆盖）。
-- Python/Node 支持 debug 启动；Rust 当前仅 run 就绪。
+- Python/Node/Go 支持 debug 启动；Rust 当前仅 run 就绪。
 - DAP 命令主要面向 Python 调试会话，Node 依赖 adapter 可用性。
 - 建议用 `lcode doctor runtime` 与 `lcode doctor debug` 做环境与会话健康检查。

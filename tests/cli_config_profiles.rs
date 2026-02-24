@@ -650,7 +650,7 @@ fn config_validate_rejects_rust_debug_runtime_profiles() {
     );
     let stderr = String::from_utf8(validate_output.stderr).expect("stderr should be utf8");
     assert!(
-        stderr.contains("python and node runtimes only"),
+        stderr.contains("python, node, and go runtimes only"),
         "validation error should explain debug runtime support"
     );
 }

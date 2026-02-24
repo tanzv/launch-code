@@ -8,6 +8,7 @@
 | --- | --- | --- | --- | --- |
 | Python | 支持 | 支持 | 支持（主要能力） | 支持 |
 | Node | 支持 | 支持 | 依赖 adapter 可用性 | 支持 |
+| Go | 支持 | 支持（Delve DAP） | 支持 | 支持 |
 | Rust | 支持 | 启动受限（非完整调试后端） | 不完整/不可用 | 支持（run 维度） |
 
 ## strict 判定规则
@@ -22,6 +23,7 @@ lcode doctor runtime --strict
 
 - `python`：`run_ready && debug_ready && dap_ready`
 - `node`：`run_ready && debug_ready && dap_ready`
+- `go`：`run_ready && debug_ready && dap_ready`
 - `rust`：`run_ready`
 
 若不满足 strict 条件，命令会返回：
@@ -68,6 +70,20 @@ export LCODE_NODE_DAP_ADAPTER_CMD='["node","/path/to/js-debug/src/dapDebugServer
 - 当前以 run 场景为主。
 - 可用 `doctor runtime` 进行工具链 readiness 检查。
 - 调试链路建议关注后续版本增强，或结合外部调试工具。
+
+## Go 建议
+
+- 安装 Delve：
+
+```bash
+go install github.com/go-delve/delve/cmd/dlv@latest
+```
+
+- 诊断：
+
+```bash
+lcode doctor runtime --runtime go --json
+```
 
 ## 组合诊断建议
 

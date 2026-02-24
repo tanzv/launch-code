@@ -1,3 +1,4 @@
+mod go;
 mod node;
 mod python;
 mod rust_runtime;
@@ -21,6 +22,7 @@ pub fn build_command(spec: &LaunchSpec) -> Result<Vec<String>, RuntimeError> {
         RuntimeKind::Python => python::build(spec),
         RuntimeKind::Node => node::build(spec),
         RuntimeKind::Rust => rust_runtime::build(spec),
+        RuntimeKind::Go => go::build(spec),
     }
 }
 

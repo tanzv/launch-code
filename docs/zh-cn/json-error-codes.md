@@ -19,7 +19,7 @@
 | `1` | 通用错误（I/O、状态、运行时等） |
 | `2` | 参数/校验类错误（invalid\_\*、unsupported\_\*、strict 失败等） |
 | `3` | 资源不存在/状态冲突类错误（session/profile/link 缺失等） |
-| `4` | Python debugpy 不可用 |
+| `4` | Python debugpy 或 Go delve（dlv）不可用 |
 | `5` | DAP 通道错误 |
 | `6` | HTTP 服务错误 |
 
@@ -50,6 +50,7 @@
 | `invalid_env_file_line` | env file 行格式错误 | 修正 env 文件 |
 | `invalid_log_regex` | 日志 regex 非法 | 修正正则表达式 |
 | `python_debugpy_unavailable` | Python 未安装 debugpy | `python -m pip install debugpy` |
+| `go_dlv_unavailable` | Go 未安装 delve (`dlv`) | `go install github.com/go-delve/delve/cmd/dlv@latest` |
 | `unsupported_debug_runtime` | 该 runtime 不支持 debug | 调整 runtime 或模式 |
 | `unsupported_dap_runtime` | 该 runtime/backend 不支持 dap | 使用支持的调试会话 |
 | `http_error` | HTTP 服务处理异常 | 检查服务端日志 |

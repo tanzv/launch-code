@@ -20,6 +20,7 @@ What this script does:
 3. Performs best-effort debug dependency setup:
    - Python: `debugpy`
    - Node: js-debug adapter discovery/installation
+   - Go: `dlv` (installed when Go toolchain is detected)
 
 ### Installer Options
 
@@ -97,6 +98,12 @@ Python:
 python3 -m pip install --user debugpy
 ```
 
+Go (Delve):
+
+```bash
+go install github.com/go-delve/delve/cmd/dlv@latest
+```
+
 Node adapter resolution order:
 
 1. `LCODE_NODE_DAP_ADAPTER_CMD` (JSON array command, highest priority)
@@ -136,6 +143,17 @@ python3 -c "import debugpy; print(debugpy.__version__)"
 
 If you use `--strict-debug-deps`, installer exits non-zero whenever debug dependencies are incomplete.
 Use default mode or `--no-debug-deps` when you only need lifecycle commands.
+When Go is available in PATH, strict mode also validates `dlv` readiness.
+
+### 5) Go debug is not ready
+
+- Install Delve (`dlv`) and ensure it is in PATH.
+- Confirm with:
+
+```bash
+dlv version
+lcode doctor runtime --runtime go --json
+```
 
 ## Post-Install Health Check
 

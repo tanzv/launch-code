@@ -161,3 +161,61 @@ fn node_debug_command_can_disable_wait_for_client() {
     let command = build_command(&spec).expect("node debug command should build");
     assert_eq!(command, vec!["node", "--inspect=127.0.0.1:9230", "app.js"]);
 }
+
+#[test]
+fn go_run_command_uses_go_run_with_entry_and_args() {
+    let spec = LaunchSpec {
+        name: "go-run".to_string(),
+        runtime: RuntimeKind::Go,
+        entry: "./cmd/demo".to_string(),
+        args: vec!["--port".to_string(), "8080".to_string()],
+        cwd: ".".to_string(),
+        env: Default::default(),
+        env_remove: Vec::new(),
+        managed: false,
+        mode: LaunchMode::Run,
+        debug: None,
+        prelaunch_task: None,
+        poststop_task: None,
+    };
+
+    let command = build_command(&spec).expect("go run command should build");
+    assert_eq!(command, vec!["go", "run", "./cmd/demo", "--port", "8080"]);
+}
+
+#[test]
+fn go_debug_command_uses_delve_dap_listener() {
+    let spec = LaunchSpec {
+        name: "go-debug".to_string(),
+        runtime: RuntimeKind::Go,
+        entry: "./cmd/demo".to_string(),
+        args: vec!["--port".to_string(), "8080".to_string()],
+        cwd: ".".to_string(),
+        env: Default::default(),
+        env_remove: Vec::new(),
+        managed: false,
+        mode: LaunchMode::Debug,
+        debug: Some(DebugConfig {
+            host: "127.0.0.1".to_string(),
+            port: 43000,
+            wait_for_client: true,
+            subprocess: false,
+        }),
+        prelaunch_task: None,
+        poststop_task: None,
+    };
+
+    let command = build_command(&spec).expect("go debug command should build");
+    assert_eq!(
+        command,
+        vec![
+            "dlv",
+            "dap",
+            "--listen=127.0.0.1:43000",
+            "./cmd/demo",
+            "--",
+            "--port",
+            "8080"
+        ]
+    );
+}

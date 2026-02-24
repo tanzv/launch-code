@@ -46,7 +46,9 @@ pub enum AppError {
     InvalidLogRegex(String),
     #[error("python debug requires debugpy; install with `python -m pip install debugpy`")]
     PythonDebugpyUnavailable,
-    #[error("debug mode currently supports python and node runtimes only: {0}")]
+    #[error("go debug requires delve (`dlv`); install with `go install github.com/go-delve/delve/cmd/dlv@latest`")]
+    GoDlvUnavailable,
+    #[error("debug mode currently supports python, node, and go runtimes only: {0}")]
     UnsupportedDebugRuntime(String),
     #[error("dap operations are unavailable for this runtime/backend: {0}")]
     UnsupportedDapRuntime(String),
@@ -90,6 +92,7 @@ impl AppError {
             Self::InvalidEnvFileLine(_) => "invalid_env_file_line",
             Self::InvalidLogRegex(_) => "invalid_log_regex",
             Self::PythonDebugpyUnavailable => "python_debugpy_unavailable",
+            Self::GoDlvUnavailable => "go_dlv_unavailable",
             Self::UnsupportedDebugRuntime(_) => "unsupported_debug_runtime",
             Self::UnsupportedDapRuntime(_) => "unsupported_dap_runtime",
             Self::Http(_) => "http_error",
@@ -124,6 +127,7 @@ impl AppError {
             | Self::ProfileNotFound(_)
             | Self::LinkNotFound(_) => 3,
             Self::PythonDebugpyUnavailable => 4,
+            Self::GoDlvUnavailable => 4,
             Self::Dap(_) => 5,
             Self::Http(_) => 6,
             _ => 1,

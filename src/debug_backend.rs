@@ -5,6 +5,7 @@ use serde_json::json;
 pub enum DebugBackendKind {
     PythonDebugpy,
     NodeInspector,
+    GoDelve,
 }
 
 impl DebugBackendKind {
@@ -13,6 +14,7 @@ impl DebugBackendKind {
             RuntimeKind::Python => Some(Self::PythonDebugpy),
             RuntimeKind::Node => Some(Self::NodeInspector),
             RuntimeKind::Rust => None,
+            RuntimeKind::Go => Some(Self::GoDelve),
         }
     }
 
@@ -21,17 +23,18 @@ impl DebugBackendKind {
     }
 
     pub fn supports_dap(self) -> bool {
-        matches!(self, Self::PythonDebugpy)
+        matches!(self, Self::PythonDebugpy | Self::GoDelve)
     }
 
     pub fn supports_dap_bootstrap(self) -> bool {
-        matches!(self, Self::PythonDebugpy)
+        matches!(self, Self::PythonDebugpy | Self::GoDelve)
     }
 
     pub fn reconnect_policy(self) -> &'static str {
         match self {
             Self::PythonDebugpy => "auto-retry",
             Self::NodeInspector => "manual-reconnect",
+            Self::GoDelve => "auto-retry",
         }
     }
 
@@ -39,6 +42,7 @@ impl DebugBackendKind {
         match self {
             Self::PythonDebugpy => "python-debugpy",
             Self::NodeInspector => "node-inspector",
+            Self::GoDelve => "go-delve",
         }
     }
 
@@ -55,6 +59,7 @@ impl DebugBackendKind {
                 "dap_subprocess_adopt",
             ],
             Self::NodeInspector => &["vscode_attach", "inspector_attach", "dap_bridge"],
+            Self::GoDelve => &["vscode_attach", "dap", "dap_bootstrap"],
         }
     }
 
@@ -109,6 +114,14 @@ impl DebugBackendKind {
                 "localRoot": "${workspaceFolder}",
                 "remoteRoot": "."
             }),
+            Self::GoDelve => json!({
+                "name": format!("Attach ({session_name})"),
+                "type": "go",
+                "request": "attach",
+                "mode": "remote",
+                "host": host,
+                "port": port
+            }),
         }
     }
 }
@@ -129,12 +142,18 @@ mod tests {
             Some(DebugBackendKind::NodeInspector)
         );
         assert_eq!(DebugBackendKind::for_runtime(&RuntimeKind::Rust), None);
+        assert_eq!(
+            DebugBackendKind::for_runtime(&RuntimeKind::Go),
+            Some(DebugBackendKind::GoDelve)
+        );
     }
 
     #[test]
-    fn dap_capability_is_restricted_to_python_backend() {
+    fn dap_capability_matches_backend_matrix() {
         assert!(DebugBackendKind::PythonDebugpy.supports_dap());
         assert!(DebugBackendKind::PythonDebugpy.supports_dap_bootstrap());
+        assert!(DebugBackendKind::GoDelve.supports_dap());
+        assert!(DebugBackendKind::GoDelve.supports_dap_bootstrap());
 
         assert!(!DebugBackendKind::NodeInspector.supports_dap());
         assert!(!DebugBackendKind::NodeInspector.supports_dap_bootstrap());

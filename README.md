@@ -20,7 +20,7 @@ Chinese:
 
 - Global project visibility: view and manage sessions across linked workspaces from any directory.
 - Daily lifecycle operations: start, stop, restart, suspend, resume, and log inspection for active development loops.
-- Multi-runtime project workflows: run and debug Python/Node projects and run Rust projects in one CLI.
+- Multi-runtime project workflows: run and debug Python/Node/Go projects and run Rust projects in one CLI.
 - Debug and diagnostics workflows: attach, DAP commands, runtime checks, and debug health checks for troubleshooting.
 - Automation and platform integration: stable `--json` output and machine-readable error codes for scripts and CI tooling.
 
@@ -83,6 +83,12 @@ Start a Python debug session:
 
 ```bash
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678
+```
+
+Start a Go debug session (Delve DAP):
+
+```bash
+lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000
 ```
 
 Check sessions:

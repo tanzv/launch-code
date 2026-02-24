@@ -19,6 +19,7 @@
 | `session_id_ambiguous` | 短 ID 匹配多个会话 | `lcode list --format id` | 使用完整 ID |
 | `stop`/`restart` 冲突 | 并发状态变化 | `lcode status --id <id>` | 重试或串行化生命周期操作 |
 | `python_debugpy_unavailable` | Python 无 debugpy | `python3 -c "import debugpy"` | 安装 debugpy 或切换解释器 |
+| `go_dlv_unavailable` | Go 无 Delve (`dlv`) | `dlv version` | 安装 delve 并加入 PATH |
 | `unsupported_dap_runtime` | runtime/backend 不支持 DAP | `lcode status --id <id>` | 使用支持的调试 runtime |
 | `dap_error` 超时 | 调试通道未就绪或断开 | `lcode doctor debug --id <id> --json` | 先 `threads` 探测，必要时重启会话 |
 | Node 调试不可用 | adapter 未解析成功 | `lcode doctor runtime --runtime node --json` | 设置 `LCODE_NODE_DAP_ADAPTER_CMD` |
@@ -47,6 +48,14 @@ lcode doctor debug --id <session_id> --json
 
 ```bash
 export LCODE_NODE_DAP_ADAPTER_CMD='["node","/path/to/js-debug/src/dapDebugServer.js"]'
+```
+
+### Go
+
+```bash
+lcode doctor runtime --runtime go --json
+lcode debug --runtime go --entry ./cmd/app --cwd .
+dlv version
 ```
 
 ## 生命周期批量操作建议

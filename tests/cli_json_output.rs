@@ -310,9 +310,40 @@ fn json_debug_rejects_rust_runtime_with_stable_error_code() {
     assert!(
         doc["message"]
             .as_str()
-            .is_some_and(|message| message.contains("python and node runtimes only")),
+            .is_some_and(|message| message.contains("python, node, and go runtimes only")),
         "error message should explain supported runtime"
     );
+}
+
+#[test]
+fn json_debug_go_reports_missing_dlv_with_stable_error_code() {
+    let tmp = tempdir().expect("temp dir should exist");
+    fs::write(tmp.path().join("main.go"), "package main\nfunc main() {}\n")
+        .expect("main.go should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .env("PATH", "")
+        .arg("--json")
+        .arg("debug")
+        .arg("--runtime")
+        .arg("go")
+        .arg("--entry")
+        .arg("main.go")
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("go debug should run");
+
+    assert!(
+        !output.status.success(),
+        "go debug should fail when dlv is unavailable"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "go_dlv_unavailable");
 }
 
 #[test]

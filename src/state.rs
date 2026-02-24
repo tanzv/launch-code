@@ -188,6 +188,7 @@ fn default_adapter_kind(runtime: &RuntimeKind) -> &'static str {
         RuntimeKind::Python => "python-debugpy",
         RuntimeKind::Node => "node-inspector",
         RuntimeKind::Rust => "unknown",
+        RuntimeKind::Go => "go-delve",
     }
 }
 
@@ -201,6 +202,7 @@ fn default_capabilities(runtime: &RuntimeKind) -> &'static [&'static str] {
         ],
         RuntimeKind::Node => &["vscode_attach", "inspector_attach", "dap_bridge"],
         RuntimeKind::Rust => &["vscode_attach"],
+        RuntimeKind::Go => &["vscode_attach", "dap", "dap_bootstrap"],
     }
 }
 

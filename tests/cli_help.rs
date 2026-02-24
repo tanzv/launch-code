@@ -216,6 +216,10 @@ fn start_help_exposes_env_file_flag() {
         "start help should expose --log-mode"
     );
     assert!(
+        stdout.contains("possible values: python, node, rust, go"),
+        "start help should include go runtime option"
+    );
+    assert!(
         stdout.contains("stdout"),
         "start help should describe stdout log mode value"
     );
@@ -448,6 +452,10 @@ fn doctor_help_exposes_runtime_subcommand_and_filter() {
     assert!(
         runtime_stdout.contains("--strict"),
         "doctor runtime help should expose --strict mode"
+    );
+    assert!(
+        runtime_stdout.contains("possible values: python, node, rust, go"),
+        "doctor runtime help should expose go runtime option"
     );
 }
 

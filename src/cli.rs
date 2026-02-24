@@ -561,6 +561,7 @@ pub enum RuntimeArg {
     Python,
     Node,
     Rust,
+    Go,
 }
 
 #[derive(Debug, Clone, ValueEnum)]

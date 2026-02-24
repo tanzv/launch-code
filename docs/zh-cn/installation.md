@@ -20,6 +20,7 @@ bash ./scripts/install.sh
 3. 尝试安装调试依赖：
    - Python：`debugpy`
    - Node：js-debug adapter（自动探测/安装）
+   - Go：`dlv`（检测到 Go 工具链时尝试安装）
 
 ### 常用参数
 
@@ -100,6 +101,12 @@ python3 -m pip install --user debugpy
 export LCODE_NODE_DAP_ADAPTER_CMD='["node","/path/to/js-debug/src/dapDebugServer.js"]'
 ```
 
+### Go（Delve）
+
+```bash
+go install github.com/go-delve/delve/cmd/dlv@latest
+```
+
 ## 常见问题
 
 ### 1）`lcode` 命令找不到
@@ -127,6 +134,17 @@ python3 -c "import debugpy; print(debugpy.__version__)"
 
 使用 `--strict-debug-deps` 时，只要调试依赖不完整即会返回非零退出码。  
 如果仅需要生命周期命令，可改用默认模式或 `--no-debug-deps`。
+若系统中已检测到 Go，则严格模式也会校验 `dlv` 是否就绪。
+
+### 5）Go 调试未就绪
+
+- 安装 Delve（`dlv`）并确认它在 `PATH` 中。
+- 使用以下命令检查：
+
+```bash
+dlv version
+lcode doctor runtime --runtime go --json
+```
 
 ## 安装后健康检查
 

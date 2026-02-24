@@ -35,6 +35,7 @@ lcode start --runtime python --entry app.py --cwd .
 
 ```bash
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678
+lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000
 ```
 
 5. 查看与管理会话

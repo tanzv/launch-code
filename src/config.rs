@@ -209,6 +209,7 @@ fn map_runtime(kind: &str) -> Result<RuntimeKind, ConfigError> {
         "python" => Ok(RuntimeKind::Python),
         "node" | "pwa-node" | "node-terminal" => Ok(RuntimeKind::Node),
         "rust" | "lldb" | "codelldb" => Ok(RuntimeKind::Rust),
+        "go" => Ok(RuntimeKind::Go),
         other => Err(ConfigError::UnsupportedRuntimeType(other.to_string())),
     }
 }

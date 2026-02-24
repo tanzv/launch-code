@@ -347,7 +347,7 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
                 cargo_manifest.display()
             ));
         }
-        RuntimeKind::Python | RuntimeKind::Node => {
+        RuntimeKind::Python | RuntimeKind::Node | RuntimeKind::Go => {
             let entry_path = if Path::new(&spec.entry).is_absolute() {
                 PathBuf::from(&spec.entry)
             } else {
@@ -370,7 +370,7 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
     if matches!(spec.mode, LaunchMode::Debug) {
         let Some(backend) = DebugBackendKind::for_runtime(&spec.runtime) else {
             return Err(AppError::ProfileValidationFailed(format!(
-                "debug mode currently supports python and node runtimes only; found {}",
+                "debug mode currently supports python, node, and go runtimes only; found {}",
                 super::spec_ops::runtime_label(&spec.runtime)
             )));
         };
@@ -404,6 +404,26 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
                 )));
             }
             checks.push(format!("python_debugpy_ready={interpreter}"));
+        }
+        if matches!(backend, DebugBackendKind::GoDelve) {
+            let mut cmd = ProcessCommand::new("dlv");
+            cmd.arg("version").current_dir(cwd);
+            for key in &spec.env_remove {
+                cmd.env_remove(key);
+            }
+            let status = cmd
+                .envs(spec.env.iter())
+                .output()
+                .map_err(|err| {
+                    AppError::ProfileValidationFailed(format!("dlv version check failed: {err}"))
+                })?
+                .status;
+            if !status.success() {
+                return Err(AppError::ProfileValidationFailed(
+                    "dlv unavailable in PATH for go debug runtime".to_string(),
+                ));
+            }
+            checks.push("go_dlv_ready=true".to_string());
         }
     }
 

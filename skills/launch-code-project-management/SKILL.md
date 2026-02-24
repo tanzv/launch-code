@@ -10,8 +10,8 @@ description: Use when using lcode (launch-code) to run, debug, supervise, and tr
 Use this skill to operate lcode (launch-code) across the daily development cycle:
 
 - Run and debug project code with reproducible commands.
-- Debug mode currently supports Python and Node runtimes.
-- Direct DAP operations currently support Python runtime only.
+- Debug mode currently supports Python, Node, and Go runtimes.
+- Direct DAP operations support Python and Go directly; Node uses adapter bridging.
 - Supervise session lifecycle and recover from failures.
 - Inspect logs, process state, and parent/child debug topology.
 - Run doctor diagnostics for debug channels with actionable recovery hints.
@@ -35,7 +35,7 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Compatibility command: `launch-code`
 - Install locally with `cargo install --path . --force` (both commands are installed).
 - One-click install is available via `bash ./scripts/install.sh`.
-- `./scripts/install.sh` bootstraps Rust if missing, installs CLI binaries, and can set up debug dependencies.
+- `./scripts/install.sh` bootstraps Rust if missing, installs CLI binaries, and can set up debug dependencies (`debugpy`, Node adapter, `dlv` when Go is present).
 - Global link metadata is stored at `$HOME/.launch-code/links.json`.
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
 - `lcode list` defaults to global aggregation across all registered links.
@@ -93,12 +93,14 @@ lcode doctor runtime --json
 
 ```bash
 lcode start --runtime python --entry app.py --cwd .
+lcode start --runtime go --entry ./cmd/app --cwd .
 lcode start --runtime python --entry app.py --cwd . --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000
 lcode start --runtime python --entry app.py --cwd . --foreground --log-mode stdout
 lcode start --runtime python --entry app.py --cwd . --foreground --log-mode tee
 lcode start --runtime python --entry app.py --cwd . --tail
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
 lcode debug --runtime python --entry app.py --cwd . --env-file ./.env.base --env DEBUG=1
+lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000
 ```
 
 ### 1.1 Link bootstrap and routing
@@ -229,6 +231,7 @@ lcode doctor debug --id <session_id> --tail 80 --max-events 50 --timeout-ms 1500
 lcode doctor runtime
 lcode doctor runtime --runtime node
 lcode doctor runtime --runtime node --strict --json
+lcode doctor runtime --runtime go --json
 lcode daemon --interval-ms 1000
 lcode cleanup
 lcode cleanup --dry-run --status stopped

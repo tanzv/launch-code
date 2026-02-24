@@ -48,7 +48,13 @@ fn selected_runtime_kinds(filter: Option<&RuntimeArg>) -> Vec<RuntimeKind> {
         Some(RuntimeArg::Python) => vec![RuntimeKind::Python],
         Some(RuntimeArg::Node) => vec![RuntimeKind::Node],
         Some(RuntimeArg::Rust) => vec![RuntimeKind::Rust],
-        None => vec![RuntimeKind::Python, RuntimeKind::Node, RuntimeKind::Rust],
+        Some(RuntimeArg::Go) => vec![RuntimeKind::Go],
+        None => vec![
+            RuntimeKind::Python,
+            RuntimeKind::Node,
+            RuntimeKind::Rust,
+            RuntimeKind::Go,
+        ],
     }
 }
 
@@ -57,6 +63,7 @@ fn collect_runtime_probe(runtime: RuntimeKind) -> serde_json::Value {
         RuntimeKind::Python => collect_python_runtime_probe(),
         RuntimeKind::Node => collect_node_runtime_probe(),
         RuntimeKind::Rust => collect_rust_runtime_probe(),
+        RuntimeKind::Go => collect_go_runtime_probe(),
     }
 }
 
@@ -148,6 +155,38 @@ fn collect_rust_runtime_probe() -> serde_json::Value {
         "debug_ready": debug_ready,
         "dap_ready": dap_ready,
         "probes": [cargo_probe, rustc_probe],
+        "suggested_actions": actions
+    })
+}
+
+fn collect_go_runtime_probe() -> serde_json::Value {
+    let runtime_probe = probe_command("go", &["version"], "runtime_command");
+    let dlv_probe = probe_command("dlv", &["version"], "dlv_command");
+
+    let run_ready = probe_ok(&runtime_probe);
+    let debug_ready = run_ready && probe_ok(&dlv_probe);
+    let dap_ready = debug_ready;
+
+    let mut actions = Vec::new();
+    if !run_ready {
+        actions.push("Install Go toolchain and ensure `go` is available in PATH.".to_string());
+    }
+    if run_ready && !probe_ok(&dlv_probe) {
+        actions.push(
+            "Install delve with `go install github.com/go-delve/delve/cmd/dlv@latest` and ensure `dlv` is available in PATH."
+                .to_string(),
+        );
+    }
+    if actions.is_empty() {
+        actions.push("Go runtime and delve DAP backend are available.".to_string());
+    }
+
+    json!({
+        "runtime": "go",
+        "run_ready": run_ready,
+        "debug_ready": debug_ready,
+        "dap_ready": dap_ready,
+        "probes": [runtime_probe, dlv_probe],
         "suggested_actions": actions
     })
 }
@@ -369,7 +408,7 @@ fn is_strict_ready(check: &serde_json::Value) -> bool {
     let dap_ready = probe_ok_field(check, "dap_ready");
 
     match runtime {
-        "python" | "node" => run_ready && debug_ready && dap_ready,
+        "python" | "node" | "go" => run_ready && debug_ready && dap_ready,
         "rust" => run_ready,
         _ => false,
     }

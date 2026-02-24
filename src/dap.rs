@@ -309,6 +309,41 @@ fn build_bootstrap_requests(
             ),
             ("configurationDone".to_string(), json!({})),
         ]),
+        DebugBackendKind::GoDelve => {
+            let cwd = session.spec.cwd.clone();
+            let mut program = session.spec.entry.clone();
+            let entry_path = Path::new(&program);
+            if !entry_path.is_absolute() {
+                program = Path::new(&cwd).join(entry_path).to_string_lossy().to_string();
+            }
+            Ok(vec![
+                (
+                    "initialize".to_string(),
+                    json!({
+                        "clientID": "launch-code",
+                        "adapterID": "go",
+                        "pathFormat": "path",
+                        "linesStartAt1": true,
+                        "columnsStartAt1": true
+                    }),
+                ),
+                (
+                    "launch".to_string(),
+                    json!({
+                        "name": session.spec.name,
+                        "type": "go",
+                        "request": "launch",
+                        "mode": "debug",
+                        "program": program,
+                        "cwd": cwd,
+                        "args": session.spec.args,
+                        "env": session.spec.env,
+                        "stopOnEntry": session.spec.debug.as_ref().map(|cfg| cfg.wait_for_client).unwrap_or(true)
+                    }),
+                ),
+                ("configurationDone".to_string(), json!({})),
+            ])
+        }
     }
 }
 
@@ -473,6 +508,7 @@ pub(crate) fn proxy_for_session(
 
     let proxy = match backend {
         DebugBackendKind::PythonDebugpy => DapProxy::connect_tcp(host, port)?,
+        DebugBackendKind::GoDelve => DapProxy::connect_tcp(host, port)?,
         DebugBackendKind::NodeInspector => {
             let (program, args) = resolve_node_adapter_command()?;
             DapProxy::connect_stdio_adapter(program, args, host, port)?
@@ -566,6 +602,7 @@ fn runtime_label(runtime: &RuntimeKind) -> String {
         RuntimeKind::Python => "python".to_string(),
         RuntimeKind::Node => "node".to_string(),
         RuntimeKind::Rust => "rust".to_string(),
+        RuntimeKind::Go => "go".to_string(),
     }
 }
 

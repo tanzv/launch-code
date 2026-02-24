@@ -39,8 +39,9 @@
 
 ### 启动命令
 
-- `lcode start --runtime <python|node|rust> --entry <path> --cwd .`
+- `lcode start --runtime <python|node|rust|go> --entry <path> --cwd .`
 - `lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678`
+- `lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000`
 - `lcode launch --name "<LaunchName>" --mode <run|debug>`
 
 环境变量合并顺序（`start` / `debug`）：
@@ -112,6 +113,7 @@
 
 - `lcode doctor runtime`
 - `lcode doctor runtime --runtime node --strict --json`
+- `lcode doctor runtime --runtime go --json`
 - `lcode doctor debug --id <session_id> --json`
 
 ### dap

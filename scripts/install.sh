@@ -20,7 +20,7 @@ Options:
 Default behavior:
   1) Ensure Rust/Cargo is available (install via rustup if missing).
   2) Install CLI binaries (lcode, launch-code) via cargo.
-  3) Best-effort install debug dependencies (debugpy, js-debug-adapter).
+  3) Best-effort install debug dependencies (debugpy, js-debug-adapter, dlv when Go is present).
 EOF
 }
 
@@ -202,6 +202,37 @@ try_install_node_adapter() {
   return 1
 }
 
+try_install_go_dlv() {
+  if command_exists dlv; then
+    log_info "Go debug backend (dlv) already available in PATH."
+    return 0
+  fi
+
+  if ! command_exists go; then
+    log_warn "Go toolchain not found; skipping delve install."
+    return 0
+  fi
+
+  log_info "Installing Go debug dependency: delve (dlv)"
+  if go install github.com/go-delve/delve/cmd/dlv@latest; then
+    if command_exists dlv; then
+      return 0
+    fi
+
+    local gopath=""
+    gopath="$(go env GOPATH 2>/dev/null || true)"
+    if [[ -n "${gopath}" && -x "${gopath}/bin/dlv" ]]; then
+      log_warn "dlv installed at ${gopath}/bin/dlv but not in PATH."
+      log_warn "Add this to your shell profile: export PATH=\"${gopath}/bin:\$PATH\""
+      return 0
+    fi
+  fi
+
+  log_warn "Failed to install delve (dlv)."
+  log_warn "Install manually: go install github.com/go-delve/delve/cmd/dlv@latest"
+  return 1
+}
+
 verify_install() {
   if command_exists lcode; then
     log_info "lcode binary detected in PATH: $(command -v lcode)"
@@ -228,6 +259,8 @@ main() {
   if [[ "${INSTALL_DEBUG_DEPS}" -eq 1 ]]; then
     local debugpy_ok=0
     local node_adapter_ok=0
+    local go_dlv_ok=1
+    local go_detected=0
 
     if try_install_debugpy; then
       debugpy_ok=1
@@ -235,8 +268,15 @@ main() {
     if try_install_node_adapter; then
       node_adapter_ok=1
     fi
+    if command_exists go; then
+      go_detected=1
+      go_dlv_ok=0
+      if try_install_go_dlv; then
+        go_dlv_ok=1
+      fi
+    fi
 
-    if [[ "${STRICT_DEBUG_DEPS}" -eq 1 && ( "${debugpy_ok}" -ne 1 || "${node_adapter_ok}" -ne 1 ) ]]; then
+    if [[ "${STRICT_DEBUG_DEPS}" -eq 1 && ( "${debugpy_ok}" -ne 1 || "${node_adapter_ok}" -ne 1 || ( "${go_detected}" -eq 1 && "${go_dlv_ok}" -ne 1 ) ) ]]; then
       log_error "Strict debug dependency setup failed."
       exit 1
     fi

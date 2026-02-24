@@ -15,6 +15,7 @@ pub enum RuntimeKind {
     Python,
     Node,
     Rust,
+    Go,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

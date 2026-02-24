@@ -1,3 +1,5 @@
+use std::process::Command as ProcessCommand;
+
 use launch_code::model::{RuntimeKind, SessionRecord};
 use serde_json::json;
 
@@ -88,6 +90,38 @@ pub(super) fn collect_adapter_probe(session: &SessionRecord) -> serde_json::Valu
             "backend": "unsupported",
             "source": "unsupported",
             "message": "dap operations are unavailable for this runtime/backend"
+        }),
+        RuntimeKind::Go => probe_go_dlv_adapter(session),
+    }
+}
+
+fn probe_go_dlv_adapter(session: &SessionRecord) -> serde_json::Value {
+    let mut cmd = ProcessCommand::new("dlv");
+    cmd.arg("version").current_dir(&session.spec.cwd);
+    for key in &session.spec.env_remove {
+        cmd.env_remove(key);
+    }
+    match cmd.envs(session.spec.env.iter()).output() {
+        Ok(output) if output.status.success() => json!({
+            "ok": true,
+            "runtime": "go",
+            "backend": "go-delve",
+            "source": "builtin",
+            "command": "tcp://dlv-dap"
+        }),
+        Ok(_) => json!({
+            "ok": false,
+            "runtime": "go",
+            "backend": "go-delve",
+            "source": "missing_runtime",
+            "message": "dlv command failed; install delve and ensure `dlv` is available in PATH"
+        }),
+        Err(err) => json!({
+            "ok": false,
+            "runtime": "go",
+            "backend": "go-delve",
+            "source": "missing_runtime",
+            "message": format!("unable to execute dlv: {err}")
         }),
     }
 }

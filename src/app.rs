@@ -552,22 +552,36 @@ fn ensure_debug_runtime_ready(spec: &LaunchSpec) -> Result<(), AppError> {
     let Some(backend) = DebugBackendKind::for_runtime(&spec.runtime) else {
         return Ok(());
     };
-    if !backend.requires_python_debugpy() {
-        return Ok(());
+    if backend.requires_python_debugpy() {
+        let interpreter = python_executable(spec);
+        let mut cmd = ProcessCommand::new(interpreter);
+        cmd.arg("-c").arg("import debugpy").current_dir(&spec.cwd);
+        for key in &spec.env_remove {
+            cmd.env_remove(key);
+        }
+        let status = cmd.envs(spec.env.iter()).output()?.status;
+
+        if !status.success() {
+            return Err(AppError::PythonDebugpyUnavailable);
+        }
     }
 
-    let interpreter = python_executable(spec);
-    let mut cmd = ProcessCommand::new(interpreter);
-    cmd.arg("-c").arg("import debugpy").current_dir(&spec.cwd);
+    if matches!(backend, DebugBackendKind::GoDelve) {
+        ensure_go_dlv_ready(spec)?;
+    }
+
+    Ok(())
+}
+
+fn ensure_go_dlv_ready(spec: &LaunchSpec) -> Result<(), AppError> {
+    let mut cmd = ProcessCommand::new("dlv");
+    cmd.arg("version").current_dir(&spec.cwd);
     for key in &spec.env_remove {
         cmd.env_remove(key);
     }
-    let status = cmd.envs(spec.env.iter()).output()?.status;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(AppError::PythonDebugpyUnavailable)
+    match cmd.envs(spec.env.iter()).output() {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(_) | Err(_) => Err(AppError::GoDlvUnavailable),
     }
 }
 
