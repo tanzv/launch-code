@@ -1,9 +1,11 @@
 # launch-code 中文文档总览
 
 本文档是 `lcode` / `launch-code` 的中文入口页，帮助你按场景快速定位资料。
+如需一页式简版说明，可先看：`docs/zh-cn/README.md`。
 
 ## 文档地图
 
+- 中文 README：`docs/zh-cn/README.md`
 - 安装指南：`docs/zh-cn/installation.md`
 - 快速上手：`docs/zh-cn/quick-start.md`
 - 命令参考：`docs/zh-cn/command-reference.md`
