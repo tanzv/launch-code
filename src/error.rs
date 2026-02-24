@@ -46,7 +46,9 @@ pub enum AppError {
     InvalidLogRegex(String),
     #[error("python debug requires debugpy; install with `python -m pip install debugpy`")]
     PythonDebugpyUnavailable,
-    #[error("go debug requires delve (`dlv`); install with `go install github.com/go-delve/delve/cmd/dlv@latest`")]
+    #[error(
+        "go debug requires delve (`dlv`); install with `go install github.com/go-delve/delve/cmd/dlv@latest`"
+    )]
     GoDlvUnavailable,
     #[error("debug mode currently supports python, node, and go runtimes only: {0}")]
     UnsupportedDebugRuntime(String),

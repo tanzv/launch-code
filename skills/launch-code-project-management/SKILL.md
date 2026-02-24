@@ -12,6 +12,8 @@ Use this skill to operate lcode (launch-code) across the daily development cycle
 - Run and debug project code with reproducible commands.
 - Debug mode currently supports Python, Node, and Go runtimes.
 - Direct DAP operations support Python and Go directly; Node uses adapter bridging.
+- Go debug sessions run on Delve headless multi-client mode, so repeated `lcode dap ...` calls can reuse the same live session.
+- Go debug supports mode switching via `--go-mode debug|test|attach` and optional attach PID via `--go-attach-pid`.
 - Supervise session lifecycle and recover from failures.
 - Inspect logs, process state, and parent/child debug topology.
 - Run doctor diagnostics for debug channels with actionable recovery hints.

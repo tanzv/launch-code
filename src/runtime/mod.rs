@@ -11,6 +11,8 @@ use crate::model::{LaunchSpec, RuntimeKind};
 pub enum RuntimeError {
     #[error("launch entry is required")]
     MissingEntry,
+    #[error("invalid launch entry: {0}")]
+    InvalidEntry(String),
 }
 
 pub fn build_command(spec: &LaunchSpec) -> Result<Vec<String>, RuntimeError> {

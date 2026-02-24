@@ -213,6 +213,19 @@ pub struct DebugArgs {
     pub wait_for_client: bool,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set, help = "Enable debugpy subprocess debugging hooks for child Python processes.")]
     pub subprocess: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = GoDebugModeArg::Debug,
+        help = "Go debug mode (runtime go only). debug=dlv debug, test=dlv test, attach=dlv attach."
+    )]
+    pub go_mode: GoDebugModeArg,
+    #[arg(
+        long,
+        value_parser = parse_positive_u32,
+        help = "Target process PID for --go-mode attach. If omitted, --entry must be a numeric PID."
+    )]
+    pub go_attach_pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -570,6 +583,13 @@ pub enum LaunchModeArg {
     Debug,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum GoDebugModeArg {
+    Debug,
+    Test,
+    Attach,
+}
+
 #[derive(Debug, Clone, ValueEnum)]
 pub enum ListStatusArg {
     Running,
@@ -604,6 +624,16 @@ fn parse_short_id_len(value: &str) -> Result<usize, String> {
 fn parse_positive_usize(value: &str) -> Result<usize, String> {
     let parsed = value
         .parse::<usize>()
+        .map_err(|_| "value must be a positive integer".to_string())?;
+    if parsed == 0 {
+        return Err("value must be greater than 0".to_string());
+    }
+    Ok(parsed)
+}
+
+fn parse_positive_u32(value: &str) -> Result<u32, String> {
+    let parsed = value
+        .parse::<u32>()
         .map_err(|_| "value must be a positive integer".to_string())?;
     if parsed == 0 {
         return Err("value must be greater than 0".to_string());

@@ -1,3 +1,5 @@
+use std::fs;
+
 use launch_code::state::StateStore;
 use serde_json::json;
 
@@ -22,6 +24,7 @@ pub(super) fn handle_dap_breakpoints(
 
     let serve_state = super::shared::fresh_registry();
     let timeout = super::shared::clamp_timeout(args.timeout_ms);
+    let source_path = normalize_breakpoint_path(&args.path);
     let breakpoints: Vec<serde_json::Value> = args
         .lines
         .iter()
@@ -41,7 +44,7 @@ pub(super) fn handle_dap_breakpoints(
         })
         .collect();
     let arguments = json!({
-        "source": { "path": args.path },
+        "source": { "path": source_path },
         "breakpoints": breakpoints,
     });
 
@@ -60,6 +63,12 @@ pub(super) fn handle_dap_breakpoints(
         "response": response,
     });
     super::shared::print_json_doc(&doc)
+}
+
+fn normalize_breakpoint_path(path: &str) -> String {
+    fs::canonicalize(path)
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string())
 }
 
 pub(super) fn handle_dap_exception_breakpoints(

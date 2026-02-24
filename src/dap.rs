@@ -4,7 +4,7 @@ mod shared;
 mod subprocess;
 mod tcp_proxy;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -60,6 +60,7 @@ pub(crate) enum NodeAdapterResolution {
 #[derive(Debug, Default)]
 pub(crate) struct DapRegistry {
     proxies: HashMap<String, Arc<DapProxy>>,
+    bootstrapped: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,20 +83,27 @@ pub(crate) fn send_request_with_retry(
 ) -> Result<serde_json::Value, AppError> {
     let retry_arguments = arguments.clone();
     let bootstrap_timeout = effective_bootstrap_timeout(timeout);
-    let response = match send_request_transport_with_retry(
-        store, registry, session_id, command, arguments, timeout,
+    let response = match send_request_once(
+        store,
+        registry,
+        session_id,
+        command,
+        arguments,
+        timeout,
+        bootstrap_timeout,
     ) {
         Ok(response) => response,
         Err(initial_err) => {
             let retried = if is_retryable_transport_error(&initial_err) {
                 std::thread::sleep(Duration::from_millis(250));
-                send_request_transport_with_retry(
+                send_request_once(
                     store,
                     registry,
                     session_id,
                     command,
                     retry_arguments.clone(),
                     timeout,
+                    bootstrap_timeout,
                 )
             } else {
                 Err(initial_err)
@@ -105,14 +113,15 @@ pub(crate) fn send_request_with_retry(
                 Ok(response) => response,
                 Err(err) => {
                     if should_bootstrap_after_error(command, &err) {
-                        send_bootstrap_sequence(store, registry, session_id, bootstrap_timeout)?;
-                        return send_request_transport_with_retry(
+                        bootstrap_session(store, registry, session_id, bootstrap_timeout)?;
+                        return send_request_once(
                             store,
                             registry,
                             session_id,
                             command,
                             retry_arguments,
                             timeout,
+                            bootstrap_timeout,
                         );
                     }
                     return Err(err);
@@ -121,21 +130,86 @@ pub(crate) fn send_request_with_retry(
         }
     };
     if should_bootstrap_after_response(command, &response) {
-        send_bootstrap_sequence(store, registry, session_id, bootstrap_timeout)?;
-        return send_request_transport_with_retry(
+        bootstrap_session(store, registry, session_id, bootstrap_timeout)?;
+        return send_request_once(
             store,
             registry,
             session_id,
             command,
             retry_arguments,
             timeout,
+            bootstrap_timeout,
         );
     }
     Ok(response)
 }
 
+fn send_request_once(
+    store: &StateStore,
+    registry: &Arc<Mutex<DapRegistry>>,
+    session_id: &str,
+    command: &str,
+    arguments: serde_json::Value,
+    timeout: Duration,
+    bootstrap_timeout: Duration,
+) -> Result<serde_json::Value, AppError> {
+    ensure_bootstrap_for_command(store, registry, session_id, command, bootstrap_timeout)?;
+    send_request_transport_with_retry(store, registry, session_id, command, arguments, timeout)
+}
+
 fn effective_bootstrap_timeout(timeout: Duration) -> Duration {
     timeout.max(Duration::from_millis(1500))
+}
+
+fn ensure_bootstrap_for_command(
+    store: &StateStore,
+    registry: &Arc<Mutex<DapRegistry>>,
+    session_id: &str,
+    command: &str,
+    timeout: Duration,
+) -> Result<(), AppError> {
+    if is_bootstrap_command(command) {
+        return Ok(());
+    }
+
+    if !requires_eager_bootstrap(store, session_id)? {
+        return Ok(());
+    }
+
+    let already_bootstrapped = {
+        let guard = registry
+            .lock()
+            .map_err(|_| AppError::Http("dap registry lock poisoned".to_string()))?;
+        guard.bootstrapped.contains(session_id)
+    };
+    if already_bootstrapped {
+        return Ok(());
+    }
+
+    bootstrap_session(store, registry, session_id, timeout)
+}
+
+fn bootstrap_session(
+    store: &StateStore,
+    registry: &Arc<Mutex<DapRegistry>>,
+    session_id: &str,
+    timeout: Duration,
+) -> Result<(), AppError> {
+    send_bootstrap_sequence(store, registry, session_id, timeout)?;
+    let mut guard = registry
+        .lock()
+        .map_err(|_| AppError::Http("dap registry lock poisoned".to_string()))?;
+    guard.bootstrapped.insert(session_id.to_string());
+    Ok(())
+}
+
+fn requires_eager_bootstrap(store: &StateStore, session_id: &str) -> Result<bool, AppError> {
+    let state = store.load()?;
+    let session = state
+        .sessions
+        .get(session_id)
+        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
+    Ok(matches!(session.spec.runtime, RuntimeKind::Go))
 }
 
 fn send_request_transport_with_retry(
@@ -220,7 +294,10 @@ fn is_retryable_transport_error(err: &AppError) -> bool {
 }
 
 fn is_bootstrap_command(command: &str) -> bool {
-    matches!(command, "initialize" | "attach" | "configurationDone")
+    matches!(
+        command,
+        "initialize" | "attach" | "launch" | "configurationDone"
+    )
 }
 
 fn send_bootstrap_sequence(
@@ -309,41 +386,16 @@ fn build_bootstrap_requests(
             ),
             ("configurationDone".to_string(), json!({})),
         ]),
-        DebugBackendKind::GoDelve => {
-            let cwd = session.spec.cwd.clone();
-            let mut program = session.spec.entry.clone();
-            let entry_path = Path::new(&program);
-            if !entry_path.is_absolute() {
-                program = Path::new(&cwd).join(entry_path).to_string_lossy().to_string();
-            }
-            Ok(vec![
-                (
-                    "initialize".to_string(),
-                    json!({
-                        "clientID": "launch-code",
-                        "adapterID": "go",
-                        "pathFormat": "path",
-                        "linesStartAt1": true,
-                        "columnsStartAt1": true
-                    }),
-                ),
-                (
-                    "launch".to_string(),
-                    json!({
-                        "name": session.spec.name,
-                        "type": "go",
-                        "request": "launch",
-                        "mode": "debug",
-                        "program": program,
-                        "cwd": cwd,
-                        "args": session.spec.args,
-                        "env": session.spec.env,
-                        "stopOnEntry": session.spec.debug.as_ref().map(|cfg| cfg.wait_for_client).unwrap_or(true)
-                    }),
-                ),
-                ("configurationDone".to_string(), json!({})),
-            ])
-        }
+        DebugBackendKind::GoDelve => Ok(vec![(
+            "initialize".to_string(),
+            json!({
+                "clientID": "launch-code",
+                "adapterID": "go",
+                "pathFormat": "path",
+                "linesStartAt1": true,
+                "columnsStartAt1": true
+            }),
+        )]),
     }
 }
 
@@ -526,6 +578,7 @@ pub(crate) fn proxy_for_session(
 fn drop_session(registry: &Arc<Mutex<DapRegistry>>, session_id: &str) {
     if let Ok(mut guard) = registry.lock() {
         guard.proxies.remove(session_id);
+        guard.bootstrapped.remove(session_id);
     }
 }
 

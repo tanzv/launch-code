@@ -1,3 +1,4 @@
+use std::fs;
 use std::sync::{Arc, Mutex};
 
 use launch_code::state::StateStore;
@@ -89,7 +90,7 @@ pub(crate) fn handle_debug_breakpoints(
     }
 
     let args = json!({
-        "source": { "path": path },
+        "source": { "path": normalize_breakpoint_path(&path) },
         "breakpoints": breakpoints
     });
 
@@ -116,6 +117,12 @@ pub(crate) fn handle_debug_breakpoints(
         ),
         Err(err) => http_json_error(&err),
     }
+}
+
+fn normalize_breakpoint_path(path: &str) -> String {
+    fs::canonicalize(path)
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string())
 }
 
 pub(crate) fn handle_debug_exception_breakpoints(

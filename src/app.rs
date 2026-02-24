@@ -26,8 +26,8 @@ use launch_code::config::{LaunchRequest, load_launch_spec};
 use launch_code::debug::resolve_debug_config;
 use launch_code::debug_backend::DebugBackendKind;
 use launch_code::model::{
-    AppState, DebugConfig, DebugSessionMeta, LaunchMode, LaunchSpec, SessionRecord, SessionStatus,
-    unix_timestamp_secs,
+    AppState, DebugConfig, DebugSessionMeta, LaunchMode, LaunchSpec, RuntimeKind, SessionRecord,
+    SessionStatus, unix_timestamp_secs,
 };
 use launch_code::process::{
     ProcessLogMode, is_process_alive, run_process_foreground_with_env_control,
@@ -40,9 +40,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::cli::{
-    CleanupArgs, Commands, DaemonArgs, DebugArgs, InspectArgs, LaunchArgs, ListArgs, LogsArgs,
-    RestartArgs, ResumeArgs, RunningArgs, SessionIdArgs, StartArgs, StartLogModeArg, StopArgs,
-    SuspendArgs,
+    CleanupArgs, Commands, DaemonArgs, DebugArgs, GoDebugModeArg, InspectArgs, LaunchArgs,
+    ListArgs, LogsArgs, RestartArgs, ResumeArgs, RunningArgs, SessionIdArgs, StartArgs,
+    StartLogModeArg, StopArgs, SuspendArgs,
 };
 use crate::error::AppError;
 use crate::output;
@@ -293,8 +293,48 @@ fn handle_debug(store: &StateStore, args: &DebugArgs) -> Result<(), AppError> {
         wait_for_client: args.wait_for_client,
         subprocess: args.subprocess,
     };
-    let spec = spec_ops::build_launch_spec(&args.start, LaunchMode::Debug, Some(debug))?;
+    let mut spec = spec_ops::build_launch_spec(&args.start, LaunchMode::Debug, Some(debug))?;
+    apply_go_debug_mode(&mut spec, args)?;
     handle_start_spec(store, spec, options)
+}
+
+fn apply_go_debug_mode(spec: &mut LaunchSpec, args: &DebugArgs) -> Result<(), AppError> {
+    if !matches!(spec.runtime, RuntimeKind::Go) {
+        if !matches!(args.go_mode, GoDebugModeArg::Debug) || args.go_attach_pid.is_some() {
+            return Err(AppError::InvalidStartOptions(
+                "`--go-mode` and `--go-attach-pid` are only valid when --runtime go.".to_string(),
+            ));
+        }
+        return Ok(());
+    }
+
+    match args.go_mode {
+        GoDebugModeArg::Debug => Ok(()),
+        GoDebugModeArg::Test => {
+            spec.entry = format!("test:{}", spec.entry);
+            Ok(())
+        }
+        GoDebugModeArg::Attach => {
+            if !spec.args.is_empty() {
+                return Err(AppError::InvalidStartOptions(
+                    "`--arg` is not supported with `--go-mode attach`.".to_string(),
+                ));
+            }
+
+            let pid = args
+                .go_attach_pid
+                .or_else(|| spec.entry.trim().parse::<u32>().ok())
+                .filter(|value| *value > 0)
+                .ok_or_else(|| {
+                    AppError::InvalidStartOptions(
+                        "go attach mode requires a positive PID via --go-attach-pid or numeric --entry."
+                            .to_string(),
+                    )
+                })?;
+            spec.entry = format!("attach:{pid}");
+            Ok(())
+        }
+    }
 }
 
 fn handle_launch(store: &StateStore, args: &LaunchArgs) -> Result<(), AppError> {

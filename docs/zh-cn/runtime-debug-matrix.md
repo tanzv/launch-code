@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- |
 | Python | 支持 | 支持 | 支持（主要能力） | 支持 |
 | Node | 支持 | 支持 | 依赖 adapter 可用性 | 支持 |
-| Go | 支持 | 支持（Delve DAP） | 支持 | 支持 |
+| Go | 支持 | 支持（Delve headless multi-client） | 支持 | 支持 |
 | Rust | 支持 | 启动受限（非完整调试后端） | 不完整/不可用 | 支持（run 维度） |
 
 ## strict 判定规则
@@ -84,6 +84,12 @@ go install github.com/go-delve/delve/cmd/dlv@latest
 ```bash
 lcode doctor runtime --runtime go --json
 ```
+
+- Go debug 会话使用 Delve 的 headless multi-client 模式，支持连续执行多次 `lcode dap ...` 命令而不强制结束会话。
+- Go debug 支持模式切换：
+  - `--go-mode debug`：常规源码调试（默认）
+  - `--go-mode test`：测试调试（Delve test）
+  - `--go-mode attach`：附加到已运行进程（可配合 `--go-attach-pid`）
 
 ## 组合诊断建议
 

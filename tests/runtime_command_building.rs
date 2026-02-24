@@ -184,7 +184,7 @@ fn go_run_command_uses_go_run_with_entry_and_args() {
 }
 
 #[test]
-fn go_debug_command_uses_delve_dap_listener() {
+fn go_debug_command_uses_delve_headless_multiclient_listener() {
     let spec = LaunchSpec {
         name: "go-debug".to_string(),
         runtime: RuntimeKind::Go,
@@ -210,12 +210,131 @@ fn go_debug_command_uses_delve_dap_listener() {
         command,
         vec![
             "dlv",
-            "dap",
+            "debug",
+            "--headless",
+            "--accept-multiclient",
+            "--api-version=2",
             "--listen=127.0.0.1:43000",
             "./cmd/demo",
             "--",
             "--port",
             "8080"
+        ]
+    );
+}
+
+#[test]
+fn go_debug_command_can_continue_without_waiting_for_client() {
+    let spec = LaunchSpec {
+        name: "go-debug-no-wait".to_string(),
+        runtime: RuntimeKind::Go,
+        entry: "./cmd/demo".to_string(),
+        args: vec![],
+        cwd: ".".to_string(),
+        env: Default::default(),
+        env_remove: Vec::new(),
+        managed: false,
+        mode: LaunchMode::Debug,
+        debug: Some(DebugConfig {
+            host: "127.0.0.1".to_string(),
+            port: 43001,
+            wait_for_client: false,
+            subprocess: false,
+        }),
+        prelaunch_task: None,
+        poststop_task: None,
+    };
+
+    let command = build_command(&spec).expect("go debug command should build");
+    assert_eq!(
+        command,
+        vec![
+            "dlv",
+            "debug",
+            "--headless",
+            "--accept-multiclient",
+            "--api-version=2",
+            "--listen=127.0.0.1:43001",
+            "--continue",
+            "./cmd/demo",
+        ]
+    );
+}
+
+#[test]
+fn go_debug_command_supports_test_mode_entry_prefix() {
+    let spec = LaunchSpec {
+        name: "go-test-debug".to_string(),
+        runtime: RuntimeKind::Go,
+        entry: "test:./pkg/service".to_string(),
+        args: vec!["-test.run".to_string(), "TestServiceFlow".to_string()],
+        cwd: ".".to_string(),
+        env: Default::default(),
+        env_remove: Vec::new(),
+        managed: false,
+        mode: LaunchMode::Debug,
+        debug: Some(DebugConfig {
+            host: "127.0.0.1".to_string(),
+            port: 43002,
+            wait_for_client: true,
+            subprocess: false,
+        }),
+        prelaunch_task: None,
+        poststop_task: None,
+    };
+
+    let command = build_command(&spec).expect("go test debug command should build");
+    assert_eq!(
+        command,
+        vec![
+            "dlv",
+            "test",
+            "--headless",
+            "--accept-multiclient",
+            "--api-version=2",
+            "--listen=127.0.0.1:43002",
+            "./pkg/service",
+            "--",
+            "-test.run",
+            "TestServiceFlow"
+        ]
+    );
+}
+
+#[test]
+fn go_debug_command_supports_attach_mode_entry_prefix() {
+    let spec = LaunchSpec {
+        name: "go-attach-debug".to_string(),
+        runtime: RuntimeKind::Go,
+        entry: "attach:34567".to_string(),
+        args: vec![],
+        cwd: ".".to_string(),
+        env: Default::default(),
+        env_remove: Vec::new(),
+        managed: false,
+        mode: LaunchMode::Debug,
+        debug: Some(DebugConfig {
+            host: "127.0.0.1".to_string(),
+            port: 43003,
+            wait_for_client: false,
+            subprocess: false,
+        }),
+        prelaunch_task: None,
+        poststop_task: None,
+    };
+
+    let command = build_command(&spec).expect("go attach debug command should build");
+    assert_eq!(
+        command,
+        vec![
+            "dlv",
+            "attach",
+            "--headless",
+            "--accept-multiclient",
+            "--api-version=2",
+            "--listen=127.0.0.1:43003",
+            "--continue",
+            "34567"
         ]
     );
 }
