@@ -4,13 +4,25 @@
 Recommended command: `lcode`.
 Compatibility command: `launch-code`.
 
+## Key Documentation Links
+
+English:
+
+- [Installation Guide](docs/installation.md)
+- [Python Debug Manual](docs/python-debug-manual.md)
+
+Chinese:
+
+- [Chinese README](docs/zh-cn/README.md)
+- [Chinese Docs Index](docs/zh-cn/index.md)
+
 ## Why launch-code
 
-- Global-first visibility: list sessions across linked workspaces by default.
-- Docker-like lifecycle ergonomics: `start`, `stop`, `restart`, `running`, `logs`.
-- Multi-runtime support: Python, Node, Rust.
-- Debug workflows: Python debug is built-in, Node debug is adapter-based, Rust is run-ready.
-- Script-friendly automation: stable `--json` output and machine-readable error codes.
+- Global project visibility: view and manage sessions across linked workspaces from any directory.
+- Daily lifecycle operations: start, stop, restart, suspend, resume, and log inspection for active development loops.
+- Multi-runtime project workflows: run and debug Python/Node projects and run Rust projects in one CLI.
+- Debug and diagnostics workflows: attach, DAP commands, runtime checks, and debug health checks for troubleshooting.
+- Automation and platform integration: stable `--json` output and machine-readable error codes for scripts and CI tooling.
 
 ## Install
 
@@ -55,6 +67,12 @@ Register a workspace link (global metadata):
 lcode link add --name demo --path /path/to/workspace
 ```
 
+Enter the linked workspace:
+
+```bash
+cd /path/to/workspace
+```
+
 Start a Python session:
 
 ```bash
@@ -77,7 +95,6 @@ lcode running
 Stop sessions:
 
 ```bash
-lcode stop --all --yes
 lcode stop <session_id>
 ```
 
@@ -100,15 +117,26 @@ lcode cleanup
 
 ## Command Surface
 
-Core lifecycle:
+Single-target lifecycle:
 
 ```bash
 lcode start ...
 lcode debug ...
-lcode stop [--id <id>|<id>] [--all]
-lcode restart [--id <id>|<id>] [--all]
-lcode suspend [--id <id>|<id>] [--all]
-lcode resume [--id <id>|<id>] [--all]
+lcode stop --id <id>
+lcode stop <id>
+lcode restart --id <id>
+lcode suspend --id <id>
+lcode resume --id <id>
+```
+
+Batch lifecycle (global-aware):
+
+```bash
+lcode stop --all --dry-run
+lcode stop --all --yes
+lcode restart --all --dry-run
+lcode suspend --all --dry-run
+lcode resume --all --dry-run
 ```
 
 Discovery and inspection:
@@ -150,22 +178,10 @@ lcode config run --name <profile>
 
 ## Documentation
 
-English:
-
-- `docs/installation.md`
-- `docs/python-debug-manual.md`
-
-Chinese:
-
-- `docs/zh-cn/README.md`
-- `docs/zh-cn/index.md`
-- `docs/zh-cn/installation.md`
-- `docs/zh-cn/quick-start.md`
-- `docs/zh-cn/command-reference.md`
-- `docs/zh-cn/json-error-codes.md`
-- `docs/zh-cn/http-api.md`
-- `docs/zh-cn/runtime-debug-matrix.md`
-- `docs/zh-cn/troubleshooting.md`
+- [Installation Guide (EN)](docs/installation.md)
+- [Python Debug Manual (EN)](docs/python-debug-manual.md)
+- [Chinese README](docs/zh-cn/README.md)
+- [Chinese Docs Index](docs/zh-cn/index.md)
 
 ## Development Verification
 
