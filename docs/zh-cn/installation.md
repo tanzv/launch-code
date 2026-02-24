@@ -107,6 +107,14 @@ export LCODE_NODE_DAP_ADAPTER_CMD='["node","/path/to/js-debug/src/dapDebugServer
 go install github.com/go-delve/delve/cmd/dlv@latest
 ```
 
+Go 调试模式示例：
+
+```bash
+lcode debug --runtime go --entry ./cmd/app --cwd .
+lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-test.run --arg=TestServiceFlow
+lcode debug --runtime go --go-mode attach --entry 12345 --cwd . --host 127.0.0.1 --port 43000
+```
+
 ## 常见问题
 
 ### 1）`lcode` 命令找不到

@@ -42,7 +42,16 @@
 - `lcode start --runtime <python|node|rust|go> --entry <path> --cwd .`
 - `lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678`
 - `lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000`
+- `lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-test.run --arg=TestServiceFlow`
+- `lcode debug --runtime go --go-mode attach --entry 12345 --cwd . --host 127.0.0.1 --port 43000`
 - `lcode launch --name "<LaunchName>" --mode <run|debug>`
+
+Go 调试模式说明：
+
+- `--go-mode debug`：默认模式，源码调试。
+- `--go-mode test`：测试调试（Delve test）。
+- `--go-mode attach`：附加到已运行 Go 进程（PID 可来自 `--entry` 或 `--go-attach-pid`）。
+- 在 `--go-mode attach` 下不支持 `--arg`。
 
 环境变量合并顺序（`start` / `debug`）：
 

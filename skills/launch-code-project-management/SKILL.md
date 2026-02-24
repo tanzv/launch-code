@@ -103,6 +103,8 @@ lcode start --runtime python --entry app.py --cwd . --tail
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678 --subprocess true
 lcode debug --runtime python --entry app.py --cwd . --env-file ./.env.base --env DEBUG=1
 lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000
+lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-test.run --arg=TestServiceFlow
+lcode debug --runtime go --go-mode attach --entry 12345 --cwd . --host 127.0.0.1 --port 43000
 ```
 
 ### 1.1 Link bootstrap and routing

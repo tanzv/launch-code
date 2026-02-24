@@ -55,8 +55,15 @@ export LCODE_NODE_DAP_ADAPTER_CMD='["node","/path/to/js-debug/src/dapDebugServer
 ```bash
 lcode doctor runtime --runtime go --json
 lcode debug --runtime go --entry ./cmd/app --cwd .
+lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-test.run --arg=TestServiceFlow
+lcode debug --runtime go --go-mode attach --entry 12345 --cwd . --host 127.0.0.1 --port 43000
 dlv version
 ```
+
+附加模式提示：
+
+- 目标进程应为可被 Delve 附加的 Go 二进制进程。
+- 若 `--entry` 不是纯数字 PID，可改用 `--go-attach-pid <pid>`。
 
 ## 生命周期批量操作建议
 

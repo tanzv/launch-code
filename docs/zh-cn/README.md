@@ -9,6 +9,7 @@
 - 生命周期管理：`stop`、`restart`、`suspend`、`resume`
 - 全局会话可见性：`list`、`running`
 - 调试链路支持：`attach`、`dap`、`doctor debug`
+- Go 调试模式：`debug`（默认）/`test`/`attach`
 - 项目与配置管理：`project`、`config`
 
 ## 快速开始
@@ -36,6 +37,8 @@ lcode start --runtime python --entry app.py --cwd .
 ```bash
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678
 lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000
+lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-test.run --arg=TestServiceFlow
+lcode debug --runtime go --go-mode attach --entry 12345 --cwd . --host 127.0.0.1 --port 43000
 ```
 
 5. 查看与管理会话

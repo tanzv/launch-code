@@ -92,6 +92,11 @@ Authorization: Bearer <TOKEN>
 }
 ```
 
+说明：
+
+- 上述 `attach` 示例主要适用于 Python/Node 的 attach 场景。
+- Go 调试会话通常使用 `initialize` 后直接执行调试请求（例如 `threads`、`setBreakpoints`），不需要通用 `attach` 请求。
+
 ## 调试高层接口
 
 - `GET /v1/sessions/{id}/debug/threads`

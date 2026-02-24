@@ -94,7 +94,7 @@ lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000
 Debug Go tests with Delve:
 
 ```bash
-lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg -test.run --arg TestServiceFlow
+lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-test.run --arg=TestServiceFlow
 ```
 
 Attach to an existing Go process:

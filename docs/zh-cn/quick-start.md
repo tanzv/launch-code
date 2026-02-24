@@ -34,7 +34,15 @@ lcode running
 ```bash
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678
 lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000
+lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-test.run --arg=TestServiceFlow
+lcode debug --runtime go --go-mode attach --entry 12345 --cwd . --host 127.0.0.1 --port 43000
 ```
+
+说明：
+
+- `--go-mode test` 对应 Delve `test` 调试模式。
+- `--go-mode attach` 会附加到已运行 Go 进程；`--entry` 可直接传 PID，或使用 `--go-attach-pid <pid>`。
+- 传递以 `-` 开头的测试参数时，建议写成 `--arg=<value>` 形式。
 
 查看调试会话基础信息：
 
