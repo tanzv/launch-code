@@ -24,7 +24,9 @@ lcode start --runtime python --entry app.py --cwd .
 
 ```bash
 lcode list
+lcode list --sort updated --limit 20
 lcode running
+lcode running --sort name --limit 10
 ```
 
 说明：默认是全局视图，会聚合已注册链接下的会话。
@@ -70,8 +72,11 @@ lcode stop --all --status running --yes
 
 ```bash
 lcode logs --id <session_id> --tail 200 --follow
+lcode logs --id <session_id> --tail 200 --since 10m --until 1m
+lcode logs --id <session_id> --tail 200 --timestamps
 lcode doctor runtime
 lcode doctor debug --id <session_id>
+lcode doctor all --runtime node --strict --json
 ```
 
 JSON 自动化输出：
@@ -108,6 +113,7 @@ lcode --link demo project show
 
 ```bash
 lcode list
+lcode list --sort updated --limit 20
 lcode inspect --id <session_id> --tail 80
 lcode logs --id <session_id> --tail 200
 ```

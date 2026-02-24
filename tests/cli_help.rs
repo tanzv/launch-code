@@ -181,6 +181,18 @@ fn logs_help_explains_filter_arguments() {
         stdout.contains("Exclude regular expression"),
         "logs help should explain --exclude-regex"
     );
+    assert!(
+        stdout.contains("--since"),
+        "logs help should expose --since"
+    );
+    assert!(
+        stdout.contains("--until"),
+        "logs help should expose --until"
+    );
+    assert!(
+        stdout.contains("--timestamps"),
+        "logs help should expose --timestamps"
+    );
 }
 
 #[test]
@@ -287,6 +299,11 @@ fn list_help_exposes_filter_flags() {
     assert!(
         stdout.contains("--watch-count"),
         "list help should expose --watch-count option"
+    );
+    assert!(stdout.contains("--sort"), "list help should expose --sort");
+    assert!(
+        stdout.contains("--limit"),
+        "list help should expose --limit"
     );
 }
 
@@ -414,6 +431,14 @@ fn running_help_exposes_display_flags() {
         stdout.contains("--watch-count"),
         "running help should expose --watch-count option"
     );
+    assert!(
+        stdout.contains("--sort"),
+        "running help should expose --sort"
+    );
+    assert!(
+        stdout.contains("--limit"),
+        "running help should expose --limit"
+    );
 }
 
 #[test]
@@ -430,6 +455,10 @@ fn doctor_help_exposes_runtime_subcommand_and_filter() {
     assert!(
         doctor_stdout.contains("runtime"),
         "doctor help should include runtime subcommand"
+    );
+    assert!(
+        doctor_stdout.contains("all"),
+        "doctor help should include all subcommand"
     );
 
     let mut runtime_cmd = cargo_bin_cmd!("launch-code");
@@ -456,6 +485,31 @@ fn doctor_help_exposes_runtime_subcommand_and_filter() {
     assert!(
         runtime_stdout.contains("possible values: python, node, rust, go"),
         "doctor runtime help should expose go runtime option"
+    );
+
+    let mut all_cmd = cargo_bin_cmd!("launch-code");
+    let all_output = all_cmd
+        .arg("doctor")
+        .arg("all")
+        .arg("--help")
+        .output()
+        .expect("doctor all help should run");
+    assert!(
+        all_output.status.success(),
+        "doctor all help should succeed"
+    );
+    let all_stdout = String::from_utf8(all_output.stdout).expect("stdout should be utf8");
+    assert!(
+        all_stdout.contains("--runtime"),
+        "doctor all help should expose runtime filter"
+    );
+    assert!(
+        all_stdout.contains("--strict"),
+        "doctor all help should expose strict mode"
+    );
+    assert!(
+        all_stdout.contains("--id"),
+        "doctor all help should expose optional debug session id"
     );
 }
 

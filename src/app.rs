@@ -468,6 +468,9 @@ pub(super) fn handle_start_spec(
             regex: None,
             exclude_regex: None,
             ignore_case: false,
+            since: None,
+            until: None,
+            timestamps: false,
         };
         log_ops::handle_logs(store, &follow_args)?;
     }

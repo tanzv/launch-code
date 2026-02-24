@@ -45,7 +45,9 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Use `--trace-time` on commands to emit phase-level timing metrics to stderr for latency diagnostics.
 - `lcode list` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--compact`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode running` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--wide`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
+- `lcode list` and `lcode running` support result planning controls via `--sort <id|name|runtime|status|updated|restarts>` and `--limit <N>`.
 - `lcode list` and `lcode running` support watch mode via `--watch [INTERVAL]` and `--watch-count <N>`.
+- `lcode logs` supports time-window filtering via `--since <TIME>` and `--until <TIME>` (unix seconds or lookback durations `30s/5m/2h/1d`) and output timestamp prefix via `--timestamps`.
 - `start` / `debug` / `config run` merge environment values in this order: saved profile env (if any), then `--env-file` values in declaration order, then `--env KEY=VALUE` overrides.
 - `lcode launch` supports `envFile` and `env` fields from `launch.json`; `env` overrides keys loaded from `envFile`, and `env` keys set to `null` are removed from inherited process environment.
 - `lcode cleanup` defaults to global cleanup across all registered links.
@@ -127,6 +129,7 @@ lcode running -q
 lcode running --no-headers
 lcode running --watch
 lcode running --watch 1s --watch-count 10
+lcode running --sort name --limit 10
 lcode list --compact
 lcode list --format compact
 lcode list --format short
@@ -136,6 +139,7 @@ lcode list --compact --no-trunc
 lcode list --compact --no-headers
 lcode list --watch
 lcode list --watch 500ms --watch-count 20
+lcode list --sort updated --limit 20
 lcode --link demo status --id <session_id>
 ```
 
@@ -205,6 +209,8 @@ lcode inspect --id <session_id> --tail 100
 lcode inspect <session_id> --tail 100
 lcode logs --id <session_id> --tail 200 --follow
 lcode logs <session_id> --tail 200 --follow
+lcode logs --id <session_id> --tail 200 --since 10m --until 1m
+lcode logs --id <session_id> --tail 200 --timestamps
 lcode attach --id <session_id>
 lcode attach <session_id>
 lcode suspend --id <session_id>
@@ -236,6 +242,7 @@ lcode doctor runtime
 lcode doctor runtime --runtime node
 lcode doctor runtime --runtime node --strict --json
 lcode doctor runtime --runtime go --json
+lcode doctor all --runtime node --strict --json
 lcode daemon --interval-ms 1000
 lcode cleanup
 lcode cleanup --dry-run --status stopped
@@ -314,6 +321,7 @@ Node DAP bridge adapter resolution order:
 Use `lcode doctor debug --id <session_id>` for one-shot diagnostics that combine session status, adapter probe, inspect output, threads, events, and structured remediation tips.
 Use `lcode doctor runtime` to validate runtime prerequisites (`run_ready`, `debug_ready`, `dap_ready`) across Python/Node/Rust before debugging workflows.
 Use `lcode doctor runtime --strict` in CI gates. Strict mode fails with non-zero exit and `runtime_readiness_failed` when required readiness checks are not satisfied.
+Use `lcode doctor all` to combine runtime readiness and optional session debug diagnostics in a single report.
 
 ## HTTP Control Plane
 
@@ -416,6 +424,7 @@ Use `--json` and inspect `error` in stderr payloads:
 - `invalid_env_pair`: `--env` value is not `KEY=VALUE`.
 - `invalid_env_file_line`: Env file contains malformed lines.
 - `invalid_log_regex`: `logs` regex or exclude-regex is invalid.
+- `invalid_log_time_window`: `logs --since/--until` value is malformed or time window is invalid.
 - `invalid_start_options`: Startup flag combination is invalid (`--tail` with `--foreground`, or non-file log mode without foreground).
 - `python_debugpy_unavailable`: `debugpy` not importable in selected Python.
 - `runtime_readiness_failed`: `doctor runtime --strict` detected runtimes that do not satisfy strict readiness.

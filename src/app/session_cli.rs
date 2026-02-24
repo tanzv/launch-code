@@ -9,8 +9,8 @@ use launch_code::state::StateStore;
 use serde_json::json;
 
 use crate::cli::{
-    CleanupArgs, CleanupStatusArg, ListArgs, ListFormatArg, ListStatusArg, RestartArgs, ResumeArgs,
-    RunningArgs, SessionIdArgs, StopArgs, SuspendArgs,
+    CleanupArgs, CleanupStatusArg, ListArgs, ListFormatArg, ListSortArg, ListStatusArg,
+    RestartArgs, ResumeArgs, RunningArgs, SessionIdArgs, StopArgs, SuspendArgs,
 };
 use crate::error::AppError;
 use crate::link_registry::load_registry;
@@ -27,6 +27,7 @@ struct SessionListRow {
     status: &'static str,
     runtime: &'static str,
     mode: &'static str,
+    updated_at: u64,
     pid: Option<u32>,
     restart_count: u32,
     name: String,
@@ -43,6 +44,12 @@ struct ListFilters {
     status_filter: Option<ListStatusArg>,
     runtime_filter: Option<RuntimeKind>,
     name_filter: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ListOrderOptions {
+    sort: Option<ListSortArg>,
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -95,6 +102,22 @@ impl ListFilters {
     }
 }
 
+impl ListOrderOptions {
+    fn from_list_args(args: &ListArgs) -> Self {
+        Self {
+            sort: args.sort,
+            limit: args.limit,
+        }
+    }
+
+    fn from_running_args(args: &RunningArgs) -> Self {
+        Self {
+            sort: args.sort,
+            limit: args.limit,
+        }
+    }
+}
+
 pub(super) fn handle_stop(store: &StateStore, args: &StopArgs) -> Result<(), AppError> {
     batch::handle_stop(store, args)
 }
@@ -142,10 +165,12 @@ pub(super) fn handle_list(store: &StateStore, args: &ListArgs) -> Result<(), App
 fn execute_list_once(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
     let started_at = Instant::now();
     let filters = ListFilters::from_args(args);
+    let order = ListOrderOptions::from_list_args(args);
     let render = list_render_options_from_list_args(args);
     let include_topology = view::should_include_topology(render);
     let collect_started_at = Instant::now();
-    let rows = collect_rows_from_store(store, &filters, None, None, include_topology)?;
+    let mut rows = collect_rows_from_store(store, &filters, None, None, include_topology)?;
+    apply_list_order(&mut rows, order);
     let collect_rows_ms = collect_started_at.elapsed().as_millis();
     let render_started_at = Instant::now();
     view::print_list_rows(&rows, render);
@@ -179,10 +204,12 @@ pub(super) fn handle_running(store: &StateStore, args: &RunningArgs) -> Result<(
 fn execute_running_once(store: &StateStore, args: &RunningArgs) -> Result<(), AppError> {
     let started_at = Instant::now();
     let filters = ListFilters::from_running_args(args);
+    let order = ListOrderOptions::from_running_args(args);
     let render = list_render_options_from_running_args(args);
     let include_topology = view::should_include_topology(render);
     let collect_started_at = Instant::now();
-    let rows = collect_rows_from_store(store, &filters, None, None, include_topology)?;
+    let mut rows = collect_rows_from_store(store, &filters, None, None, include_topology)?;
+    apply_list_order(&mut rows, order);
     let collect_rows_ms = collect_started_at.elapsed().as_millis();
     let render_started_at = Instant::now();
     view::print_list_rows(&rows, render);
@@ -197,13 +224,14 @@ fn execute_running_once(store: &StateStore, args: &RunningArgs) -> Result<(), Ap
 
 pub(super) fn handle_list_global_default(args: &ListArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_args(args);
+    let order = ListOrderOptions::from_list_args(args);
     let render = list_render_options_from_list_args(args);
     if let Some(interval_ms) = args.watch_interval_ms {
         let max_cycles = args.watch_count.unwrap_or(usize::MAX);
         let mut cycle = 0usize;
         loop {
             cycle = cycle.saturating_add(1);
-            handle_list_global_with_filters("list", &filters, render)?;
+            handle_list_global_with_filters("list", &filters, render, order)?;
             if cycle >= max_cycles {
                 break;
             }
@@ -211,18 +239,19 @@ pub(super) fn handle_list_global_default(args: &ListArgs) -> Result<(), AppError
         }
         return Ok(());
     }
-    handle_list_global_with_filters("list", &filters, render)
+    handle_list_global_with_filters("list", &filters, render, order)
 }
 
 pub(super) fn handle_running_global_default(args: &RunningArgs) -> Result<(), AppError> {
     let filters = ListFilters::from_running_args(args);
+    let order = ListOrderOptions::from_running_args(args);
     let render = list_render_options_from_running_args(args);
     if let Some(interval_ms) = args.watch_interval_ms {
         let max_cycles = args.watch_count.unwrap_or(usize::MAX);
         let mut cycle = 0usize;
         loop {
             cycle = cycle.saturating_add(1);
-            handle_list_global_with_filters("running", &filters, render)?;
+            handle_list_global_with_filters("running", &filters, render, order)?;
             if cycle >= max_cycles {
                 break;
             }
@@ -230,13 +259,14 @@ pub(super) fn handle_running_global_default(args: &RunningArgs) -> Result<(), Ap
         }
         return Ok(());
     }
-    handle_list_global_with_filters("running", &filters, render)
+    handle_list_global_with_filters("running", &filters, render, order)
 }
 
 fn handle_list_global_with_filters(
     command_label: &str,
     filters: &ListFilters,
     render: ListRenderOptions,
+    order: ListOrderOptions,
 ) -> Result<(), AppError> {
     let started_at = Instant::now();
     let _ = super::link_ops::auto_prune_stale_links_for_global_scan();
@@ -292,11 +322,7 @@ fn handle_list_global_with_filters(
 
     cache_global_rows_session_routes(&rows);
 
-    rows.sort_by(|left, right| {
-        left.id
-            .cmp(&right.id)
-            .then_with(|| left.link_name.cmp(&right.link_name))
-    });
+    apply_list_order(&mut rows, order);
 
     let render_started_at = Instant::now();
     view::print_list_rows(&rows, render);
@@ -370,6 +396,79 @@ fn list_render_view_from_format(format: ListFormatArg) -> ListRenderView {
         ListFormatArg::Table | ListFormatArg::Wide => ListRenderView::Wide,
         ListFormatArg::Compact => ListRenderView::Compact,
         ListFormatArg::Id => ListRenderView::Id,
+    }
+}
+
+fn apply_list_order(rows: &mut Vec<SessionListRow>, order: ListOrderOptions) {
+    let sort = order.sort.unwrap_or(ListSortArg::Id);
+    match sort {
+        ListSortArg::Id => rows.sort_by(|left, right| {
+            left.id
+                .cmp(&right.id)
+                .then_with(|| left.link_name.cmp(&right.link_name))
+        }),
+        ListSortArg::Name => rows.sort_by(|left, right| {
+            left.name
+                .to_ascii_lowercase()
+                .cmp(&right.name.to_ascii_lowercase())
+                .then_with(|| left.id.cmp(&right.id))
+                .then_with(|| left.link_name.cmp(&right.link_name))
+        }),
+        ListSortArg::Runtime => rows.sort_by(|left, right| {
+            left.runtime
+                .cmp(right.runtime)
+                .then_with(|| {
+                    left.name
+                        .to_ascii_lowercase()
+                        .cmp(&right.name.to_ascii_lowercase())
+                })
+                .then_with(|| left.id.cmp(&right.id))
+                .then_with(|| left.link_name.cmp(&right.link_name))
+        }),
+        ListSortArg::Status => rows.sort_by(|left, right| {
+            status_sort_rank(left.status)
+                .cmp(&status_sort_rank(right.status))
+                .then_with(|| {
+                    left.name
+                        .to_ascii_lowercase()
+                        .cmp(&right.name.to_ascii_lowercase())
+                })
+                .then_with(|| left.id.cmp(&right.id))
+                .then_with(|| left.link_name.cmp(&right.link_name))
+        }),
+        ListSortArg::Updated => rows.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.id.cmp(&right.id))
+                .then_with(|| left.link_name.cmp(&right.link_name))
+        }),
+        ListSortArg::Restarts => rows.sort_by(|left, right| {
+            right
+                .restart_count
+                .cmp(&left.restart_count)
+                .then_with(|| {
+                    left.name
+                        .to_ascii_lowercase()
+                        .cmp(&right.name.to_ascii_lowercase())
+                })
+                .then_with(|| left.id.cmp(&right.id))
+                .then_with(|| left.link_name.cmp(&right.link_name))
+        }),
+    }
+
+    if let Some(limit) = order.limit {
+        rows.truncate(limit);
+    }
+}
+
+fn status_sort_rank(status: &str) -> u8 {
+    match status {
+        "running" => 0,
+        "suspended" => 1,
+        "stopped" => 2,
+        "unknown" => 3,
+        _ => u8::MAX,
     }
 }
 

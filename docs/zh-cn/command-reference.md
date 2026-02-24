@@ -92,7 +92,9 @@ Go 调试模式说明：
 ### 会话列表命令
 
 - `lcode list`
+- `lcode list --sort updated --limit 20`
 - `lcode running`
+- `lcode running --sort name --limit 10`
 - `lcode ps`
 
 显示控制：
@@ -100,7 +102,20 @@ Go 调试模式说明：
 - `--format <table|compact|wide|id>`
 - `--compact` / `--wide`
 - `--short-id-len` `--no-trunc` `--no-headers` `-q`
+- 排序/限制：`--sort <id|name|runtime|status|updated|restarts>` `--limit <N>`
 - 监控模式：`--watch [INTERVAL] --watch-count <N>`
+
+### 日志命令
+
+- `lcode logs --id <session_id> --tail 200 --follow`
+- `lcode logs --id <session_id> --tail 200 --since 10m --until 1m`
+- `lcode logs --id <session_id> --tail 200 --timestamps`
+
+日志过滤补充：
+
+- 时间窗口：`--since` `--until` 支持 Unix 秒级时间戳或回溯时长（如 `30s` `5m` `2h` `1d`）。
+- 时间窗口只对带时间戳前缀的日志行生效（例如以 `1700000000 ...` 或 `[1700000000] ...` 开头）。
+- `--timestamps` 会为输出行附加当前 Unix 秒级时间戳前缀。
 
 ### 配置与元数据命令
 
@@ -124,6 +139,7 @@ Go 调试模式说明：
 - `lcode doctor runtime --runtime node --strict --json`
 - `lcode doctor runtime --runtime go --json`
 - `lcode doctor debug --id <session_id> --json`
+- `lcode doctor all --runtime node --strict --json`
 
 ### dap
 

@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use launch_code::model::SessionRecord;
 use launch_code::state::StateStore;
 use serde_json::json;
 
@@ -19,6 +20,44 @@ pub(super) fn handle_doctor_debug(
     store: &StateStore,
     args: &DoctorDebugArgs,
 ) -> Result<(), AppError> {
+    let doc = collect_doctor_debug_report(store, args)?;
+    if output::is_json_mode() {
+        output::print_json_doc(&doc);
+        return Ok(());
+    }
+
+    let session = serde_json::from_value::<SessionRecord>(
+        doc.get("session").cloned().unwrap_or_else(|| json!({})),
+    )?;
+    let adapter = doc
+        .get("debug")
+        .and_then(|value| value.get("adapter"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let threads = doc
+        .get("debug")
+        .and_then(|value| value.get("threads"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let events = doc
+        .get("debug")
+        .and_then(|value| value.get("events"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let diagnostics = doc
+        .get("diagnostics")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    print_text_summary(&session, &adapter, &threads, &events, &diagnostics);
+    Ok(())
+}
+
+pub(super) fn collect_doctor_debug_report(
+    store: &StateStore,
+    args: &DoctorDebugArgs,
+) -> Result<serde_json::Value, AppError> {
     let session = super::api_get_session(store, &args.id)?;
     let inspect = super::api_inspect_session(store, &args.id, args.tail)?;
     let adapter = collect_adapter_probe(&session);
@@ -70,14 +109,7 @@ pub(super) fn handle_doctor_debug(
         },
         "diagnostics": diagnostics
     });
-
-    if output::is_json_mode() {
-        output::print_json_doc(&doc);
-        return Ok(());
-    }
-
-    print_text_summary(&session, &adapter, &threads, &events, &diagnostics);
-    Ok(())
+    Ok(doc)
 }
 
 fn clamp_timeout(timeout_ms: u64) -> Duration {

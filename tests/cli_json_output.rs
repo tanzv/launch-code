@@ -229,6 +229,31 @@ fn json_logs_accepts_positional_session_id() {
 }
 
 #[test]
+fn json_logs_rejects_invalid_time_window_with_stable_error_code() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("logs")
+        .arg("missing-session")
+        .arg("--since")
+        .arg("bad-time-window")
+        .output()
+        .expect("logs should run");
+
+    assert!(
+        !output.status.success(),
+        "invalid logs time window should fail cleanly"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["error"], "invalid_log_time_window");
+}
+
+#[test]
 fn json_status_resolves_unique_session_id_prefix() {
     let tmp = tempdir().expect("temp dir should exist");
     let full_id = "a1234567890abcdef1234567890abc1";

@@ -434,6 +434,68 @@ fn cli_doctor_runtime_reports_matrix_in_json() {
 }
 
 #[test]
+fn cli_doctor_all_reports_runtime_summary_in_json() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("doctor")
+        .arg("all")
+        .output()
+        .expect("doctor all should run");
+
+    assert!(output.status.success(), "doctor all should succeed");
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["strict"], false);
+    let checks = doc["runtime"]["checks"]
+        .as_array()
+        .expect("runtime checks should be an array");
+    assert_eq!(
+        checks.len(),
+        4,
+        "doctor all should include 4 runtime checks"
+    );
+    assert_eq!(doc["runtime"]["summary"]["runtime_count"], 4);
+    assert_eq!(doc["debug"], Value::Null);
+}
+
+#[test]
+fn cli_doctor_all_strict_exits_non_zero_when_runtime_is_not_ready() {
+    let tmp = tempdir().expect("temp dir should exist");
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .env_remove("LCODE_NODE_DAP_ADAPTER_CMD")
+        .env("LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY", "1")
+        .arg("--json")
+        .arg("doctor")
+        .arg("all")
+        .arg("--runtime")
+        .arg("node")
+        .arg("--strict")
+        .output()
+        .expect("doctor all strict should run");
+
+    assert!(
+        !output.status.success(),
+        "doctor all strict should fail when runtime is not ready"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["strict"], true);
+    assert_eq!(doc["runtime"]["checks"][0]["runtime"], "node");
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    let err_doc: Value = serde_json::from_str(&stderr).expect("stderr json");
+    assert_eq!(err_doc["ok"], false);
+    assert_eq!(err_doc["error"], "runtime_readiness_failed");
+}
+
+#[test]
 fn cli_doctor_runtime_supports_runtime_filter() {
     let tmp = tempdir().expect("temp dir should exist");
     let mut cmd = cargo_bin_cmd!("launch-code");

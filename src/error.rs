@@ -44,6 +44,8 @@ pub enum AppError {
     InvalidEnvFileLine(String),
     #[error("invalid log regex: {0}")]
     InvalidLogRegex(String),
+    #[error("invalid log time window: {0}")]
+    InvalidLogTimeWindow(String),
     #[error("python debug requires debugpy; install with `python -m pip install debugpy`")]
     PythonDebugpyUnavailable,
     #[error(
@@ -93,6 +95,7 @@ impl AppError {
             Self::InvalidEnvPair(_) => "invalid_env_pair",
             Self::InvalidEnvFileLine(_) => "invalid_env_file_line",
             Self::InvalidLogRegex(_) => "invalid_log_regex",
+            Self::InvalidLogTimeWindow(_) => "invalid_log_time_window",
             Self::PythonDebugpyUnavailable => "python_debugpy_unavailable",
             Self::GoDlvUnavailable => "go_dlv_unavailable",
             Self::UnsupportedDebugRuntime(_) => "unsupported_debug_runtime",
@@ -112,6 +115,7 @@ impl AppError {
             Self::InvalidEnvPair(_)
             | Self::InvalidEnvFileLine(_)
             | Self::InvalidLogRegex(_)
+            | Self::InvalidLogTimeWindow(_)
             | Self::ProfileBundleVersionUnsupported(_)
             | Self::ProfileValidationFailed(_)
             | Self::UnsupportedDebugRuntime(_)

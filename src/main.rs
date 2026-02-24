@@ -243,5 +243,6 @@ fn doctor_command_session_id(command: &DoctorCommands) -> Option<&str> {
     match command {
         DoctorCommands::Debug(args) => Some(&args.id),
         DoctorCommands::Runtime(_) => None,
+        DoctorCommands::All(args) => args.id.as_deref(),
     }
 }

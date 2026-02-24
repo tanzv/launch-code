@@ -26,6 +26,12 @@ pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), App
         args.exclude_regex.clone(),
         args.ignore_case,
     )?;
+    let time_window = LogTimeWindow::new(args.since.as_deref(), args.until.as_deref())?;
+    let render_options = LogRenderOptions {
+        filter: &filter,
+        time_window: &time_window,
+        timestamps: args.timestamps,
+    };
     let session_id = super::session_api::resolve_session_id(store, session_id)?;
     let (log_path, pid) = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
@@ -38,8 +44,10 @@ pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), App
         Ok((log_path, session.pid))
     })?;
 
-    let mut content = read_log_tail(Some(&log_path), args.tail).unwrap_or_default();
-    content = filter.filter_block(&content);
+    let content = render_log_block(
+        &read_log_tail(Some(&log_path), args.tail).unwrap_or_default(),
+        render_options,
+    );
     if !content.is_empty() {
         output::print_text_block(&format!("{content}\n"));
     }
@@ -54,7 +62,7 @@ pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), App
         Path::new(&log_path),
         pid,
         Duration::from_millis(args.poll_ms.max(10)),
-        &filter,
+        render_options,
     )?;
     Ok(())
 }
@@ -220,17 +228,175 @@ impl LogFilter {
         true
     }
 
-    fn filter_block(&self, block: &str) -> String {
-        if !self.is_enabled() {
-            return block.to_string();
+    fn allows_line(&self, line: &str) -> bool {
+        !self.is_enabled() || self.matches_line(line)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LogTimeWindow {
+    since: Option<u64>,
+    until: Option<u64>,
+}
+
+impl LogTimeWindow {
+    fn new(since: Option<&str>, until: Option<&str>) -> Result<Self, AppError> {
+        let now = unix_timestamp_secs();
+        let since = match since {
+            Some(value) => Some(parse_time_bound(value, now)?),
+            None => None,
+        };
+        let until = match until {
+            Some(value) => Some(parse_time_bound(value, now)?),
+            None => None,
+        };
+
+        if let (Some(since), Some(until)) = (since, until) {
+            if since > until {
+                return Err(AppError::InvalidLogTimeWindow(
+                    "--since must be less than or equal to --until".to_string(),
+                ));
+            }
         }
 
-        block
-            .lines()
-            .filter(|line| self.matches_line(line))
-            .collect::<Vec<&str>>()
-            .join("\n")
+        Ok(Self { since, until })
     }
+
+    fn is_enabled(&self) -> bool {
+        self.since.is_some() || self.until.is_some()
+    }
+
+    fn matches_line(&self, line: &str) -> bool {
+        if !self.is_enabled() {
+            return true;
+        }
+        let Some(timestamp) = extract_line_timestamp_secs(line) else {
+            return true;
+        };
+
+        if let Some(since) = self.since {
+            if timestamp < since {
+                return false;
+            }
+        }
+        if let Some(until) = self.until {
+            if timestamp > until {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+fn parse_time_bound(value: &str, now: u64) -> Result<u64, AppError> {
+    let raw = value.trim();
+    if raw.is_empty() {
+        return Err(AppError::InvalidLogTimeWindow(
+            "time bound must not be empty".to_string(),
+        ));
+    }
+
+    if raw.chars().all(|ch| ch.is_ascii_digit()) {
+        return raw.parse::<u64>().map_err(|_| {
+            AppError::InvalidLogTimeWindow(
+                "time bound must be unix timestamp seconds or lookback duration".to_string(),
+            )
+        });
+    }
+
+    let amount = parse_lookback_duration_secs(raw)?;
+    Ok(now.saturating_sub(amount))
+}
+
+fn parse_lookback_duration_secs(value: &str) -> Result<u64, AppError> {
+    let raw = value.trim();
+    let split_index = raw
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(raw.len());
+    if split_index == 0 {
+        return Err(AppError::InvalidLogTimeWindow(
+            "duration must start with a positive integer".to_string(),
+        ));
+    }
+
+    let amount = raw[..split_index].parse::<u64>().map_err(|_| {
+        AppError::InvalidLogTimeWindow("duration must start with a positive integer".to_string())
+    })?;
+    if amount == 0 {
+        return Err(AppError::InvalidLogTimeWindow(
+            "duration must be greater than 0".to_string(),
+        ));
+    }
+
+    let unit = raw[split_index..].trim().to_ascii_lowercase();
+    let multiplier = match unit.as_str() {
+        "s" => 1u64,
+        "m" => 60u64,
+        "h" => 60u64 * 60u64,
+        "d" => 60u64 * 60u64 * 24u64,
+        _ => {
+            return Err(AppError::InvalidLogTimeWindow(
+                "duration unit must be one of: s, m, h, d".to_string(),
+            ));
+        }
+    };
+
+    amount
+        .checked_mul(multiplier)
+        .ok_or_else(|| AppError::InvalidLogTimeWindow("duration value is too large".to_string()))
+}
+
+fn extract_line_timestamp_secs(line: &str) -> Option<u64> {
+    let trimmed = line.trim_start();
+    let token = trimmed.split_whitespace().next()?;
+    let token = token.trim_matches(['[', ']']);
+    if token.is_empty() || !token.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    let timestamp = token.parse::<u64>().ok()?;
+    if token.len() == 13 {
+        return Some(timestamp / 1000);
+    }
+    Some(timestamp)
+}
+
+#[derive(Clone, Copy)]
+struct LogRenderOptions<'a> {
+    filter: &'a LogFilter,
+    time_window: &'a LogTimeWindow,
+    timestamps: bool,
+}
+
+impl LogRenderOptions<'_> {
+    fn process_lines(self) -> bool {
+        self.filter.is_enabled() || self.time_window.is_enabled() || self.timestamps
+    }
+}
+
+fn render_log_block(block: &str, options: LogRenderOptions<'_>) -> String {
+    render_log_lines(block.lines(), options)
+}
+
+fn render_log_lines<'a>(
+    lines: impl IntoIterator<Item = &'a str>,
+    options: LogRenderOptions<'_>,
+) -> String {
+    lines
+        .into_iter()
+        .filter(|line| !line.is_empty())
+        .filter(|line| options.filter.allows_line(line))
+        .filter(|line| options.time_window.matches_line(line))
+        .map(|line| format_log_line(line, options.timestamps))
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+fn format_log_line(line: &str, timestamps: bool) -> String {
+    if !timestamps {
+        return line.to_string();
+    }
+    format!("[{}] {line}", unix_timestamp_secs())
 }
 
 fn follow_log_until_exit(
@@ -239,11 +405,12 @@ fn follow_log_until_exit(
     log_path: &Path,
     initial_pid: Option<u32>,
     poll_interval: Duration,
-    filter: &LogFilter,
+    options: LogRenderOptions<'_>,
 ) -> Result<(), AppError> {
     let mut offset = fs::metadata(log_path).map(|meta| meta.len()).unwrap_or(0);
     let mut idle_after_exit = false;
     let mut partial_line = String::new();
+    let process_lines = options.process_lines();
 
     loop {
         if let Ok(mut file) = fs::File::open(log_path) {
@@ -253,7 +420,7 @@ fn follow_log_until_exit(
             if !buf.is_empty() {
                 offset += u64::try_from(buf.len()).unwrap_or(0);
                 let text = String::from_utf8_lossy(&buf).to_string();
-                if filter.is_enabled() {
+                if process_lines {
                     partial_line.push_str(&text);
                     let ends_with_newline = partial_line.ends_with('\n');
                     let mut chunks: Vec<&str> = partial_line.split('\n').collect();
@@ -262,11 +429,7 @@ fn follow_log_until_exit(
                     } else {
                         chunks.pop().unwrap_or_default().to_string()
                     };
-                    let filtered = chunks
-                        .into_iter()
-                        .filter(|line| !line.is_empty() && filter.matches_line(line))
-                        .collect::<Vec<&str>>()
-                        .join("\n");
+                    let filtered = render_log_lines(chunks, options);
                     if !filtered.is_empty() {
                         output::print_text_block(&format!("{filtered}\n"));
                     }
@@ -298,8 +461,15 @@ fn follow_log_until_exit(
         thread::sleep(poll_interval);
     }
 
-    if filter.is_enabled() && !partial_line.is_empty() && filter.matches_line(&partial_line) {
-        output::print_text_block(&format!("{partial_line}\n"));
+    if process_lines
+        && !partial_line.is_empty()
+        && options.filter.allows_line(&partial_line)
+        && options.time_window.matches_line(&partial_line)
+    {
+        output::print_text_block(&format!(
+            "{}\n",
+            format_log_line(&partial_line, options.timestamps)
+        ));
     }
 
     Ok(())

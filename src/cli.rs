@@ -20,7 +20,9 @@ pub use dap_args::{
     DapStackTraceArgs, DapStepArgs, DapTerminateArgs, DapThreadsArgs, DapVariablesArgs,
     DapVariablesFilterArg,
 };
-pub use doctor_args::{DoctorArgs, DoctorCommands, DoctorDebugArgs, DoctorRuntimeArgs};
+pub use doctor_args::{
+    DoctorAllArgs, DoctorArgs, DoctorCommands, DoctorDebugArgs, DoctorRuntimeArgs,
+};
 pub use lifecycle_args::{
     BatchFilterArgs, BatchSortArg, RestartArgs, ResumeArgs, StopArgs, SuspendArgs,
 };
@@ -325,6 +327,19 @@ pub struct ListArgs {
         help = "Stop watch mode after N refresh cycles."
     )]
     pub watch_count: Option<usize>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Sort listed sessions by id, name, runtime, status, update time, or restart count."
+    )]
+    pub sort: Option<ListSortArg>,
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = parse_positive_usize,
+        help = "Limit listed rows after filters and sort are applied."
+    )]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -391,6 +406,19 @@ pub struct RunningArgs {
         help = "Stop watch mode after N refresh cycles."
     )]
     pub watch_count: Option<usize>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Sort running sessions by id, name, runtime, status, update time, or restart count."
+    )]
+    pub sort: Option<ListSortArg>,
+    #[arg(
+        long,
+        value_name = "N",
+        value_parser = parse_positive_usize,
+        help = "Limit listed rows after filters and sort are applied."
+    )]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -431,6 +459,16 @@ pub enum ListFormatArg {
     #[value(alias = "debug")]
     Wide,
     Id,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ListSortArg {
+    Id,
+    Name,
+    Runtime,
+    Status,
+    Updated,
+    Restarts,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -488,6 +526,24 @@ pub struct LogsArgs {
         help = "Case-insensitive matching for --contains/--exclude/--regex/--exclude-regex."
     )]
     pub ignore_case: bool,
+    #[arg(
+        long,
+        value_name = "TIME",
+        help = "Lower time bound for timestamped log lines (unix seconds or lookback duration such as 30s, 5m, 2h, 1d)."
+    )]
+    pub since: Option<String>,
+    #[arg(
+        long,
+        value_name = "TIME",
+        help = "Upper time bound for timestamped log lines (unix seconds or lookback duration such as 30s, 5m, 2h, 1d)."
+    )]
+    pub until: Option<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Prefix emitted log lines with current unix timestamp seconds."
+    )]
+    pub timestamps: bool,
 }
 
 #[derive(Debug, Clone, Args)]

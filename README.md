@@ -161,10 +161,13 @@ Discovery and inspection:
 
 ```bash
 lcode list
+lcode list --sort updated --limit 20
 lcode running
+lcode running --sort name --limit 10
 lcode status --id <id>
 lcode inspect --id <id>
 lcode logs --id <id> --follow
+lcode logs --id <id> --tail 200 --since 10m --until 1m --timestamps
 ```
 
 Debug and diagnostics:
@@ -174,6 +177,7 @@ lcode attach --id <id>
 lcode dap ...
 lcode doctor runtime
 lcode doctor debug --id <id>
+lcode doctor all --runtime node --strict --json
 ```
 
 Project and profile management:
@@ -191,7 +195,9 @@ lcode config run --name <profile>
 
 - JSON mode: `--json`
 - Session list formats: `--format table|compact|wide|id`
+- Session list ordering/paging: `--sort id|name|runtime|status|updated|restarts --limit <N>`
 - Watch mode: `--watch [INTERVAL] --watch-count <N>`
+- Log time window and timestamp prefix: `logs --since <TIME> --until <TIME> --timestamps`
 - Timing diagnostics: `--trace-time`
 
 ## Documentation

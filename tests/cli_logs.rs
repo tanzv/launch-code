@@ -1,6 +1,7 @@
 use std::fs;
 use std::thread;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use tempfile::tempdir;
@@ -560,4 +561,154 @@ fn logs_follow_can_exclude_with_regex() {
         !stdout.contains("DEBUG warmup"),
         "follow exclude regex should remove matching line"
     );
+}
+
+#[test]
+fn logs_supports_since_and_until_time_window_for_timestamped_lines() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("time_window.py");
+    fs::write(
+        &script_path,
+        "import time\nnow=int(time.time())\nprint(f'{now-20} old-line', flush=True)\nprint(f'{now} keep-line', flush=True)\nprint(f'{now+20} future-line', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("log-time-window")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let session_id = parse_session_id(&String::from_utf8(start_output.stdout).unwrap())
+        .expect("session id should exist");
+
+    thread::sleep(Duration::from_millis(300));
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_secs();
+    let since = now.saturating_sub(5);
+    let until = now.saturating_add(5);
+
+    let mut logs_cmd = cargo_bin_cmd!("launch-code");
+    let logs_output = logs_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("logs")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--tail")
+        .arg("20")
+        .arg("--since")
+        .arg(since.to_string())
+        .arg("--until")
+        .arg(until.to_string())
+        .output()
+        .expect("logs should run");
+    assert!(logs_output.status.success(), "logs should succeed");
+    let stdout = String::from_utf8(logs_output.stdout).expect("logs stdout utf8");
+    assert!(
+        stdout.contains("keep-line"),
+        "time window should include in-range line"
+    );
+    assert!(
+        !stdout.contains("old-line"),
+        "time window should exclude line older than --since"
+    );
+    assert!(
+        !stdout.contains("future-line"),
+        "time window should exclude line newer than --until"
+    );
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(stop_output.status.success(), "stop should succeed");
+}
+
+#[test]
+fn logs_can_prefix_output_with_timestamps() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("timestamps.py");
+    fs::write(
+        &script_path,
+        "import time\nprint('stamp-line', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("log-timestamps")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let session_id = parse_session_id(&String::from_utf8(start_output.stdout).unwrap())
+        .expect("session id should exist");
+
+    thread::sleep(Duration::from_millis(300));
+
+    let mut logs_cmd = cargo_bin_cmd!("launch-code");
+    let logs_output = logs_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("logs")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--tail")
+        .arg("5")
+        .arg("--timestamps")
+        .output()
+        .expect("logs should run");
+    assert!(logs_output.status.success(), "logs should succeed");
+    let stdout = String::from_utf8(logs_output.stdout).expect("logs stdout utf8");
+    let line = stdout
+        .lines()
+        .find(|item| item.contains("stamp-line"))
+        .expect("output should include stamp-line");
+    assert!(
+        line.starts_with('[') && line.contains("] stamp-line"),
+        "timestamps mode should prefix lines with unix timestamp brackets"
+    );
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(stop_output.status.success(), "stop should succeed");
 }

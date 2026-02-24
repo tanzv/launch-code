@@ -11,20 +11,20 @@ use crate::output;
 const NODE_DAP_ADAPTER_CMD_ENV: &str = "LCODE_NODE_DAP_ADAPTER_CMD";
 const NODE_DAP_DISABLE_AUTO_DISCOVERY_ENV: &str = "LCODE_NODE_DAP_DISABLE_AUTO_DISCOVERY";
 
-pub(super) fn handle_doctor_runtime(args: &DoctorRuntimeArgs) -> Result<(), AppError> {
-    let runtimes = selected_runtime_kinds(args.runtime.as_ref());
-    let mut checks = Vec::with_capacity(runtimes.len());
-    for runtime in runtimes {
-        checks.push(collect_runtime_probe(runtime));
-    }
+#[derive(Debug, Clone)]
+pub(super) struct RuntimeDoctorReport {
+    pub checks: Vec<serde_json::Value>,
+    pub summary: serde_json::Value,
+    pub strict_not_ready: Vec<String>,
+}
 
-    let strict_not_ready = strict_not_ready_runtimes(&checks);
-    let summary = build_runtime_summary(&checks, &strict_not_ready);
+pub(super) fn handle_doctor_runtime(args: &DoctorRuntimeArgs) -> Result<(), AppError> {
+    let report = collect_runtime_report(args.runtime.as_ref());
     let doc = json!({
         "ok": true,
         "strict": args.strict,
-        "checks": checks,
-        "summary": summary
+        "checks": report.checks,
+        "summary": report.summary
     });
 
     if output::is_json_mode() {
@@ -33,14 +33,29 @@ pub(super) fn handle_doctor_runtime(args: &DoctorRuntimeArgs) -> Result<(), AppE
         print_runtime_summary_text(&doc);
     }
 
-    if args.strict && !strict_not_ready.is_empty() {
+    if args.strict && !report.strict_not_ready.is_empty() {
         return Err(AppError::RuntimeReadinessFailed(format!(
             "strict runtime readiness failed for: {}",
-            strict_not_ready.join(",")
+            report.strict_not_ready.join(",")
         )));
     }
 
     Ok(())
+}
+
+pub(super) fn collect_runtime_report(filter: Option<&RuntimeArg>) -> RuntimeDoctorReport {
+    let runtimes = selected_runtime_kinds(filter);
+    let mut checks = Vec::with_capacity(runtimes.len());
+    for runtime in runtimes {
+        checks.push(collect_runtime_probe(runtime));
+    }
+    let strict_not_ready = strict_not_ready_runtimes(&checks);
+    let summary = build_runtime_summary(&checks, &strict_not_ready);
+    RuntimeDoctorReport {
+        checks,
+        summary,
+        strict_not_ready,
+    }
 }
 
 fn selected_runtime_kinds(filter: Option<&RuntimeArg>) -> Vec<RuntimeKind> {
@@ -298,7 +313,7 @@ fn build_runtime_summary(
     })
 }
 
-fn print_runtime_summary_text(doc: &serde_json::Value) {
+pub(super) fn print_runtime_summary_text(doc: &serde_json::Value) {
     let checks = doc
         .get("checks")
         .and_then(|value| value.as_array())

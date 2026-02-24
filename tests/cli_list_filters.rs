@@ -911,3 +911,100 @@ fn list_shows_debug_endpoint_for_debug_sessions() {
         .expect("stop should run");
     assert!(stop_output.status.success(), "stop should succeed");
 }
+
+#[test]
+fn list_and_running_support_sort_and_limit_in_json_output() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("run.py");
+    fs::write(&script_path, "import time\ntime.sleep(30)\n").expect("script should be written");
+
+    let mut session_ids = Vec::new();
+    for name in ["zeta-session", "alpha-session", "mid-session"] {
+        let mut start_cmd = cargo_bin_cmd!("launch-code");
+        let start_output = start_cmd
+            .env("LAUNCH_CODE_HOME", tmp.path())
+            .arg("start")
+            .arg("--name")
+            .arg(name)
+            .arg("--runtime")
+            .arg("python")
+            .arg("--entry")
+            .arg(script_path.to_string_lossy().to_string())
+            .arg("--cwd")
+            .arg(tmp.path().to_string_lossy().to_string())
+            .output()
+            .expect("start should run");
+        assert!(start_output.status.success(), "start should succeed");
+        let session_id =
+            parse_session_id(&String::from_utf8(start_output.stdout).expect("stdout utf8"))
+                .expect("session id should exist");
+        session_ids.push(session_id);
+    }
+
+    let mut list_json_cmd = cargo_bin_cmd!("launch-code");
+    let list_json_output = list_json_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("list")
+        .arg("--status")
+        .arg("running")
+        .arg("--sort")
+        .arg("name")
+        .arg("--limit")
+        .arg("2")
+        .output()
+        .expect("json list should run");
+    assert!(
+        list_json_output.status.success(),
+        "json list should succeed"
+    );
+    let list_doc: Value = serde_json::from_slice(&list_json_output.stdout).expect("stdout json");
+    let list_items = list_doc["items"].as_array().expect("items should be array");
+    assert_eq!(list_items.len(), 2, "list --limit should cap result count");
+    assert_eq!(list_items[0]["name"], "alpha-session");
+    assert_eq!(list_items[1]["name"], "mid-session");
+
+    let mut running_json_cmd = cargo_bin_cmd!("launch-code");
+    let running_json_output = running_json_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("running")
+        .arg("--sort")
+        .arg("name")
+        .arg("--limit")
+        .arg("1")
+        .output()
+        .expect("json running should run");
+    assert!(
+        running_json_output.status.success(),
+        "json running should succeed"
+    );
+    let running_doc: Value =
+        serde_json::from_slice(&running_json_output.stdout).expect("stdout json");
+    let running_items = running_doc["items"]
+        .as_array()
+        .expect("items should be array");
+    assert_eq!(
+        running_items.len(),
+        1,
+        "running --limit should cap result count"
+    );
+    assert_eq!(running_items[0]["name"], "alpha-session");
+
+    for session_id in session_ids {
+        let mut stop_cmd = cargo_bin_cmd!("launch-code");
+        let stop_output = stop_cmd
+            .env("LAUNCH_CODE_HOME", tmp.path())
+            .arg("stop")
+            .arg("--id")
+            .arg(session_id)
+            .arg("--force")
+            .output()
+            .expect("stop should run");
+        assert!(stop_output.status.success(), "stop should succeed");
+    }
+}
