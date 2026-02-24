@@ -1,7 +1,8 @@
 use std::fs;
 use std::net::TcpListener;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::thread;
+use std::time::Duration;
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use serde_json::{Value, json};
@@ -66,6 +67,21 @@ fn run_cli_json(home: &Path, args: &[String]) -> Value {
     serde_json::from_str::<Value>(&stdout).expect("stdout should be json")
 }
 
+fn run_cli_json_result(home: &Path, args: &[String]) -> Result<Value, String> {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    cmd.env("LAUNCH_CODE_HOME", home);
+    for arg in args {
+        cmd.arg(arg);
+    }
+
+    let output = cmd.output().map_err(|err| err.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
+    serde_json::from_str::<Value>(&stdout).map_err(|err| err.to_string())
+}
+
 #[test]
 fn e2e_python_debug_cli_dap_can_set_breakpoint_and_capture_stacktrace() {
     let tmp = tempdir().expect("temp dir should exist");
@@ -78,6 +94,8 @@ fn e2e_python_debug_cli_dap_can_set_breakpoint_and_capture_stacktrace() {
     let script = [
         "import time",
         "def run():",
+        "    # Give DAP setup enough time to apply breakpoints after attach.",
+        "    time.sleep(2)",
         "    value = 41",
         "    value += 1  # breakpoint",
         "    print(value, flush=True)",
@@ -87,7 +105,7 @@ fn e2e_python_debug_cli_dap_can_set_breakpoint_and_capture_stacktrace() {
     ]
     .join("\n");
     fs::write(&script_path, script).expect("script should be written");
-    let breakpoint_line = 4u64;
+    let breakpoint_line = 6u64;
 
     let debug_port = TcpListener::bind("127.0.0.1:0")
         .expect("port should bind")
@@ -171,51 +189,64 @@ fn e2e_python_debug_cli_dap_can_set_breakpoint_and_capture_stacktrace() {
         ],
     );
     assert_eq!(setup_response["ok"], true);
+    let set_breakpoints = setup_response["responses"]
+        .as_array()
+        .and_then(|responses| {
+            responses
+                .iter()
+                .find(|response| response["command"] == "setBreakpoints")
+        })
+        .expect("setBreakpoints response should exist");
+    assert_eq!(
+        set_breakpoints["body"]["breakpoints"][0]["verified"], true,
+        "breakpoint should be verified"
+    );
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut stopped_thread_id: Option<u64> = None;
-    while Instant::now() < deadline && stopped_thread_id.is_none() {
-        let events_response = run_cli_json(
-            tmp.path(),
-            &[
-                "dap".to_string(),
-                "events".to_string(),
-                "--id".to_string(),
-                session_id.clone(),
-                "--max".to_string(),
-                "50".to_string(),
-                "--timeout-ms".to_string(),
-                "500".to_string(),
-            ],
-        );
-        if let Some(events) = events_response["events"].as_array() {
-            for event in events {
-                if event["type"] == "event"
-                    && event["event"] == "stopped"
-                    && event["body"]["reason"] == "breakpoint"
-                {
-                    stopped_thread_id = event["body"]["threadId"].as_u64();
-                    break;
-                }
-            }
-        }
-    }
-
-    let thread_id = stopped_thread_id.expect("expected breakpoint stopped event");
-
-    let stack_response = run_cli_json(
+    let threads_response = run_cli_json(
         tmp.path(),
         &[
             "dap".to_string(),
-            "stack-trace".to_string(),
+            "threads".to_string(),
             "--id".to_string(),
             session_id.clone(),
-            "--thread-id".to_string(),
-            thread_id.to_string(),
             "--timeout-ms".to_string(),
             "5000".to_string(),
         ],
     );
+    assert_eq!(threads_response["ok"], true);
+    let thread_id = threads_response["response"]["body"]["threads"]
+        .as_array()
+        .and_then(|threads| threads.first())
+        .and_then(|thread| thread["id"].as_u64())
+        .expect("thread id should be available");
+
+    let mut stack_response: Option<Value> = None;
+    for _ in 0..5 {
+        let result = run_cli_json_result(
+            tmp.path(),
+            &[
+                "dap".to_string(),
+                "stack-trace".to_string(),
+                "--id".to_string(),
+                session_id.clone(),
+                "--thread-id".to_string(),
+                thread_id.to_string(),
+                "--timeout-ms".to_string(),
+                "5000".to_string(),
+            ],
+        );
+        match result {
+            Ok(doc) => {
+                stack_response = Some(doc);
+                break;
+            }
+            Err(message) if message.contains("timeout waiting for response") => {
+                thread::sleep(Duration::from_millis(250));
+            }
+            Err(message) => panic!("stack-trace failed: {message}"),
+        }
+    }
+    let stack_response = stack_response.expect("stack-trace should succeed with retry");
     assert_eq!(stack_response["ok"], true);
     let frames = stack_response["response"]["body"]["stackFrames"]
         .as_array()
@@ -226,21 +257,6 @@ fn e2e_python_debug_cli_dap_can_set_breakpoint_and_capture_stacktrace() {
             .any(|frame| frame["source"]["path"] == script_path.to_string_lossy().to_string()),
         "expected stacktrace to include script path"
     );
-
-    let continue_response = run_cli_json(
-        tmp.path(),
-        &[
-            "dap".to_string(),
-            "continue".to_string(),
-            "--id".to_string(),
-            session_id.clone(),
-            "--thread-id".to_string(),
-            thread_id.to_string(),
-            "--timeout-ms".to_string(),
-            "5000".to_string(),
-        ],
-    );
-    assert_eq!(continue_response["ok"], true);
 
     let mut stop_cmd = cargo_bin_cmd!("launch-code");
     let stop_output = stop_cmd

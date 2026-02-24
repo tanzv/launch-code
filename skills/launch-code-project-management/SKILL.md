@@ -34,6 +34,8 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Preferred command: `lcode`
 - Compatibility command: `launch-code`
 - Install locally with `cargo install --path . --force` (both commands are installed).
+- One-click install is available via `bash ./scripts/install.sh`.
+- `./scripts/install.sh` bootstraps Rust if missing, installs CLI binaries, and can set up debug dependencies.
 - Global link metadata is stored at `$HOME/.launch-code/links.json`.
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
 - `lcode list` defaults to global aggregation across all registered links.
@@ -69,10 +71,20 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 # Install or upgrade both commands from current repository
 cargo install --path . --force
 
+# One-click install (bootstraps Rust when missing, installs CLI, best-effort debug deps)
+bash ./scripts/install.sh
+
+# CLI-only install
+bash ./scripts/install.sh --no-debug-deps
+
+# Strict dependency gate
+bash ./scripts/install.sh --strict-debug-deps
+
 # Verify binaries
 which lcode
 which launch-code
 lcode --help
+lcode doctor runtime --json
 ```
 
 ## Core Workflows

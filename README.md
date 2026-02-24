@@ -44,6 +44,59 @@ Install to local cargo bin path:
 cargo install --path . --force
 ```
 
+One-click installer (auto-installs Rust toolchain if missing and installs `lcode`):
+
+```bash
+bash ./scripts/install.sh
+```
+
+Installer options:
+
+```bash
+bash ./scripts/install.sh --no-debug-deps
+bash ./scripts/install.sh --strict-debug-deps
+```
+
+### Install Quick Start
+
+Install CLI and best-effort debug dependencies:
+
+```bash
+bash ./scripts/install.sh
+```
+
+Install CLI only (skip debug dependency setup):
+
+```bash
+bash ./scripts/install.sh --no-debug-deps
+```
+
+Fail installation when debug dependencies cannot be prepared:
+
+```bash
+bash ./scripts/install.sh --strict-debug-deps
+```
+
+Verify installation:
+
+```bash
+lcode --version
+launch-code --version
+lcode doctor runtime --json
+```
+
+If `lcode` is not found in `PATH`, add Cargo bin path in your shell profile:
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+Notes:
+
+- The installer configures Python debug dependency (`debugpy`) via `pip`.
+- For Node debug adapter, if npm registry/mirror cannot provide required packages, installation still succeeds and prints fallback instructions for `LCODE_NODE_DAP_ADAPTER_CMD`.
+- Rust debug runtime is currently not supported; Rust is run-ready only.
+
 Installed commands:
 
 - `lcode` (recommended short command)
@@ -75,6 +128,7 @@ State scope:
 
 ## Documentation
 
+- `docs/installation.md`: Complete install/upgrade/verify/troubleshooting guide.
 - `docs/python-debug-manual.md`: End-to-end Python debug workflow for CLI and HTTP.
 - `docs/examples/python-debug-demo/app.py`: Minimal Python script for breakpoint and stepping demos.
 
