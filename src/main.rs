@@ -85,6 +85,7 @@ fn run(cli: Cli) -> Result<(), AppError> {
     }
 
     let global_session_fallback_enabled = is_global_session_fallback_enabled(&cli);
+    output::set_global_session_fallback_mode(global_session_fallback_enabled);
     let store = build_store(&cli)?;
     let command = cli.command;
     match app::execute(&store, command.clone()) {
@@ -116,8 +117,12 @@ fn build_store(cli: &Cli) -> Result<StateStore, AppError> {
         resolve_workspace_root()?
     } else {
         let workspace_root = resolve_workspace_root()?;
-        let link = link_registry::ensure_link_for_workspace(&workspace_root)?;
-        PathBuf::from(link.path)
+        if env::var_os("LAUNCH_CODE_HOME").is_some() && !cli.global {
+            workspace_root
+        } else {
+            let link = link_registry::ensure_link_for_workspace(&workspace_root)?;
+            PathBuf::from(link.path)
+        }
     };
     Ok(StateStore::new(root))
 }

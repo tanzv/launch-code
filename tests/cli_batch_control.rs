@@ -235,6 +235,104 @@ fn stop_all_with_local_flag_limits_scope_to_current_workspace() {
 }
 
 #[test]
+fn stop_all_with_launch_code_home_does_not_require_writable_home_registry() {
+    let tmp = tempdir().expect("temp dir should exist");
+    write_state(
+        tmp.path(),
+        json!({
+            "session-a": build_session("session-a", "api-a", "stopped")
+        }),
+    );
+    let home_file = tmp.path().join("home-file");
+    fs::write(&home_file, "home as file").expect("home file should be written");
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("HOME", &home_file)
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("stop")
+        .arg("--all")
+        .arg("--dry-run")
+        .arg("--status")
+        .arg("stopped")
+        .output()
+        .expect("stop all dry-run should run");
+    assert!(
+        output.status.success(),
+        "LAUNCH_CODE_HOME scoped command should not depend on writable HOME link registry"
+    );
+
+    let doc: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["scope"], "local");
+    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["failed_count"], 0);
+}
+
+#[test]
+fn stop_multi_target_routes_missing_ids_across_links_by_global_fallback() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace_a = home_root.path().join("workspace-a");
+    let workspace_b = home_root.path().join("workspace-b");
+    fs::create_dir_all(&workspace_a).expect("workspace a should exist");
+    fs::create_dir_all(&workspace_b).expect("workspace b should exist");
+
+    write_state(
+        &workspace_a,
+        json!({
+            "session-a": build_session("session-a", "api-a", "stopped")
+        }),
+    );
+    write_state(
+        &workspace_b,
+        json!({
+            "session-b": build_session("session-b", "api-b", "stopped")
+        }),
+    );
+    add_link(home_root.path(), "workspace-a", &workspace_a);
+    add_link(home_root.path(), "workspace-b", &workspace_b);
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_a)
+        .arg("--json")
+        .arg("stop")
+        .arg("session-a")
+        .arg("session-b")
+        .output()
+        .expect("multi-target stop should run");
+    assert!(
+        output.status.success(),
+        "multi-target stop should succeed with global fallback routing"
+    );
+
+    let doc: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["action"], "stop");
+    assert_eq!(doc["all"], false);
+    assert_eq!(doc["target_count"], 2);
+    assert_eq!(doc["success_count"], 2);
+    assert_eq!(doc["failed_count"], 0);
+    let items = doc["items"].as_array().expect("items should be array");
+    assert_eq!(items.len(), 2);
+    assert!(
+        items
+            .iter()
+            .any(|row| row["id"] == "session-a" && row["ok"] == true)
+    );
+    assert!(
+        items
+            .iter()
+            .any(|row| row["id"] == "session-b" && row["ok"] == true)
+    );
+
+    assert_eq!(read_session_status(&workspace_a, "session-a"), "stopped");
+    assert_eq!(read_session_status(&workspace_b, "session-b"), "stopped");
+}
+
+#[test]
 fn restart_all_dry_run_matches_running_sessions_by_default() {
     let tmp = tempdir().expect("temp dir should exist");
     write_state(
@@ -747,4 +845,75 @@ fn resume_keyword_all_alias_supports_batch_dry_run_without_all_flag() {
     assert_eq!(doc["processed_count"], 1);
     assert_eq!(doc["success_count"], 1);
     assert_eq!(doc["failed_count"], 0);
+}
+
+#[test]
+fn resume_multi_target_routes_missing_ids_across_links_by_global_fallback() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace_a = home_root.path().join("workspace-a");
+    let workspace_b = home_root.path().join("workspace-b");
+    fs::create_dir_all(&workspace_a).expect("workspace a should exist");
+    fs::create_dir_all(&workspace_b).expect("workspace b should exist");
+
+    write_state(
+        &workspace_a,
+        json!({
+            "session-a": build_session("session-a", "api-a", "suspended")
+        }),
+    );
+    write_state(
+        &workspace_b,
+        json!({
+            "session-b": build_session("session-b", "api-b", "suspended")
+        }),
+    );
+    add_link(home_root.path(), "workspace-a", &workspace_a);
+    add_link(home_root.path(), "workspace-b", &workspace_b);
+
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_a)
+        .arg("--json")
+        .arg("resume")
+        .arg("session-a")
+        .arg("session-b")
+        .output()
+        .expect("multi-target resume should run");
+    assert!(
+        output.status.success(),
+        "multi-target resume should complete with row-level failures"
+    );
+
+    let doc: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["action"], "resume");
+    assert_eq!(doc["all"], false);
+    assert_eq!(doc["target_count"], 2);
+    assert_eq!(doc["processed_count"], 2);
+    assert_eq!(doc["success_count"], 0);
+    assert_eq!(doc["failed_count"], 2);
+
+    let items = doc["items"].as_array().expect("items should be array");
+    assert_eq!(items.len(), 2);
+
+    let local_error = items
+        .iter()
+        .find(|row| row["id"] == "session-a")
+        .and_then(|row| row["error"].as_str())
+        .expect("session-a error should exist");
+    assert!(
+        local_error.contains("session has no active pid"),
+        "local resume failure should be pid-related"
+    );
+
+    let routed_error = items
+        .iter()
+        .find(|row| row["id"] == "session-b")
+        .and_then(|row| row["error"].as_str())
+        .expect("session-b error should exist");
+    assert!(
+        routed_error.contains("session has no active pid"),
+        "cross-link fallback should route and fail with pid-related error, not session-not-found"
+    );
 }

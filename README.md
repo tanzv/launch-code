@@ -123,6 +123,8 @@ lcode stop <session_id>
 - `lcode list` and `lcode running` default to global aggregation across links.
 - Use `--link <name>` to scope to one linked workspace.
 - Use `--local` to force current workspace scope.
+- When `LAUNCH_CODE_HOME` is set and `--global` is not provided, runtime write commands stay local and do not require writing global link metadata.
+- Session-id lifecycle commands support cross-link fallback by id in global default mode, including multi-id positional usage (`lcode stop <id1> <id2>`, and same pattern for `restart`/`suspend`/`resume`).
 
 Helpful maintenance commands:
 
@@ -199,6 +201,7 @@ lcode config run --name <profile>
 - Watch mode: `--watch [INTERVAL] --watch-count <N>`
 - Log time window and timestamp prefix: `logs --since <TIME> --until <TIME> --timestamps`
 - Timing diagnostics: `--trace-time`
+- Global cleanup JSON includes `link_errors` and `link_error_count` for unreadable/broken links.
 
 ## Documentation
 

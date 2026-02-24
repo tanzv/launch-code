@@ -636,6 +636,11 @@ fn prepare_debug_spec(spec: &mut LaunchSpec) -> Result<Option<DebugSessionMeta>,
         AppError::UnsupportedDebugRuntime(spec_ops::runtime_label(&spec.runtime).to_string())
     })?;
 
+    // Keep Go debug error reporting stable even when local socket binding is restricted.
+    if matches!(backend, DebugBackendKind::GoDelve) {
+        ensure_go_dlv_ready(spec)?;
+    }
+
     let debug = spec.debug.clone().unwrap_or_default();
     let resolved = resolve_debug_config(&debug)?;
     spec.debug = Some(resolved.config.clone());

@@ -57,10 +57,11 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Batch lifecycle commands support planning controls via `--sort`, `--limit`, `--summary`, and `--jobs`.
 - `--jobs > 1` requires `--continue-on-error true` and `--max-failures 0`.
 - Global batch lifecycle commands tolerate unreadable/broken links and report them in `link_errors` with `link_error_count`.
+- Global cleanup (`lcode cleanup` in global scope) also reports unreadable/broken links in `link_errors` with `link_error_count`.
 - Global list/running maintain a link-level scan index at `$HOME/.launch-code/list-global-index.json` to skip links with zero matching statuses.
-- Session-id commands auto-route by `--id` across links in global scope when `--link` is omitted (`stop/status/inspect/logs/restart/suspend/resume/attach/dap/doctor`).
+- Session-id commands auto-route by `--id` and positional shorthand across links in global scope when `--link` is omitted (`stop/status/inspect/logs/restart/suspend/resume/attach/dap/doctor`).
 - Session-id lifecycle and diagnostics commands support positional shorthand (`lcode stop <id>`, `lcode status <id>`, `lcode logs <id>`, ...) and unique short-id prefixes.
-- Lifecycle commands support multi-id positional control (`lcode stop <id1> <id2>`, and same pattern for `restart`/`suspend`/`resume`).
+- Lifecycle commands support multi-id positional control (`lcode stop <id1> <id2>`, and same pattern for `restart`/`suspend`/`resume`) with cross-link id fallback in global default mode.
 - `lcode ps` is an alias of `lcode list`.
 - `lcode project show` defaults to global project metadata aggregation across links.
 - Register links with `lcode link add --name <name> --path <workspace>` and use `--link <name>` to route commands.

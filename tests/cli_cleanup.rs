@@ -393,6 +393,57 @@ fn cleanup_defaults_to_global_scope_across_registered_links() {
 }
 
 #[test]
+fn cleanup_global_scope_reports_link_errors_for_unreadable_state() {
+    let home_root = tempdir().expect("temp dir should exist");
+    let workspace_ok = home_root.path().join("workspace-ok");
+    let workspace_bad = home_root.path().join("workspace-bad");
+    fs::create_dir_all(&workspace_ok).expect("workspace ok should exist");
+    fs::create_dir_all(&workspace_bad).expect("workspace bad should exist");
+
+    write_state(
+        &workspace_ok,
+        json!({
+            "stopped-ok": build_session("stopped-ok", "ok", "stopped")
+        }),
+    );
+    let bad_state_dir = workspace_bad.join(".launch-code");
+    fs::create_dir_all(&bad_state_dir).expect("bad state dir should exist");
+    fs::write(bad_state_dir.join("state.json"), "{bad json").expect("bad state should be written");
+
+    add_link(home_root.path(), "workspace-ok", &workspace_ok);
+    add_link(home_root.path(), "workspace-bad", &workspace_bad);
+
+    let mut cleanup_cmd = cargo_bin_cmd!("launch-code");
+    let cleanup_output = cleanup_cmd
+        .env("HOME", home_root.path())
+        .current_dir(&workspace_ok)
+        .arg("--json")
+        .arg("cleanup")
+        .arg("--dry-run")
+        .arg("--status")
+        .arg("stopped")
+        .output()
+        .expect("global cleanup should run");
+    assert!(
+        cleanup_output.status.success(),
+        "global cleanup should tolerate unreadable link state"
+    );
+
+    let stdout = String::from_utf8(cleanup_output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["scope"], "global");
+    assert_eq!(doc["matched_count"], 1);
+    assert_eq!(doc["removed_count"], 0);
+    assert_eq!(doc["link_error_count"], 1);
+    let link_errors = doc["link_errors"]
+        .as_array()
+        .expect("link_errors should be array");
+    assert_eq!(link_errors.len(), 1);
+    assert_eq!(link_errors[0]["link_name"], "workspace-bad");
+}
+
+#[test]
 fn cleanup_with_local_flag_limits_scope_to_current_workspace() {
     let home_root = tempdir().expect("temp dir should exist");
     let workspace_a = home_root.path().join("workspace-a");

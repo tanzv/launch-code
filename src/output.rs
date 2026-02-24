@@ -4,6 +4,7 @@ use serde_json::json;
 
 static JSON_MODE: AtomicBool = AtomicBool::new(false);
 static TRACE_TIME_MODE: AtomicBool = AtomicBool::new(false);
+static GLOBAL_SESSION_FALLBACK_MODE: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_json_mode(enabled: bool) {
     JSON_MODE.store(enabled, Ordering::Relaxed);
@@ -19,6 +20,14 @@ pub(crate) fn set_trace_time_mode(enabled: bool) {
 
 pub(crate) fn is_trace_time_mode() -> bool {
     TRACE_TIME_MODE.load(Ordering::Relaxed)
+}
+
+pub(crate) fn set_global_session_fallback_mode(enabled: bool) {
+    GLOBAL_SESSION_FALLBACK_MODE.store(enabled, Ordering::Relaxed);
+}
+
+pub(crate) fn is_global_session_fallback_mode() -> bool {
+    GLOBAL_SESSION_FALLBACK_MODE.load(Ordering::Relaxed)
 }
 
 pub(crate) fn print_trace(message: &str) {

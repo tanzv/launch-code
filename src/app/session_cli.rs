@@ -78,6 +78,13 @@ struct GlobalCleanupRow {
     removed_session_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct GlobalCleanupLinkErrorRow {
+    link_name: String,
+    link_path: String,
+    error: String,
+}
+
 impl ListFilters {
     fn from_args(args: &ListArgs) -> Self {
         Self {
@@ -520,6 +527,7 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
     let registry = load_registry()?;
     let mut seen_paths = BTreeSet::new();
     let mut rows = Vec::new();
+    let mut link_errors = Vec::new();
     let mut matched_session_ids = Vec::new();
     let mut removed_session_ids = Vec::new();
     let mut kept_count = 0usize;
@@ -532,7 +540,14 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
         let store = StateStore::new(&item.path);
         let preloaded_state = match store.load() {
             Ok(value) => value,
-            Err(_) => continue,
+            Err(err) => {
+                link_errors.push(GlobalCleanupLinkErrorRow {
+                    link_name: item.name.clone(),
+                    link_path: item.path.clone(),
+                    error: err.to_string(),
+                });
+                continue;
+            }
         };
         if preloaded_state.sessions.is_empty() {
             continue;
@@ -545,7 +560,14 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
             args.dry_run,
         ) {
             Ok(value) => value,
-            Err(_) => continue,
+            Err(err) => {
+                link_errors.push(GlobalCleanupLinkErrorRow {
+                    link_name: item.name.clone(),
+                    link_path: item.path.clone(),
+                    error: err.to_string(),
+                });
+                continue;
+            }
         };
 
         matched_session_ids.extend(result.matched_session_ids.iter().cloned());
@@ -564,6 +586,11 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
     }
 
     rows.sort_by(|left, right| {
+        left.link_name
+            .cmp(&right.link_name)
+            .then_with(|| left.link_path.cmp(&right.link_path))
+    });
+    link_errors.sort_by(|left, right| {
         left.link_name
             .cmp(&right.link_name)
             .then_with(|| left.link_path.cmp(&right.link_path))
@@ -597,23 +624,35 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
             "dry_run": args.dry_run,
             "older_than_secs": args.older_than_secs,
             "link_count": rows.len(),
+            "link_error_count": link_errors.len(),
             "matched_count": matched_count,
             "removed_count": removed_count,
             "kept_count": kept_count,
             "matched_session_ids": matched_session_ids,
             "removed_session_ids": removed_session_ids,
+            "link_errors": link_errors
+                .iter()
+                .map(|row| {
+                    json!({
+                        "link_name": row.link_name,
+                        "link_path": row.link_path,
+                        "error": row.error,
+                    })
+                })
+                .collect::<Vec<_>>(),
             "items": items,
         }));
         return Ok(());
     }
 
     let mut message = format!(
-        "session_cleanup_scope=global session_cleanup_dry_run={} links={} matched={} removed={} kept={}",
+        "session_cleanup_scope=global session_cleanup_dry_run={} links={} matched={} removed={} kept={} link_errors={}",
         args.dry_run,
         rows.len(),
         matched_count,
         removed_count,
-        kept_count
+        kept_count,
+        link_errors.len()
     );
     if let Some(older_than_secs) = args.older_than_secs {
         message.push_str(&format!(" older_than_secs={older_than_secs}"));
@@ -630,6 +669,18 @@ pub(super) fn handle_cleanup_global_default(args: &CleanupArgs) -> Result<(), Ap
             lines.push(format!(
                 "{}\t{}\t{}\t{}\t{}",
                 row.link_name, row.link_path, row.matched_count, row.removed_count, row.kept_count
+            ));
+        }
+        output::print_lines(&lines);
+    }
+
+    if !link_errors.is_empty() {
+        let mut lines = Vec::with_capacity(link_errors.len() + 1);
+        lines.push("LINK\tPATH\tERROR".to_string());
+        for row in &link_errors {
+            lines.push(format!(
+                "{}\t{}\t{}",
+                row.link_name, row.link_path, row.error
             ));
         }
         output::print_lines(&lines);

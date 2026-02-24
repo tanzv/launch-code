@@ -5,6 +5,7 @@ use crate::cli::{
     BatchFilterArgs, BatchSortArg, ListStatusArg, RestartArgs, ResumeArgs, StopArgs, SuspendArgs,
 };
 use crate::error::AppError;
+use crate::output;
 
 use super::ListFilters;
 
@@ -421,7 +422,13 @@ fn handle_multi_target_control_local(
 ) -> Result<(), AppError> {
     let mut rows = Vec::with_capacity(target_ids.len());
     for target_id in target_ids {
-        match engine::apply_batch_action(store, action, target_id, force, grace_timeout_ms) {
+        match apply_multi_target_action_with_fallback(
+            store,
+            action,
+            target_id,
+            force,
+            grace_timeout_ms,
+        ) {
             Ok(updated) => rows.push(BatchSessionRow {
                 id: updated.id,
                 runtime: super::super::spec_ops::runtime_label(&updated.spec.runtime),
@@ -447,6 +454,29 @@ fn handle_multi_target_control_local(
 
     render::print_multi_target_control_result(action, rows);
     Ok(())
+}
+
+fn apply_multi_target_action_with_fallback(
+    store: &StateStore,
+    action: BatchAction,
+    target_id: &str,
+    force: bool,
+    grace_timeout_ms: u64,
+) -> Result<launch_code::model::SessionRecord, AppError> {
+    match engine::apply_batch_action(store, action, target_id, force, grace_timeout_ms) {
+        Ok(updated) => Ok(updated),
+        Err(AppError::SessionNotFound(missing_id))
+            if output::is_global_session_fallback_mode() && missing_id == target_id =>
+        {
+            let Some(routed_store) =
+                super::super::resolve_global_store_for_session_id(target_id, store)?
+            else {
+                return Err(AppError::SessionNotFound(missing_id));
+            };
+            engine::apply_batch_action(&routed_store, action, target_id, force, grace_timeout_ms)
+        }
+        Err(err) => Err(err),
+    }
 }
 
 fn handle_batch_control_global_stop(args: &StopArgs) -> Result<(), AppError> {
