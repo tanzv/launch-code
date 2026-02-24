@@ -129,6 +129,14 @@ State scope:
 ## Documentation
 
 - `docs/installation.md`: Complete install/upgrade/verify/troubleshooting guide.
+- `docs/zh-cn/index.md`: Chinese documentation hub.
+- `docs/zh-cn/installation.md`: Chinese installation guide.
+- `docs/zh-cn/quick-start.md`: Chinese quick-start guide.
+- `docs/zh-cn/command-reference.md`: Chinese command reference.
+- `docs/zh-cn/json-error-codes.md`: Chinese JSON error-code reference.
+- `docs/zh-cn/http-api.md`: Chinese HTTP API guide.
+- `docs/zh-cn/runtime-debug-matrix.md`: Chinese runtime/debug capability matrix.
+- `docs/zh-cn/troubleshooting.md`: Chinese troubleshooting guide.
 - `docs/python-debug-manual.md`: End-to-end Python debug workflow for CLI and HTTP.
 - `docs/examples/python-debug-demo/app.py`: Minimal Python script for breakpoint and stepping demos.
 
