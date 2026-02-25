@@ -60,14 +60,14 @@ lcode stop <session_id>
 
 ## 文档导航
 
-- 总览入口：`docs/zh-cn/index.md`
-- 安装指南：`docs/zh-cn/installation.md`
-- 快速上手：`docs/zh-cn/quick-start.md`
-- 命令参考：`docs/zh-cn/command-reference.md`
-- JSON 错误码：`docs/zh-cn/json-error-codes.md`
-- HTTP API：`docs/zh-cn/http-api.md`
-- 能力矩阵：`docs/zh-cn/runtime-debug-matrix.md`
-- 故障排查：`docs/zh-cn/troubleshooting.md`
+- 总览入口：[docs/zh-cn/index.md](./index.md)
+- 安装指南：[docs/zh-cn/installation.md](./installation.md)
+- 快速上手：[docs/zh-cn/quick-start.md](./quick-start.md)
+- 命令参考：[docs/zh-cn/command-reference.md](./command-reference.md)
+- JSON 错误码：[docs/zh-cn/json-error-codes.md](./json-error-codes.md)
+- HTTP API：[docs/zh-cn/http-api.md](./http-api.md)
+- 能力矩阵：[docs/zh-cn/runtime-debug-matrix.md](./runtime-debug-matrix.md)
+- 故障排查：[docs/zh-cn/troubleshooting.md](./troubleshooting.md)
 
 ## 建议
 

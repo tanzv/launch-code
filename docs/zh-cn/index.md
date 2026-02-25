@@ -1,39 +1,39 @@
 # launch-code 中文文档总览
 
 本文档是 `lcode` / `launch-code` 的中文入口页，帮助你按场景快速定位资料。
-如需一页式简版说明，可先看：`docs/zh-cn/README.md`。
+如需一页式简版说明，可先看：[docs/zh-cn/README.md](./README.md)。
 
 ## 文档地图
 
-- 中文 README：`docs/zh-cn/README.md`
-- 安装指南：`docs/zh-cn/installation.md`
-- 快速上手：`docs/zh-cn/quick-start.md`
-- 命令参考：`docs/zh-cn/command-reference.md`
-- JSON 错误码：`docs/zh-cn/json-error-codes.md`
-- HTTP API：`docs/zh-cn/http-api.md`
-- 运行时与调试能力矩阵：`docs/zh-cn/runtime-debug-matrix.md`
-- 故障排查：`docs/zh-cn/troubleshooting.md`
-- Python 调试手册：`docs/python-debug-manual.md`
+- 中文 README：[docs/zh-cn/README.md](./README.md)
+- 安装指南：[docs/zh-cn/installation.md](./installation.md)
+- 快速上手：[docs/zh-cn/quick-start.md](./quick-start.md)
+- 命令参考：[docs/zh-cn/command-reference.md](./command-reference.md)
+- JSON 错误码：[docs/zh-cn/json-error-codes.md](./json-error-codes.md)
+- HTTP API：[docs/zh-cn/http-api.md](./http-api.md)
+- 运行时与调试能力矩阵：[docs/zh-cn/runtime-debug-matrix.md](./runtime-debug-matrix.md)
+- 故障排查：[docs/zh-cn/troubleshooting.md](./troubleshooting.md)
+- Python 调试手册：[docs/python-debug-manual.md](../python-debug-manual.md)
 
 ## 推荐阅读路径
 
 ### 新用户
 
-1. `docs/zh-cn/installation.md`
-2. `docs/zh-cn/quick-start.md`
-3. `docs/zh-cn/command-reference.md`
+1. [docs/zh-cn/installation.md](./installation.md)
+2. [docs/zh-cn/quick-start.md](./quick-start.md)
+3. [docs/zh-cn/command-reference.md](./command-reference.md)
 
 ### 自动化/平台集成
 
-1. `docs/zh-cn/http-api.md`
-2. `docs/zh-cn/json-error-codes.md`
-3. `docs/zh-cn/troubleshooting.md`
+1. [docs/zh-cn/http-api.md](./http-api.md)
+2. [docs/zh-cn/json-error-codes.md](./json-error-codes.md)
+3. [docs/zh-cn/troubleshooting.md](./troubleshooting.md)
 
 ### 调试专项
 
-1. `docs/zh-cn/runtime-debug-matrix.md`
-2. `docs/python-debug-manual.md`
-3. `docs/zh-cn/troubleshooting.md`
+1. [docs/zh-cn/runtime-debug-matrix.md](./runtime-debug-matrix.md)
+2. [docs/python-debug-manual.md](../python-debug-manual.md)
+3. [docs/zh-cn/troubleshooting.md](./troubleshooting.md)
 
 ## 版本与能力边界
 

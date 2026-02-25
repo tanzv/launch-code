@@ -128,11 +128,11 @@ lcode dap threads --id <session_id>
 
 ## 9. 下一步
 
-- 中文总览：`docs/zh-cn/index.md`
-- 命令大全：`docs/zh-cn/command-reference.md`
-- JSON 错误码：`docs/zh-cn/json-error-codes.md`
-- HTTP API：`docs/zh-cn/http-api.md`
-- 运行时能力矩阵：`docs/zh-cn/runtime-debug-matrix.md`
-- 故障排查：`docs/zh-cn/troubleshooting.md`
-- 完整安装与排障：`docs/zh-cn/installation.md`
-- Python 调试详解：`docs/python-debug-manual.md`
+- 中文总览：[docs/zh-cn/index.md](./index.md)
+- 命令大全：[docs/zh-cn/command-reference.md](./command-reference.md)
+- JSON 错误码：[docs/zh-cn/json-error-codes.md](./json-error-codes.md)
+- HTTP API：[docs/zh-cn/http-api.md](./http-api.md)
+- 运行时能力矩阵：[docs/zh-cn/runtime-debug-matrix.md](./runtime-debug-matrix.md)
+- 故障排查：[docs/zh-cn/troubleshooting.md](./troubleshooting.md)
+- 完整安装与排障：[docs/zh-cn/installation.md](./installation.md)
+- Python 调试详解：[docs/python-debug-manual.md](../python-debug-manual.md)

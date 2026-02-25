@@ -288,7 +288,7 @@ curl -sS -H "Authorization: Bearer testtoken" -H "Content-Type: application/json
 
 ### 6.1 Create demo file
 
-你可以直接使用仓库内置示例：`docs/examples/python-debug-demo/app.py`。  
+你可以直接使用仓库内置示例：[docs/examples/python-debug-demo/app.py](./examples/python-debug-demo/app.py)。  
 也可以手工创建一个 `app.py`，内容如下：
 
 ```python
