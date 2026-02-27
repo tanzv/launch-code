@@ -1,3 +1,4 @@
+mod build_ops;
 mod config_ops;
 mod dap_cli;
 mod doctor_debug_adapter;
@@ -40,8 +41,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::cli::{
-    CleanupArgs, Commands, DaemonArgs, DebugArgs, GoDebugModeArg, InspectArgs, LaunchArgs,
-    ListArgs, LogsArgs, RestartArgs, ResumeArgs, RunningArgs, SessionIdArgs, StartArgs,
+    BuildArgs, CleanupArgs, Commands, DaemonArgs, DebugArgs, GoDebugModeArg, InspectArgs,
+    LaunchArgs, ListArgs, LogsArgs, RestartArgs, ResumeArgs, RunningArgs, SessionIdArgs, StartArgs,
     StartLogModeArg, StopArgs, SuspendArgs,
 };
 use crate::error::AppError;
@@ -65,6 +66,7 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
             handle_start_spec(store, spec, options)
         }
         Commands::Debug(args) => handle_debug(store, &args),
+        Commands::Build(args) => handle_build(&args),
         Commands::Launch(args) => handle_launch(store, &args),
         Commands::Attach(args) => handle_attach(store, &args),
         Commands::Inspect(args) => handle_inspect(store, &args),
@@ -85,6 +87,10 @@ pub(crate) fn execute(store: &StateStore, command: Commands) -> Result<(), AppEr
         Commands::Dap(args) => dap_cli::handle_dap(store, &args),
         Commands::Doctor(args) => doctor_ops::handle_doctor(store, &args),
     }
+}
+
+fn handle_build(args: &BuildArgs) -> Result<(), AppError> {
+    build_ops::handle_build(args)
 }
 
 pub(crate) fn execute_global_list(args: &ListArgs, workspace_root: &Path) -> Result<(), AppError> {

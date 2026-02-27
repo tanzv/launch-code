@@ -66,6 +66,12 @@ pub enum AppError {
     InvalidLinkPath(String),
     #[error("invalid start options: {0}")]
     InvalidStartOptions(String),
+    #[error("invalid build options: {0}")]
+    InvalidBuildOptions(String),
+    #[error("unsupported build runtime: {0}")]
+    UnsupportedBuildRuntime(String),
+    #[error("build failed: {0}")]
+    BuildFailed(String),
     #[error("runtime readiness failed: {0}")]
     RuntimeReadinessFailed(String),
     #[error("confirmation required: {0}")]
@@ -105,6 +111,9 @@ impl AppError {
             Self::LinkNotFound(_) => "link_not_found",
             Self::InvalidLinkPath(_) => "invalid_link_path",
             Self::InvalidStartOptions(_) => "invalid_start_options",
+            Self::InvalidBuildOptions(_) => "invalid_build_options",
+            Self::UnsupportedBuildRuntime(_) => "unsupported_build_runtime",
+            Self::BuildFailed(_) => "build_failed",
             Self::RuntimeReadinessFailed(_) => "runtime_readiness_failed",
             Self::ConfirmationRequired(_) => "confirmation_required",
         }
@@ -122,6 +131,8 @@ impl AppError {
             | Self::UnsupportedDapRuntime(_) => 2,
             Self::InvalidLinkPath(_) => 2,
             Self::InvalidStartOptions(_) => 2,
+            Self::InvalidBuildOptions(_) => 2,
+            Self::UnsupportedBuildRuntime(_) => 2,
             Self::RuntimeReadinessFailed(_) => 2,
             Self::ConfirmationRequired(_) => 2,
             Self::SessionNotFound(_)
@@ -134,6 +145,7 @@ impl AppError {
             | Self::LinkNotFound(_) => 3,
             Self::PythonDebugpyUnavailable => 4,
             Self::GoDlvUnavailable => 4,
+            Self::BuildFailed(_) => 1,
             Self::Dap(_) => 5,
             Self::Http(_) => 6,
             _ => 1,

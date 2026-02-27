@@ -1,2 +1,3 @@
 /target
 /.launch-code
+packages/npm/bpmn/.env.release.local

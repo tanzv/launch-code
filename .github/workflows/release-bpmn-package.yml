@@ -1,0 +1,106 @@
+name: release-bpmn-package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional package version (semver)"
+        required: false
+        type: string
+      tag:
+        description: "npm dist-tag"
+        required: false
+        default: "latest"
+        type: string
+      registry:
+        description: "Optional npm registry URL"
+        required: false
+        type: string
+      dry_run:
+        description: "Publish dry-run only"
+        required: true
+        default: true
+        type: boolean
+      skip_verification:
+        description: "Skip cargo test/clippy"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate npm token requirements
+        shell: bash
+        env:
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${INPUT_DRY_RUN}" != "true" && -z "${NPM_TOKEN:-}" ]]; then
+            echo "NPM_TOKEN is required when dry_run is false." >&2
+            exit 2
+          fi
+
+      - name: Configure npm auth token
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        shell: bash
+        env:
+          LCODE_NPM_PUBLISH_REGISTRY: ${{ inputs.registry }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          registry="${LCODE_NPM_PUBLISH_REGISTRY:-https://registry.npmjs.org}"
+          host="${registry#http://}"
+          host="${host#https://}"
+          host="${host%/}"
+          npm config set "//${host}/:_authToken" "${NPM_TOKEN}"
+
+      - name: Run BPMN release workflow
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_REGISTRY: ${{ inputs.registry }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_SKIP_VERIFICATION: ${{ inputs.skip_verification }}
+          LCODE_NPM_PUBLISH_REGISTRY: ${{ inputs.registry }}
+        run: |
+          set -euo pipefail
+          args=(--package-dir ./packages/npm/bpmn)
+
+          if [[ -n "${INPUT_VERSION}" ]]; then
+            args+=(--version "${INPUT_VERSION}")
+          fi
+
+          if [[ -n "${INPUT_TAG}" ]]; then
+            args+=(--tag "${INPUT_TAG}")
+          fi
+
+          if [[ -n "${INPUT_REGISTRY}" ]]; then
+            args+=(--registry "${INPUT_REGISTRY}")
+          fi
+
+          if [[ "${INPUT_DRY_RUN}" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+
+          if [[ "${INPUT_SKIP_VERIFICATION}" == "true" ]]; then
+            args+=(--skip-verification)
+          fi
+
+          ./scripts/release_bpmn_package.sh "${args[@]}"

@@ -1,10 +1,12 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::{io, io::IsTerminal};
 
 use serde_json::json;
 
 static JSON_MODE: AtomicBool = AtomicBool::new(false);
 static TRACE_TIME_MODE: AtomicBool = AtomicBool::new(false);
 static GLOBAL_SESSION_FALLBACK_MODE: AtomicBool = AtomicBool::new(false);
+static PS_ALIAS_MODE: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_json_mode(enabled: bool) {
     JSON_MODE.store(enabled, Ordering::Relaxed);
@@ -30,10 +32,22 @@ pub(crate) fn is_global_session_fallback_mode() -> bool {
     GLOBAL_SESSION_FALLBACK_MODE.load(Ordering::Relaxed)
 }
 
+pub(crate) fn set_ps_alias_mode(enabled: bool) {
+    PS_ALIAS_MODE.store(enabled, Ordering::Relaxed);
+}
+
+pub(crate) fn is_ps_alias_mode() -> bool {
+    PS_ALIAS_MODE.load(Ordering::Relaxed)
+}
+
 pub(crate) fn print_trace(message: &str) {
     if is_trace_time_mode() {
         eprintln!("{message}");
     }
+}
+
+pub(crate) fn is_stdout_terminal() -> bool {
+    io::stdout().is_terminal()
 }
 
 pub(crate) fn print_message(message: &str) {

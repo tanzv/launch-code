@@ -32,6 +32,28 @@ fn parse_session_id(output: &str) -> Option<String> {
 }
 
 #[test]
+fn list_empty_output_includes_next_step_hint() {
+    let tmp = tempdir().expect("temp dir should exist");
+
+    let mut list_cmd = cargo_bin_cmd!("launch-code");
+    let list_output = list_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--local")
+        .arg("list")
+        .output()
+        .expect("list should run");
+    assert!(list_output.status.success(), "list should succeed");
+
+    let text = String::from_utf8(list_output.stdout).expect("stdout should be utf8");
+    assert!(text.contains("no sessions"));
+    assert!(text.contains("hint:"), "empty list should provide actionable hint");
+    assert!(
+        text.contains("lcode running"),
+        "empty list hint should include running command"
+    );
+}
+
+#[test]
 fn list_supports_status_runtime_and_name_filters() {
     if !python_available() {
         return;

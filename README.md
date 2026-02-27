@@ -21,6 +21,7 @@ Chinese:
 - Global project visibility: view and manage sessions across linked workspaces from any directory.
 - Daily lifecycle operations: start, stop, restart, suspend, resume, and log inspection for active development loops.
 - Multi-runtime project workflows: run and debug Python/Node/Go projects and run Rust projects in one CLI.
+- Cross-platform build workflow: build Rust/Go artifacts for common Linux/macOS/Windows targets with one command.
 - Debug and diagnostics workflows: attach, DAP commands (including repeated Go DAP calls), runtime checks, and debug health checks for troubleshooting.
 - Automation and platform integration: stable `--json` output and machine-readable error codes for scripts and CI tooling.
 
@@ -59,6 +60,46 @@ launch-code --version
 lcode doctor runtime --json
 ```
 
+## BPMN Package Release
+
+The BPMN package is published from `packages/npm/bpmn`.
+Use the orchestrator script to run the complete workflow (prepare, preflight, publish):
+
+```bash
+./scripts/release_bpmn_package.sh --package-dir ./packages/npm/bpmn
+```
+
+Shortcut command:
+
+```bash
+./scripts/publish_bpmn.sh
+```
+
+Configure publish registry source via local environment variable:
+
+```bash
+export LCODE_NPM_PUBLISH_REGISTRY="https://registry.npmjs.org"
+./scripts/release_bpmn_package.sh --package-dir ./packages/npm/bpmn
+```
+
+Use a local env file configuration:
+
+```bash
+cp ./packages/npm/bpmn/.env.release.example ./packages/npm/bpmn/.env.release.local
+./scripts/publish_bpmn.sh --dry-run
+```
+
+Dry-run example:
+
+```bash
+./scripts/release_bpmn_package.sh --package-dir ./packages/npm/bpmn --dry-run
+```
+
+Release artifacts and process docs:
+
+- [BPMN Release Workflow](docs/release/npm-publish.md)
+- [BPMN Workflow Definition](docs/release/npm-publish.bpmn)
+
 ## Quick Start
 
 Register a workspace link (global metadata):
@@ -91,6 +132,18 @@ Start a Go debug session (Delve headless multi-client debug):
 lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000
 ```
 
+Build a Rust binary for Linux amd64:
+
+```bash
+lcode build --runtime rust --cwd . --entry lcode --platform linux/amd64 --release
+```
+
+Build a Go binary for macOS arm64:
+
+```bash
+lcode build --runtime go --cwd . --entry ./cmd/service --platform darwin/arm64 --output ./dist/service
+```
+
 Debug Go tests with Delve:
 
 ```bash
@@ -121,6 +174,8 @@ lcode stop <session_id>
 - Global link registry: `$HOME/.launch-code/links.json`
 - Workspace runtime state: `<workspace>/.launch-code/state.json`
 - `lcode list` and `lcode running` default to global aggregation across links.
+- Interactive `lcode list` / `lcode ps` defaults to compact columns on TTY; non-interactive output keeps wide columns for script readability.
+- On TTY, `lcode ps` defaults to interactive browser mode (navigation keys and detail panel). Use `--no-interactive` to force plain table output.
 - Use `--link <name>` to scope to one linked workspace.
 - Use `--local` to force current workspace scope.
 - When `LAUNCH_CODE_HOME` is set and `--global` is not provided, runtime write commands stay local and do not require writing global link metadata.
@@ -142,6 +197,8 @@ Single-target lifecycle:
 ```bash
 lcode start ...
 lcode debug ...
+lcode build --runtime rust --platform linux/amd64 --release --entry lcode
+lcode build --runtime go --platform windows/arm64 --entry ./cmd/service --output ./dist/service.exe
 lcode stop --id <id>
 lcode stop <id>
 lcode restart --id <id>
@@ -197,9 +254,12 @@ lcode config run --name <profile>
 
 - JSON mode: `--json`
 - Session list formats: `--format table|compact|wide|id`
+- Interactive browser: `lcode ps` (default on TTY) or `lcode list --interactive` (`q` quit, `j/k` or arrows move, `Enter` toggle details, `r` refresh).
+- Empty list/running output prints next-step hints (`lcode running`, `lcode list --format id`, `lcode link list`).
 - Session list ordering/paging: `--sort id|name|runtime|status|updated|restarts --limit <N>`
 - Watch mode: `--watch [INTERVAL] --watch-count <N>`
 - Log time window and timestamp prefix: `logs --since <TIME> --until <TIME> --timestamps`
+- Cross-build dry run (no execution): `build --dry-run`
 - Timing diagnostics: `--trace-time`
 - Global cleanup JSON includes `link_errors` and `link_error_count` for unreadable/broken links.
 

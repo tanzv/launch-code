@@ -1,0 +1,14 @@
+{
+  "name": "launch-code",
+  "version": "0.1.0",
+  "description": "Launch Code BPMN release workflow package",
+  "license": "MIT",
+  "files": [
+    "bpmn",
+    "docs",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

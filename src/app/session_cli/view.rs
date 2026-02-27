@@ -249,7 +249,10 @@ pub(super) fn print_list_rows(rows: &[SessionListRow], render: ListRenderOptions
         })
         .collect();
     if lines.is_empty() {
-        output::print_lines(&lines);
+        output::print_lines(&[
+            "no sessions".to_string(),
+            "hint: use `lcode running` for active sessions, `lcode list --format id` for raw ids, and `lcode link list` to check global links.".to_string(),
+        ]);
         return;
     }
 

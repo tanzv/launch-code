@@ -19,9 +19,11 @@ use crate::cli::{Cli, Commands, DapCommands, DoctorCommands, ProjectCommands};
 use crate::error::AppError;
 
 fn main() {
-    let cli = Cli::parse();
+    let raw_args: Vec<String> = env::args().collect();
+    let cli = Cli::parse_from(raw_args.clone());
     output::set_json_mode(cli.json);
     output::set_trace_time_mode(cli.trace_time);
+    output::set_ps_alias_mode(invoked_via_ps_alias(&raw_args));
 
     if let Err(err) = run(cli) {
         if output::is_json_mode() {
@@ -39,6 +41,28 @@ fn main() {
         }
         std::process::exit(err.exit_code());
     }
+}
+
+fn invoked_via_ps_alias(raw_args: &[String]) -> bool {
+    if raw_args.len() <= 1 {
+        return false;
+    }
+
+    let mut idx = 1usize;
+    while idx < raw_args.len() {
+        let token = &raw_args[idx];
+        if !token.starts_with('-') {
+            return token == "ps";
+        }
+
+        if token == "--link" {
+            idx = idx.saturating_add(1);
+        } else if token.starts_with("--link=") {
+            // already consumed
+        }
+        idx = idx.saturating_add(1);
+    }
+    false
 }
 
 fn run(cli: Cli) -> Result<(), AppError> {
@@ -249,5 +273,36 @@ fn doctor_command_session_id(command: &DoctorCommands) -> Option<&str> {
         DoctorCommands::Debug(args) => Some(&args.id),
         DoctorCommands::Runtime(_) => None,
         DoctorCommands::All(args) => args.id.as_deref(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::invoked_via_ps_alias;
+
+    #[test]
+    fn ps_alias_detection_handles_global_flags() {
+        assert!(invoked_via_ps_alias(&["lcode".to_string(), "ps".to_string()]));
+        assert!(invoked_via_ps_alias(&[
+            "lcode".to_string(),
+            "--json".to_string(),
+            "ps".to_string()
+        ]));
+        assert!(invoked_via_ps_alias(&[
+            "lcode".to_string(),
+            "--link".to_string(),
+            "demo".to_string(),
+            "ps".to_string()
+        ]));
+        assert!(!invoked_via_ps_alias(&[
+            "lcode".to_string(),
+            "--link=demo".to_string(),
+            "list".to_string()
+        ]));
+        assert!(!invoked_via_ps_alias(&[
+            "lcode".to_string(),
+            "--local".to_string(),
+            "list".to_string()
+        ]));
     }
 }

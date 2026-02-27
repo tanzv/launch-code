@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_launch_code_npm_publish"
+                  targetNamespace="https://launch-code.local/release">
+  <bpmn:process id="launch_code_npm_publish_process" name="Launch Code NPM Publish" isExecutable="false">
+    <bpmn:startEvent id="StartEvent_ReleaseReady" name="Release Requested"/>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_ReleaseReady" targetRef="Task_PreparePackage"/>
+
+    <bpmn:task id="Task_PreparePackage" name="Prepare package and version"/>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_PreparePackage" targetRef="Task_SelectRegistry"/>
+
+    <bpmn:task id="Task_SelectRegistry" name="Select publish registry source"/>
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_SelectRegistry" targetRef="Task_Auth"/>
+
+    <bpmn:task id="Task_Auth" name="Authenticate with npm token"/>
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Task_Auth" targetRef="Gateway_DryRun"/>
+
+    <bpmn:exclusiveGateway id="Gateway_DryRun" name="Dry run required?"/>
+    <bpmn:sequenceFlow id="Flow_5a" sourceRef="Gateway_DryRun" targetRef="Task_DryRun">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">dry_run == true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_5b" sourceRef="Gateway_DryRun" targetRef="Task_Publish">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">dry_run == false</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:task id="Task_DryRun" name="Run npm publish --dry-run"/>
+    <bpmn:sequenceFlow id="Flow_6" sourceRef="Task_DryRun" targetRef="Task_Publish"/>
+
+    <bpmn:task id="Task_Publish" name="Publish package"/>
+    <bpmn:sequenceFlow id="Flow_7" sourceRef="Task_Publish" targetRef="Gateway_PublishResult"/>
+
+    <bpmn:exclusiveGateway id="Gateway_PublishResult" name="Publish successful?"/>
+    <bpmn:sequenceFlow id="Flow_8a" sourceRef="Gateway_PublishResult" targetRef="Task_Verify"/>
+    <bpmn:sequenceFlow id="Flow_8b" sourceRef="Gateway_PublishResult" targetRef="Task_HandleFailure"/>
+
+    <bpmn:task id="Task_Verify" name="Verify package and dist-tag"/>
+    <bpmn:sequenceFlow id="Flow_9" sourceRef="Task_Verify" targetRef="EndEvent_Success"/>
+
+    <bpmn:task id="Task_HandleFailure" name="Collect logs and rollback plan"/>
+    <bpmn:sequenceFlow id="Flow_10" sourceRef="Task_HandleFailure" targetRef="EndEvent_Failure"/>
+
+    <bpmn:endEvent id="EndEvent_Success" name="Release Completed"/>
+    <bpmn:endEvent id="EndEvent_Failure" name="Release Failed"/>
+  </bpmn:process>
+</bpmn:definitions>

@@ -15,6 +15,7 @@
 | --- | --- |
 | `start` | 启动 run 会话 |
 | `debug` | 启动 debug 会话 |
+| `build` | 执行构建（支持 Rust/Go 跨平台） |
 | `launch` | 从 `launch.json` 启动 |
 | `attach` | 输出调试连接元数据 |
 | `inspect` | 查看进程与日志尾部 |
@@ -44,6 +45,8 @@
 - `lcode debug --runtime go --entry ./cmd/app --cwd . --host 127.0.0.1 --port 43000`
 - `lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-test.run --arg=TestServiceFlow`
 - `lcode debug --runtime go --go-mode attach --entry 12345 --cwd . --host 127.0.0.1 --port 43000`
+- `lcode build --runtime rust --cwd . --entry lcode --platform linux/amd64 --release`
+- `lcode build --runtime go --cwd . --entry ./cmd/service --platform darwin/arm64 --output ./dist/service`
 - `lcode launch --name "<LaunchName>" --mode <run|debug>`
 
 Go 调试模式说明：
@@ -57,6 +60,32 @@ Go 调试模式说明：
 
 1. `--env-file`（按声明顺序，后者覆盖前者）
 2. `--env KEY=VALUE`
+
+### 构建命令
+
+`build` 面向构建工件，不创建会话；适合在本地或 CI 做跨平台产物构建。
+
+常见用法：
+
+- Rust 指定平台（自动映射 target triple）：
+  - `lcode build --runtime rust --platform linux/amd64 --entry lcode --release`
+- Rust 显式 target：
+  - `lcode build --runtime rust --target x86_64-unknown-linux-gnu --entry lcode`
+- Go 指定平台（自动映射 GOOS/GOARCH）：
+  - `lcode build --runtime go --platform windows/arm64 --entry ./cmd/service --output ./dist/service.exe`
+- Go 显式 GOOS/GOARCH：
+  - `lcode build --runtime go --goos linux --goarch arm64 --entry ./cmd/service --output ./dist/service`
+- 预览构建计划（不执行）：
+  - `lcode build --runtime rust --platform darwin/arm64 --entry lcode --dry-run`
+
+平台映射（当前内置）：
+
+- `linux/amd64`
+- `linux/arm64`
+- `darwin/amd64`
+- `darwin/arm64`
+- `windows/amd64`
+- `windows/arm64`
 
 ### 会话生命周期命令
 
@@ -101,7 +130,12 @@ Go 调试模式说明：
 
 - `--format <table|compact|wide|id>`
 - `--compact` / `--wide`
+- `--interactive` / `--no-interactive`
 - `--short-id-len` `--no-trunc` `--no-headers` `-q`
+- 交互终端（TTY）中，`lcode list` / `lcode ps` 默认使用紧凑列；非交互输出默认宽表，便于脚本解析。
+- 交互终端（TTY）中，`lcode ps` 默认进入交互浏览模式；可用 `--no-interactive` 强制使用普通表格输出。
+- 交互模式按键：`q` 退出，`j/k` 或方向键移动，`Enter` 展开/收起详情，`r` 刷新。
+- 空结果会输出下一步提示（如 `lcode running`、`lcode list --format id`、`lcode link list`）。
 - 排序/限制：`--sort <id|name|runtime|status|updated|restarts>` `--limit <N>`
 - 监控模式：`--watch [INTERVAL] --watch-count <N>`
 

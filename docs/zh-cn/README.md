@@ -6,6 +6,7 @@
 ## 核心能力
 
 - 运行/调试启动：`start`、`debug`
+- 跨平台构建：`build`（Rust/Go）
 - 生命周期管理：`stop`、`restart`、`suspend`、`resume`
 - 全局会话可见性：`list`、`running`
 - 调试链路支持：`attach`、`dap`、`doctor debug`
@@ -41,7 +42,14 @@ lcode debug --runtime go --go-mode test --entry ./pkg/service --cwd . --arg=-tes
 lcode debug --runtime go --go-mode attach --entry 12345 --cwd . --host 127.0.0.1 --port 43000
 ```
 
-5. 查看与管理会话
+5. 跨平台构建
+
+```bash
+lcode build --runtime rust --cwd . --entry lcode --platform linux/amd64 --release
+lcode build --runtime go --cwd . --entry ./cmd/service --platform darwin/arm64 --output ./dist/service
+```
+
+6. 查看与管理会话
 
 ```bash
 lcode list

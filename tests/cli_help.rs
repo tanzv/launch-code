@@ -16,6 +16,10 @@ fn top_level_help_includes_command_descriptions() {
         "top-level help should explain the debug command"
     );
     assert!(
+        stdout.contains("Build project artifacts"),
+        "top-level help should explain the build command"
+    );
+    assert!(
         stdout.contains("Expose an HTTP control plane"),
         "top-level help should explain the serve command"
     );
@@ -299,6 +303,14 @@ fn list_help_exposes_filter_flags() {
     assert!(
         stdout.contains("--watch-count"),
         "list help should expose --watch-count option"
+    );
+    assert!(
+        stdout.contains("--interactive"),
+        "list help should expose --interactive option"
+    );
+    assert!(
+        stdout.contains("--no-interactive"),
+        "list help should expose --no-interactive option"
     );
     assert!(stdout.contains("--sort"), "list help should expose --sort");
     assert!(

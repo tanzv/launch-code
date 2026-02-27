@@ -94,6 +94,11 @@ pub enum Commands {
         long_about = "Start a debug-mode session for a local program. Env merge order: --env-file values (in declaration order), then --env overrides."
     )]
     Debug(DebugArgs),
+    #[command(
+        about = "Build project artifacts with optional cross-platform targets.",
+        long_about = "Run runtime-native build commands with cross-platform options. Rust uses cargo build and target triples; Go uses go build with GOOS/GOARCH."
+    )]
+    Build(BuildArgs),
     #[command(about = "Launch a session from launch.json-style configuration.")]
     Launch(LaunchArgs),
     #[command(about = "Print debugger attach metadata for a session.")]
@@ -114,6 +119,7 @@ pub enum Commands {
     Status(SessionIdArgs),
     #[command(
         about = "List known sessions with optional filters.",
+        long_about = "List known sessions with optional filters. In interactive terminals, list defaults to compact columns for fast scanning. The `ps` alias defaults to keyboard-driven interactive mode; use --no-interactive to force plain table output. In non-interactive output (pipe/file), list/ps keeps table output for script readability.",
         visible_alias = "ps"
     )]
     List(ListArgs),
@@ -231,6 +237,95 @@ pub struct DebugArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub struct BuildArgs {
+    #[arg(
+        long,
+        value_enum,
+        help = "Runtime build backend. Cross-platform build currently supports rust and go."
+    )]
+    pub runtime: RuntimeArg,
+    #[arg(long, default_value = ".", help = "Working directory for build command.")]
+    pub cwd: String,
+    #[arg(
+        long,
+        help = "Optional build entry. Rust: bin name for --bin. Go: package path or main file path."
+    )]
+    pub entry: Option<String>,
+    #[arg(
+        long,
+        value_parser = parse_build_platform,
+        help = "Cross-platform target in os/arch format (examples: linux/amd64, linux/arm64, darwin/arm64, windows/amd64)."
+    )]
+    pub platform: Option<BuildPlatformArg>,
+    #[arg(long, help = "Rust target triple override (runtime rust only).")]
+    pub target: Option<String>,
+    #[arg(long, help = "Go target OS override (runtime go only).")]
+    pub goos: Option<String>,
+    #[arg(long, help = "Go target architecture override (runtime go only).")]
+    pub goarch: Option<String>,
+    #[arg(
+        long,
+        value_parser = parse_bool_flag,
+        help = "Set CGO_ENABLED=true/false for Go builds (runtime go only)."
+    )]
+    pub cgo_enabled: Option<bool>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Build release artifact (runtime rust only)."
+    )]
+    pub release: bool,
+    #[arg(long, help = "Go output file path for `go build -o` (runtime go only).")]
+    pub output: Option<String>,
+    #[arg(long, help = "Rust cargo target-dir override (runtime rust only).")]
+    pub target_dir: Option<String>,
+    #[arg(
+        long = "feature",
+        help = "Rust cargo feature to enable (runtime rust only). Repeat for multiple values."
+    )]
+    pub features: Vec<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Disable default cargo features (runtime rust only)."
+    )]
+    pub no_default_features: bool,
+    #[arg(
+        long = "env",
+        help = "Environment variable pair in KEY=VALUE format. Repeatable."
+    )]
+    pub env: Vec<String>,
+    #[arg(
+        long,
+        help = "Env file loaded for this build (KEY=VALUE per line). Repeatable; later files override earlier ones."
+    )]
+    pub env_file: Vec<PathBuf>,
+    #[arg(
+        long = "arg",
+        help = "Extra argument appended to the underlying build command. Repeatable."
+    )]
+    pub args: Vec<String>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Print resolved command and environment without executing build."
+    )]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildPlatformArg {
+    pub os: String,
+    pub arch: String,
+}
+
+impl BuildPlatformArg {
+    pub fn normalized(&self) -> String {
+        format!("{}/{}", self.os, self.arch)
+    }
+}
+
+#[derive(Debug, Clone, Args)]
 pub struct LaunchArgs {
     #[arg(long, help = "Configuration name from launch.json.")]
     pub name: String,
@@ -310,6 +405,19 @@ pub struct ListArgs {
         help = "Do not print table headers for table/compact formats."
     )]
     pub no_headers: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Enable keyboard-driven interactive session browser."
+    )]
+    pub interactive: bool,
+    #[arg(
+        long,
+        default_value_t = false,
+        conflicts_with = "interactive",
+        help = "Disable interactive browser mode (useful for forcing plain table output)."
+    )]
+    pub no_interactive: bool,
     #[arg(
         long = "watch",
         value_name = "INTERVAL",
@@ -767,6 +875,42 @@ fn parse_watch_interval_ms(value: &str) -> Result<u64, String> {
     amount
         .checked_mul(multiplier)
         .ok_or_else(|| "watch interval value is too large".to_string())
+}
+
+fn parse_build_platform(value: &str) -> Result<BuildPlatformArg, String> {
+    let raw = value.trim().to_ascii_lowercase();
+    if raw.is_empty() {
+        return Err("platform must not be empty".to_string());
+    }
+
+    let normalized = if raw.contains('/') {
+        raw
+    } else {
+        raw.replace('-', "/")
+    };
+
+    let mut parts = normalized.split('/');
+    let os = parts.next().unwrap_or_default().trim();
+    let arch = parts.next().unwrap_or_default().trim();
+    if os.is_empty() || arch.is_empty() || parts.next().is_some() {
+        return Err(
+            "platform must use os/arch format, for example linux/amd64 or darwin/arm64"
+                .to_string(),
+        );
+    }
+
+    Ok(BuildPlatformArg {
+        os: os.to_string(),
+        arch: arch.to_string(),
+    })
+}
+
+fn parse_bool_flag(value: &str) -> Result<bool, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err("value must be one of: true,false,1,0,yes,no,on,off".to_string()),
+    }
 }
 
 impl SessionIdArgs {
