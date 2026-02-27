@@ -10,6 +10,7 @@ description: Use when using lcode (launch-code) to run, debug, supervise, and tr
 Use this skill to operate lcode (launch-code) across the daily development cycle:
 
 - Run and debug project code with reproducible commands.
+- Build cross-platform artifacts for Rust/Go in local and CI workflows.
 - Debug mode currently supports Python, Node, and Go runtimes.
 - Direct DAP operations support Python and Go directly; Node uses adapter bridging.
 - Go debug sessions run on Delve headless multi-client mode, so repeated `lcode dap ...` calls can reuse the same live session.
@@ -41,12 +42,17 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Global link metadata is stored at `$HOME/.launch-code/links.json`.
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
 - `lcode list` defaults to global aggregation across all registered links.
+- Interactive `lcode list` / `lcode ps` defaults to compact view on TTY; non-interactive output keeps wide table columns.
+- On TTY, `lcode ps` defaults to keyboard-driven interactive browser mode; use `--no-interactive` to force plain table output.
 - `lcode running` lists only running sessions across the current scope (compact view by default).
+- `lcode build` provides runtime-native build orchestration for Rust/Go (`cargo build` / `go build`) with cross-platform flags (`--platform`, `--target`, `--goos`, `--goarch`, `--dry-run`).
 - Use `--trace-time` on commands to emit phase-level timing metrics to stderr for latency diagnostics.
 - `lcode list` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--compact`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode running` supports display options: `--format <table|compact|wide|id>` (aliases: `default/short/debug`), `--wide`, `--quiet/-q`, `--no-trunc`, `--short-id-len`, `--no-headers`.
 - `lcode list` and `lcode running` support result planning controls via `--sort <id|name|runtime|status|updated|restarts>` and `--limit <N>`.
 - `lcode list` and `lcode running` support watch mode via `--watch [INTERVAL]` and `--watch-count <N>`.
+- Interactive browser controls: `q` quit, `j/k` or arrow keys to move, `Enter` toggle details, `r` refresh.
+- Empty list/running text output includes next-step hints (`lcode running`, `lcode list --format id`, `lcode link list`).
 - `lcode logs` supports time-window filtering via `--since <TIME>` and `--until <TIME>` (unix seconds or lookback durations `30s/5m/2h/1d`) and output timestamp prefix via `--timestamps`.
 - `start` / `debug` / `config run` merge environment values in this order: saved profile env (if any), then `--env-file` values in declaration order, then `--env KEY=VALUE` overrides.
 - `lcode launch` supports `envFile` and `env` fields from `launch.json`; `env` overrides keys loaded from `envFile`, and `env` keys set to `null` are removed from inherited process environment.
@@ -173,6 +179,25 @@ Example `launch.json` snippet:
     }
   ]
 }
+```
+
+### 2.1 Cross-platform build workflow
+
+```bash
+# Rust: map platform to target triple automatically
+lcode build --runtime rust --cwd . --entry lcode --platform linux/amd64 --release
+
+# Rust: explicit target triple
+lcode build --runtime rust --cwd . --entry lcode --target aarch64-apple-darwin --release
+
+# Go: map platform to GOOS/GOARCH automatically
+lcode build --runtime go --cwd . --entry ./cmd/service --platform windows/amd64 --output ./dist/service.exe
+
+# Go: explicit GOOS/GOARCH (with optional cgo toggle)
+lcode build --runtime go --cwd . --entry ./cmd/service --goos linux --goarch arm64 --cgo-enabled false --output ./dist/service
+
+# Preview only (no execution)
+lcode build --runtime rust --cwd . --entry lcode --platform darwin/arm64 --dry-run
 ```
 
 ### 3. Saved profile workflow (`config`)
@@ -390,7 +415,7 @@ curl -sS -X DELETE \
 | `dap` fails with `unsupported_dap_runtime` | Runtime/backend is unsupported or Node adapter is not configured | Check target runtime via `lcode list` and run `lcode doctor debug --id <session_id>` | Use Python/Node debug sessions for `dap`; for Node set `LCODE_NODE_DAP_ADAPTER_CMD` or install `js-debug-adapter` |
 | `list` shows `no sessions` unexpectedly | No linked workspace contains sessions, or links are missing | `lcode link list` then `lcode --link <name> list` | Register correct workspace links, or run from the project once to bootstrap link metadata |
 | `list` is slow in global mode | Large stale link registry (missing/temp workspaces) | `lcode --json link prune --dry-run` | Run `lcode link prune` and re-run `lcode list` |
-| No useful log lines | Wrong filters or log path not present | Remove filters and retry `logs --tail 500` | Use `inspect` `log.text` and simplify regex/include filters |
+| No useful log lines | Wrong filters or log path not present | Remove filters and retry `lcode logs --tail 500` | Use `inspect` `log.text` and simplify regex/include filters |
 | Child debug process not visible | Subprocess event not adopted | `lcode dap events --id <session_id> --max 50` | `lcode dap adopt-subprocess --id <session_id>` |
 | `doctor debug` reports `D001` | DAP thread request failed | `lcode dap threads --id <session_id>` | Restart session or increase `--timeout-ms` |
 | `doctor debug` reports `D002` | DAP event channel not healthy | `lcode dap events --id <session_id> --max 20 --timeout-ms 1500` | Restart session and re-check transport |
