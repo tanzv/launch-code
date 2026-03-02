@@ -125,6 +125,11 @@ Go 调试模式说明：
 2. `<workspace>/.vscode/launch.json`
 3. `<workspace>/.launch-code/launch.json`（兜底）
 
+团队规范建议：
+
+- 以 `launch.json` 作为项目级“唯一事实来源”（建议维护在 `.vscode/launch.json`）。
+- `lcode config save/run` 仅用于个人本地临时覆盖，不作为团队共享启动规范。
+
 ### 构建命令
 
 `build` 面向构建工件，不创建会话；适合在本地或 CI 做跨平台产物构建。

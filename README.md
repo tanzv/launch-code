@@ -175,6 +175,7 @@ lcode stop <session_id>
 - Workspace runtime state: `<workspace>/.launch-code/state.json`
 - `lcode launch` config discovery order: explicit `--launch-file <path>` first; otherwise `<workspace>/.vscode/launch.json`, then fallback `<workspace>/.launch-code/launch.json`.
 - `lcode config` saved profiles persist in `<workspace>/.launch-code/state.json` under `profiles`.
+- Team recommendation: keep `launch.json` as the canonical startup configuration source; use `lcode config save/run` only for local temporary overrides.
 - `lcode list` and `lcode running` default to global aggregation across links.
 - Interactive `lcode list` / `lcode ps` defaults to compact columns on TTY; non-interactive output keeps wide columns for script readability.
 - `lcode ps` defaults to stable table output; use `--interactive` to open browser mode (navigation keys and detail panel).

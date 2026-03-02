@@ -41,8 +41,9 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - `./scripts/install.sh` bootstraps Rust if missing, installs CLI binaries, and can set up debug dependencies (`debugpy`, Node adapter, `dlv` when Go is present).
 - Global link metadata is stored at `$HOME/.launch-code/links.json`.
 - Runtime write operations default to the current workspace link (`LAUNCH_CODE_HOME` or current directory).
+- Team convention: keep `launch.json` as the canonical shared startup source; prefer `lcode launch --name ...` for routine startup.
 - `lcode launch` config resolution order is deterministic: `--launch-file` override first, then `.vscode/launch.json`, then `.launch-code/launch.json`.
-- `lcode config` profiles are persisted in `<workspace>/.launch-code/state.json` under `profiles`.
+- `lcode config` profiles are persisted in `<workspace>/.launch-code/state.json` under `profiles`, and should be treated as local temporary overrides unless explicitly standardized.
 - `lcode list` defaults to global aggregation across all registered links.
 - Interactive `lcode list` / `lcode ps` defaults to compact view on TTY; non-interactive output keeps wide table columns.
 - `lcode ps` defaults to stable table output; use `--interactive` to open keyboard-driven browser mode.
@@ -466,7 +467,7 @@ Use `--json` and inspect `error` in stderr payloads:
 - `launch` reads named configurations from `launch.json`; use `start`/`debug` for direct runtime/entry launches.
 - `launch` file discovery order is: explicit `--launch-file`, then `.vscode/launch.json`, then `.launch-code/launch.json`.
 - `launch` supports `envFile` + `env`, with `env` taking precedence over duplicated keys.
-- `config` saved profiles are persisted in `<workspace>/.launch-code/state.json` (`profiles`).
+- `config` saved profiles are persisted in `<workspace>/.launch-code/state.json` (`profiles`) and are local-first overrides, not the canonical team startup source.
 - `--log-mode stdout|tee` requires `--foreground`.
 - `--tail` cannot be combined with `--foreground`.
 - `--jobs > 1` is only valid when `--continue-on-error=true` and `--max-failures=0`.
