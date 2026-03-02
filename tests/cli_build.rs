@@ -23,11 +23,23 @@ fn build_help_exposes_cross_compile_flags() {
     assert!(output.status.success(), "build help should succeed");
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
-    assert!(stdout.contains("--platform"), "build help should expose --platform");
-    assert!(stdout.contains("--target"), "build help should expose --target");
+    assert!(
+        stdout.contains("--platform"),
+        "build help should expose --platform"
+    );
+    assert!(
+        stdout.contains("--target"),
+        "build help should expose --target"
+    );
     assert!(stdout.contains("--goos"), "build help should expose --goos");
-    assert!(stdout.contains("--goarch"), "build help should expose --goarch");
-    assert!(stdout.contains("--dry-run"), "build help should expose --dry-run");
+    assert!(
+        stdout.contains("--goarch"),
+        "build help should expose --goarch"
+    );
+    assert!(
+        stdout.contains("--dry-run"),
+        "build help should expose --dry-run"
+    );
 }
 
 #[test]
@@ -120,7 +132,10 @@ fn build_go_rejects_rust_target_flag() {
         .output()
         .expect("go build validation should run");
 
-    assert!(!output.status.success(), "invalid go build args should fail");
+    assert!(
+        !output.status.success(),
+        "invalid go build args should fail"
+    );
     let doc = parse_json_stderr(&output);
     assert_eq!(doc["ok"], false);
     assert_eq!(doc["error"], "invalid_build_options");

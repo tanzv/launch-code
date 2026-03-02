@@ -173,9 +173,11 @@ lcode stop <session_id>
 
 - Global link registry: `$HOME/.launch-code/links.json`
 - Workspace runtime state: `<workspace>/.launch-code/state.json`
+- `lcode launch` config discovery order: explicit `--launch-file <path>` first; otherwise `<workspace>/.vscode/launch.json`, then fallback `<workspace>/.launch-code/launch.json`.
+- `lcode config` saved profiles persist in `<workspace>/.launch-code/state.json` under `profiles`.
 - `lcode list` and `lcode running` default to global aggregation across links.
 - Interactive `lcode list` / `lcode ps` defaults to compact columns on TTY; non-interactive output keeps wide columns for script readability.
-- On TTY, `lcode ps` defaults to interactive browser mode (navigation keys and detail panel). Use `--no-interactive` to force plain table output.
+- `lcode ps` defaults to stable table output; use `--interactive` to open browser mode (navigation keys and detail panel).
 - Use `--link <name>` to scope to one linked workspace.
 - Use `--local` to force current workspace scope.
 - When `LAUNCH_CODE_HOME` is set and `--global` is not provided, runtime write commands stay local and do not require writing global link metadata.
@@ -254,7 +256,7 @@ lcode config run --name <profile>
 
 - JSON mode: `--json`
 - Session list formats: `--format table|compact|wide|id`
-- Interactive browser: `lcode ps` (default on TTY) or `lcode list --interactive` (`q` quit, `j/k` or arrows move, `Enter` toggle details, `r` refresh).
+- Interactive browser: `lcode ps --interactive` or `lcode list --interactive` (`q` quit, `j/k` or arrows move, `Enter` toggle details, `x` stop, `R` restart, `s` suspend, `u` resume, `r` refresh).
 - Empty list/running output prints next-step hints (`lcode running`, `lcode list --format id`, `lcode link list`).
 - Session list ordering/paging: `--sort id|name|runtime|status|updated|restarts --limit <N>`
 - Watch mode: `--watch [INTERVAL] --watch-count <N>`

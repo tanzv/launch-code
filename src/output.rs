@@ -1,7 +1,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{io, io::IsTerminal};
+use std::{io, io::IsTerminal, io::Write};
 
 use serde_json::json;
+use tabwriter::TabWriter;
 
 static JSON_MODE: AtomicBool = AtomicBool::new(false);
 static TRACE_TIME_MODE: AtomicBool = AtomicBool::new(false);
@@ -84,6 +85,51 @@ pub(crate) fn print_lines(lines: &[String]) {
             println!("{line}");
         }
     }
+}
+
+pub(crate) fn print_tabular_lines(lines: &[String]) {
+    if is_json_mode() {
+        let payload = json!({
+            "ok": true,
+            "items": lines
+        });
+        println!(
+            "{}",
+            serde_json::to_string(&payload).expect("json output should serialize")
+        );
+        return;
+    }
+
+    if lines.is_empty() {
+        println!("no sessions");
+        return;
+    }
+
+    let mut writer = TabWriter::new(Vec::<u8>::new()).padding(2).minwidth(1);
+    for line in lines {
+        if writeln!(&mut writer, "{line}").is_err() {
+            for fallback in lines {
+                println!("{fallback}");
+            }
+            return;
+        }
+    }
+    if writer.flush().is_err() {
+        for fallback in lines {
+            println!("{fallback}");
+        }
+        return;
+    }
+    let rendered = match writer.into_inner() {
+        Ok(buf) => String::from_utf8_lossy(&buf).into_owned(),
+        Err(_) => {
+            for fallback in lines {
+                println!("{fallback}");
+            }
+            return;
+        }
+    };
+    print!("{rendered}");
 }
 
 pub(crate) fn print_json_doc(value: &serde_json::Value) {

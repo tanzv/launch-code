@@ -266,7 +266,7 @@ pub(super) fn print_list_rows(rows: &[SessionListRow], render: ListRenderOptions
         all_lines.push(header.to_string());
     }
     all_lines.extend(lines);
-    output::print_lines(&all_lines);
+    output::print_tabular_lines(&all_lines);
 }
 
 pub(super) fn matches_list_status(filter: &ListStatusArg, status: &SessionStatus) -> bool {

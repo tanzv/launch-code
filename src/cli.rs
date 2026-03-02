@@ -119,7 +119,7 @@ pub enum Commands {
     Status(SessionIdArgs),
     #[command(
         about = "List known sessions with optional filters.",
-        long_about = "List known sessions with optional filters. In interactive terminals, list defaults to compact columns for fast scanning. The `ps` alias defaults to keyboard-driven interactive mode; use --no-interactive to force plain table output. In non-interactive output (pipe/file), list/ps keeps table output for script readability.",
+        long_about = "List known sessions with optional filters. In interactive terminals, list/ps defaults to compact columns for fast scanning. Use --interactive to open keyboard-driven browser mode. In non-interactive output (pipe/file), list/ps keeps table output for script readability.",
         visible_alias = "ps"
     )]
     List(ListArgs),
@@ -244,7 +244,11 @@ pub struct BuildArgs {
         help = "Runtime build backend. Cross-platform build currently supports rust and go."
     )]
     pub runtime: RuntimeArg,
-    #[arg(long, default_value = ".", help = "Working directory for build command.")]
+    #[arg(
+        long,
+        default_value = ".",
+        help = "Working directory for build command."
+    )]
     pub cwd: String,
     #[arg(
         long,
@@ -275,7 +279,10 @@ pub struct BuildArgs {
         help = "Build release artifact (runtime rust only)."
     )]
     pub release: bool,
-    #[arg(long, help = "Go output file path for `go build -o` (runtime go only).")]
+    #[arg(
+        long,
+        help = "Go output file path for `go build -o` (runtime go only)."
+    )]
     pub output: Option<String>,
     #[arg(long, help = "Rust cargo target-dir override (runtime rust only).")]
     pub target_dir: Option<String>,
@@ -894,8 +901,7 @@ fn parse_build_platform(value: &str) -> Result<BuildPlatformArg, String> {
     let arch = parts.next().unwrap_or_default().trim();
     if os.is_empty() || arch.is_empty() || parts.next().is_some() {
         return Err(
-            "platform must use os/arch format, for example linux/amd64 or darwin/arm64"
-                .to_string(),
+            "platform must use os/arch format, for example linux/amd64 or darwin/arm64".to_string(),
         );
     }
 

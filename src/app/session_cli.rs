@@ -5,6 +5,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
+use comfy_table::{Cell, ContentArrangement, Table, presets::ASCII_MARKDOWN};
 use crossterm::cursor;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
@@ -12,6 +13,7 @@ use crossterm::terminal::{self, ClearType};
 use launch_code::model::{RuntimeKind, SessionRecord, SessionStatus};
 use launch_code::state::StateStore;
 use serde_json::json;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::cli::{
     CleanupArgs, CleanupStatusArg, ListArgs, ListFormatArg, ListSortArg, ListStatusArg,
@@ -72,6 +74,17 @@ enum ListRenderView {
     Id,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InteractiveAction {
+    Stop,
+    Restart,
+    Suspend,
+    Resume,
+}
+
+const INTERACTIVE_STOP_GRACE_TIMEOUT_MS: u64 = 1500;
+const INTERACTIVE_RESTART_GRACE_TIMEOUT_MS: u64 = 150;
+
 #[derive(Debug, Clone)]
 struct GlobalCleanupRow {
     link_name: String,
@@ -98,6 +111,51 @@ struct GlobalListCollectStats {
     load_sessions_ms: u128,
     build_rows_ms: u128,
 }
+
+#[cfg(test)]
+#[derive(Debug, Clone)]
+struct InteractiveRowColumns {
+    id: String,
+    status: String,
+    runtime: String,
+    mode: String,
+    pid: String,
+    name: String,
+    debug: String,
+    link: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InteractiveTableLayout {
+    Full,
+    NoLink,
+    Core,
+    Narrow,
+    Minimal,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct InteractiveTableSpec {
+    headers: &'static [&'static str],
+    id_width: usize,
+    status_width: usize,
+    runtime_width: Option<usize>,
+    mode_width: Option<usize>,
+    pid_width: usize,
+    name_width: usize,
+    debug_width: Option<usize>,
+    link_width: Option<usize>,
+}
+
+const INTERACTIVE_HEADERS_FULL: [&str; 9] = [
+    "", "ID", "STATUS", "RUNTIME", "MODE", "PID", "NAME", "DEBUG", "LINK",
+];
+const INTERACTIVE_HEADERS_NO_LINK: [&str; 8] = [
+    "", "ID", "STATUS", "RUNTIME", "MODE", "PID", "NAME", "DEBUG",
+];
+const INTERACTIVE_HEADERS_CORE: [&str; 7] = ["", "ID", "STATUS", "RUNTIME", "MODE", "PID", "NAME"];
+const INTERACTIVE_HEADERS_NARROW: [&str; 7] = ["", "ID", "STATUS", "RT", "MODE", "PID", "NAME"];
+const INTERACTIVE_HEADERS_MINIMAL: [&str; 5] = ["", "ID", "STATUS", "PID", "NAME"];
 
 impl ListFilters {
     fn from_args(args: &ListArgs) -> Self {
@@ -394,16 +452,19 @@ fn collect_global_rows(
 fn should_enable_interactive_list(
     args: &ListArgs,
     stdout_is_terminal: bool,
-    ps_alias_mode: bool,
+    _ps_alias_mode: bool,
 ) -> bool {
-    if output::is_json_mode() || args.watch_interval_ms.is_some() || args.quiet || args.no_interactive
+    if output::is_json_mode()
+        || args.watch_interval_ms.is_some()
+        || args.quiet
+        || args.no_interactive
     {
         return false;
     }
     if !stdout_is_terminal {
         return false;
     }
-    args.interactive || ps_alias_mode
+    args.interactive
 }
 
 fn handle_list_interactive_local(store: &StateStore, args: &ListArgs) -> Result<(), AppError> {
@@ -411,7 +472,7 @@ fn handle_list_interactive_local(store: &StateStore, args: &ListArgs) -> Result<
     let order = ListOrderOptions::from_list_args(args);
     let render = list_render_options_from_list_args(args);
 
-    run_interactive_browser("scope=local", render, || {
+    run_interactive_browser("scope=local", render, Some(store), || {
         let mut rows = collect_rows_from_store(store, &filters, None, None, true)?;
         apply_list_order(&mut rows, order);
         Ok(rows)
@@ -423,7 +484,7 @@ fn handle_list_interactive_global(args: &ListArgs) -> Result<(), AppError> {
     let order = ListOrderOptions::from_list_args(args);
     let render = list_render_options_from_list_args(args);
 
-    run_interactive_browser("scope=global", render, || {
+    run_interactive_browser("scope=global", render, None, || {
         let (mut rows, _stats) = collect_global_rows(&filters, true)?;
         apply_list_order(&mut rows, order);
         Ok(rows)
@@ -433,6 +494,7 @@ fn handle_list_interactive_global(args: &ListArgs) -> Result<(), AppError> {
 fn run_interactive_browser<F>(
     scope_label: &str,
     render: ListRenderOptions,
+    local_store: Option<&StateStore>,
     mut collect_rows: F,
 ) -> Result<(), AppError>
 where
@@ -461,7 +523,9 @@ where
 
         let now = Instant::now();
         let timeout = next_refresh_at.saturating_duration_since(now);
-        if event::poll(timeout)? && let Event::Key(key) = event::read()? {
+        if event::poll(timeout)?
+            && let Event::Key(key) = event::read()?
+        {
             if key.kind != KeyEventKind::Press {
                 continue;
             }
@@ -487,17 +551,57 @@ where
                     show_details = !show_details;
                 }
                 KeyCode::Char('r') => {
-                    rows = collect_rows()?;
-                    status_line = String::from("refreshed");
+                    status_line = refresh_interactive_rows(
+                        &mut rows,
+                        &mut collect_rows,
+                        "refreshed",
+                        "refresh",
+                    );
                     next_refresh_at = Instant::now() + refresh_interval;
                 }
-                _ => {}
+                code => {
+                    if let Some(action) = interactive_action_from_key(code) {
+                        if rows.is_empty() {
+                            status_line = String::from("action ignored: no selected session");
+                            continue;
+                        }
+
+                        let selected_row = rows[selected].clone();
+                        match execute_interactive_action(action, &selected_row, local_store) {
+                            Ok(message) => {
+                                let refresh_status = refresh_interactive_rows(
+                                    &mut rows,
+                                    &mut collect_rows,
+                                    "rows refreshed",
+                                    "action refresh",
+                                );
+                                if selected >= rows.len() && !rows.is_empty() {
+                                    selected = rows.len().saturating_sub(1);
+                                }
+                                status_line = format!("{message}; {refresh_status}");
+                            }
+                            Err(err) => {
+                                status_line = format!(
+                                    "{} failed: {} ({})",
+                                    interactive_action_label(action),
+                                    err,
+                                    err.code()
+                                );
+                            }
+                        }
+                        next_refresh_at = Instant::now() + refresh_interval;
+                    }
+                }
             }
         }
 
         if Instant::now() >= next_refresh_at {
-            rows = collect_rows()?;
-            status_line = String::from("auto refreshed");
+            status_line = refresh_interactive_rows(
+                &mut rows,
+                &mut collect_rows,
+                "auto refreshed",
+                "auto refresh",
+            );
             next_refresh_at = Instant::now() + refresh_interval;
         }
     }
@@ -513,26 +617,36 @@ fn render_interactive_frame(
     render: ListRenderOptions,
 ) -> Result<(), AppError> {
     let mut stdout = io::stdout();
-    execute!(stdout, cursor::MoveTo(0, 0), terminal::Clear(ClearType::All))?;
-
-    writeln!(
+    execute!(
         stdout,
-        "lcode ps --interactive ({scope_label})  keys: ↑/k ↓/j select  Enter details  r refresh  q quit"
+        cursor::MoveTo(0, 0),
+        terminal::Clear(ClearType::All)
     )?;
-    writeln!(stdout, "status: {status_line}")?;
+    let (width, height) = terminal::size()?;
+    let max_line_width = max_interactive_line_width(width);
+
+    let title = format!(
+        "lcode ps --interactive ({scope_label})  keys: ↑/k ↓/j select  Enter details  x stop  R restart  s suspend  u resume  r refresh  q quit"
+    );
+    write_interactive_line(&mut stdout, &title, max_line_width)?;
+    write_interactive_line(
+        &mut stdout,
+        &format!("status: {status_line}"),
+        max_line_width,
+    )?;
     writeln!(stdout)?;
 
     if rows.is_empty() {
-        writeln!(stdout, "no sessions")?;
-        writeln!(
-            stdout,
-            "hint: use `lcode running` for active sessions, `lcode list --format id` for raw ids, and `lcode link list` to check global links."
+        write_interactive_line(&mut stdout, "no sessions", max_line_width)?;
+        write_interactive_line(
+            &mut stdout,
+            "hint: use `lcode running` for active sessions, `lcode list --format id` for raw ids, and `lcode link list` to check global links.",
+            max_line_width,
         )?;
         stdout.flush()?;
         return Ok(());
     }
 
-    let (_width, height) = terminal::size()?;
     let reserved_detail_lines = if show_details { 11usize } else { 0usize };
     let reserved_header_lines = 5usize;
     let list_capacity = usize::from(height)
@@ -544,14 +658,17 @@ fn render_interactive_frame(
         .min(rows.len().saturating_sub(window));
     let end = start.saturating_add(window);
 
-    writeln!(stdout, " ID\tSTATUS\tRUNTIME\tMODE\tPID\tNAME\tDEBUG\tLINK")?;
-    for (idx, row) in rows.iter().enumerate().take(end).skip(start) {
-        let marker = if idx == selected { ">" } else { " " };
-        writeln!(
-            stdout,
-            "{marker} {}",
-            format_interactive_row(row, render.no_trunc, render.short_id_len)
-        )?;
+    let table = build_interactive_table(
+        rows,
+        start,
+        end,
+        selected,
+        render.no_trunc,
+        render.short_id_len,
+        max_line_width,
+    );
+    for line in table.lines() {
+        write_interactive_line(&mut stdout, line, max_line_width)?;
     }
 
     if show_details {
@@ -576,25 +693,74 @@ fn render_interactive_frame(
         };
 
         writeln!(stdout)?;
-        writeln!(stdout, "-- selected session ------------------------------------------------")?;
-        writeln!(stdout, "id: {}", row.id)?;
-        writeln!(stdout, "status: {}  runtime: {}  mode: {}", row.status, row.runtime, row.mode)?;
-        writeln!(
-            stdout,
-            "pid: {pid_display}  restarts: {}  debug: {debug_display}",
-            row.restart_count
+        write_interactive_line(
+            &mut stdout,
+            "-- selected session ------------------------------------------------",
+            max_line_width,
         )?;
-        writeln!(stdout, "name: {}", row.name)?;
-        writeln!(stdout, "entry: {}", row.entry)?;
-        writeln!(stdout, "link: {link_display}  parent: {parent_display}")?;
-        writeln!(stdout, "children: {children_display}")?;
+        write_interactive_line(&mut stdout, &format!("id: {}", row.id), max_line_width)?;
+        write_interactive_line(
+            &mut stdout,
+            &format!(
+                "status: {}  runtime: {}  mode: {}",
+                row.status, row.runtime, row.mode
+            ),
+            max_line_width,
+        )?;
+        write_interactive_line(
+            &mut stdout,
+            &format!(
+                "pid: {pid_display}  restarts: {}  debug: {debug_display}",
+                row.restart_count
+            ),
+            max_line_width,
+        )?;
+        write_interactive_line(&mut stdout, &format!("name: {}", row.name), max_line_width)?;
+        write_interactive_line(
+            &mut stdout,
+            &format!("entry: {}", row.entry),
+            max_line_width,
+        )?;
+        write_interactive_line(
+            &mut stdout,
+            &format!("link: {link_display}  parent: {parent_display}"),
+            max_line_width,
+        )?;
+        write_interactive_line(
+            &mut stdout,
+            &format!("children: {children_display}"),
+            max_line_width,
+        )?;
     }
 
     stdout.flush()?;
     Ok(())
 }
 
+#[cfg(test)]
 fn format_interactive_row(row: &SessionListRow, no_trunc: bool, short_id_len: usize) -> String {
+    let columns = build_interactive_row_columns(row, no_trunc, short_id_len);
+    let id_width = interactive_id_width(short_id_len);
+
+    format!(
+        "{}  {}  {}  {}  {}  {}  {}  {}",
+        pad_to_display_width(&columns.id, id_width),
+        columns.status,
+        columns.runtime,
+        columns.mode,
+        columns.pid,
+        columns.name,
+        columns.debug,
+        columns.link
+    )
+}
+
+#[cfg(test)]
+fn build_interactive_row_columns(
+    row: &SessionListRow,
+    no_trunc: bool,
+    short_id_len: usize,
+) -> InteractiveRowColumns {
     let id = if no_trunc {
         row.id.clone()
     } else {
@@ -604,22 +770,326 @@ fn format_interactive_row(row: &SessionListRow, no_trunc: bool, short_id_len: us
         .pid
         .map(|value| value.to_string())
         .unwrap_or_else(|| "-".to_string());
-    let name = truncate_interactive_field(&row.name, 36, no_trunc);
-    let debug = truncate_interactive_field(row.debug_endpoint.as_deref().unwrap_or("-"), 24, no_trunc);
-    let link = truncate_interactive_field(row.link_name.as_deref().unwrap_or("-"), 20, no_trunc);
+    let name = fit_interactive_column(&row.name, 36, no_trunc);
+    let debug = fit_interactive_column(row.debug_endpoint.as_deref().unwrap_or("-"), 24, no_trunc);
+    let link = fit_interactive_column(row.link_name.as_deref().unwrap_or("-"), 20, no_trunc);
 
-    format!(
-        "{id}\t{}\t{}\t{}\t{pid}\t{name}\t{debug}\t{link}",
-        row.status, row.runtime, row.mode
-    )
+    InteractiveRowColumns {
+        id: fit_interactive_column(&id, interactive_id_width(short_id_len), no_trunc),
+        status: fit_interactive_column(row.status, 10, no_trunc),
+        runtime: fit_interactive_column(row.runtime, 8, no_trunc),
+        mode: fit_interactive_column(row.mode, 7, no_trunc),
+        pid: fit_interactive_column(&pid, 8, no_trunc),
+        name,
+        debug,
+        link,
+    }
 }
 
-fn truncate_interactive_field(value: &str, max_chars: usize, no_trunc: bool) -> String {
-    if no_trunc || value.chars().count() <= max_chars {
+fn build_interactive_table(
+    rows: &[SessionListRow],
+    start: usize,
+    end: usize,
+    selected: usize,
+    no_trunc: bool,
+    short_id_len: usize,
+    max_line_width: usize,
+) -> String {
+    let layout = select_interactive_table_layout(max_line_width);
+    let spec = interactive_table_spec(layout, short_id_len);
+    let mut table = Table::new();
+    table.load_preset(ASCII_MARKDOWN);
+    table.set_content_arrangement(ContentArrangement::Disabled);
+    table.set_header(spec.headers.to_vec());
+
+    for (idx, row) in rows.iter().enumerate().take(end).skip(start) {
+        let marker = if idx == selected { ">" } else { " " };
+        let id_source = if no_trunc {
+            row.id.clone()
+        } else {
+            row.id.chars().take(spec.id_width).collect()
+        };
+        let pid = row
+            .pid
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let debug = row.debug_endpoint.as_deref().unwrap_or("-");
+        let link = row.link_name.as_deref().unwrap_or("-");
+
+        let mut cells = vec![
+            Cell::new(marker),
+            Cell::new(fit_interactive_column(&id_source, spec.id_width, no_trunc)),
+            Cell::new(fit_interactive_column(
+                row.status,
+                spec.status_width,
+                no_trunc,
+            )),
+        ];
+
+        if let Some(width) = spec.runtime_width {
+            cells.push(Cell::new(fit_interactive_column(
+                row.runtime,
+                width,
+                no_trunc,
+            )));
+        }
+        if let Some(width) = spec.mode_width {
+            cells.push(Cell::new(fit_interactive_column(row.mode, width, no_trunc)));
+        }
+
+        cells.push(Cell::new(fit_interactive_column(
+            &pid,
+            spec.pid_width,
+            no_trunc,
+        )));
+        cells.push(Cell::new(fit_interactive_column(
+            &row.name,
+            spec.name_width,
+            no_trunc,
+        )));
+
+        if let Some(width) = spec.debug_width {
+            cells.push(Cell::new(fit_interactive_column(debug, width, no_trunc)));
+        }
+        if let Some(width) = spec.link_width {
+            cells.push(Cell::new(fit_interactive_column(link, width, no_trunc)));
+        }
+
+        table.add_row(cells);
+    }
+
+    table.to_string()
+}
+
+fn select_interactive_table_layout(max_line_width: usize) -> InteractiveTableLayout {
+    if max_line_width >= 127 {
+        InteractiveTableLayout::Full
+    } else if max_line_width >= 112 {
+        InteractiveTableLayout::NoLink
+    } else if max_line_width >= 93 {
+        InteractiveTableLayout::Core
+    } else if max_line_width >= 77 {
+        InteractiveTableLayout::Narrow
+    } else {
+        InteractiveTableLayout::Minimal
+    }
+}
+
+fn interactive_table_spec(
+    layout: InteractiveTableLayout,
+    short_id_len: usize,
+) -> InteractiveTableSpec {
+    let core_id_width = interactive_id_width(short_id_len).clamp(8, 12);
+    match layout {
+        InteractiveTableLayout::Full => InteractiveTableSpec {
+            headers: &INTERACTIVE_HEADERS_FULL,
+            id_width: core_id_width,
+            status_width: 8,
+            runtime_width: Some(7),
+            mode_width: Some(6),
+            pid_width: 7,
+            name_width: 24,
+            debug_width: Some(18),
+            link_width: Some(16),
+        },
+        InteractiveTableLayout::NoLink => InteractiveTableSpec {
+            headers: &INTERACTIVE_HEADERS_NO_LINK,
+            id_width: core_id_width,
+            status_width: 8,
+            runtime_width: Some(7),
+            mode_width: Some(6),
+            pid_width: 7,
+            name_width: 28,
+            debug_width: Some(18),
+            link_width: None,
+        },
+        InteractiveTableLayout::Core => InteractiveTableSpec {
+            headers: &INTERACTIVE_HEADERS_CORE,
+            id_width: core_id_width,
+            status_width: 8,
+            runtime_width: Some(7),
+            mode_width: Some(6),
+            pid_width: 7,
+            name_width: 30,
+            debug_width: None,
+            link_width: None,
+        },
+        InteractiveTableLayout::Narrow => InteractiveTableSpec {
+            headers: &INTERACTIVE_HEADERS_NARROW,
+            id_width: core_id_width.min(10),
+            status_width: 8,
+            runtime_width: Some(5),
+            mode_width: Some(5),
+            pid_width: 6,
+            name_width: 20,
+            debug_width: None,
+            link_width: None,
+        },
+        InteractiveTableLayout::Minimal => InteractiveTableSpec {
+            headers: &INTERACTIVE_HEADERS_MINIMAL,
+            id_width: core_id_width.min(8),
+            status_width: 8,
+            runtime_width: None,
+            mode_width: None,
+            pid_width: 6,
+            name_width: 22,
+            debug_width: None,
+            link_width: None,
+        },
+    }
+}
+
+fn fit_interactive_column(value: &str, width: usize, no_trunc: bool) -> String {
+    let normalized = value.replace(['\r', '\n', '\t'], " ");
+    let rendered = if no_trunc {
+        normalized
+    } else {
+        truncate_to_display_width(&normalized, width)
+    };
+    pad_to_display_width(&rendered, width)
+}
+
+fn interactive_id_width(short_id_len: usize) -> usize {
+    short_id_len.clamp(8, 40)
+}
+
+fn max_interactive_line_width(width: u16) -> usize {
+    usize::from(width).saturating_sub(1).max(20)
+}
+
+fn write_interactive_line(
+    stdout: &mut io::Stdout,
+    line: &str,
+    max_line_width: usize,
+) -> Result<(), AppError> {
+    writeln!(stdout, "{}", clip_display_width(line, max_line_width))?;
+    Ok(())
+}
+
+fn clip_display_width(value: &str, max_width: usize) -> String {
+    if display_width(value) <= max_width {
         return value.to_string();
     }
-    let prefix: String = value.chars().take(max_chars.saturating_sub(3)).collect();
-    format!("{prefix}...")
+    truncate_to_display_width(value, max_width)
+}
+
+fn truncate_to_display_width(value: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    if display_width(value) <= max_width {
+        return value.to_string();
+    }
+    if max_width <= 3 {
+        return ".".repeat(max_width);
+    }
+
+    let mut width = 0usize;
+    let mut rendered = String::new();
+    let target = max_width.saturating_sub(3);
+    for ch in value.chars() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width.saturating_add(w) > target {
+            break;
+        }
+        rendered.push(ch);
+        width = width.saturating_add(w);
+    }
+    rendered.push_str("...");
+    rendered
+}
+
+fn pad_to_display_width(value: &str, width: usize) -> String {
+    let current = display_width(value);
+    if current >= width {
+        return value.to_string();
+    }
+    format!("{value}{}", " ".repeat(width - current))
+}
+
+fn display_width(value: &str) -> usize {
+    UnicodeWidthStr::width(value)
+}
+
+fn refresh_interactive_rows<F>(
+    rows: &mut Vec<SessionListRow>,
+    collect_rows: &mut F,
+    success_status: &str,
+    context: &str,
+) -> String
+where
+    F: FnMut() -> Result<Vec<SessionListRow>, AppError>,
+{
+    match collect_rows() {
+        Ok(updated_rows) => {
+            *rows = updated_rows;
+            success_status.to_string()
+        }
+        Err(err) => format!("{context} failed: {} ({})", err, err.code()),
+    }
+}
+
+fn interactive_action_from_key(code: KeyCode) -> Option<InteractiveAction> {
+    match code {
+        KeyCode::Char('x') => Some(InteractiveAction::Stop),
+        KeyCode::Char('R') => Some(InteractiveAction::Restart),
+        KeyCode::Char('s') => Some(InteractiveAction::Suspend),
+        KeyCode::Char('u') => Some(InteractiveAction::Resume),
+        _ => None,
+    }
+}
+
+fn interactive_action_label(action: InteractiveAction) -> &'static str {
+    match action {
+        InteractiveAction::Stop => "stop",
+        InteractiveAction::Restart => "restart",
+        InteractiveAction::Suspend => "suspend",
+        InteractiveAction::Resume => "resume",
+    }
+}
+
+fn resolve_interactive_action_store(
+    row: &SessionListRow,
+    local_store: Option<&StateStore>,
+) -> Option<StateStore> {
+    if let Some(link_path) = row.link_path.as_deref() {
+        return Some(StateStore::new(link_path));
+    }
+    local_store.cloned()
+}
+
+fn execute_interactive_action(
+    action: InteractiveAction,
+    row: &SessionListRow,
+    local_store: Option<&StateStore>,
+) -> Result<String, AppError> {
+    let store = resolve_interactive_action_store(row, local_store).ok_or_else(|| {
+        AppError::InvalidStartOptions("interactive action target store is missing".to_string())
+    })?;
+
+    let session = match action {
+        InteractiveAction::Stop => super::api_stop_session_with_options(
+            &store,
+            &row.id,
+            false,
+            INTERACTIVE_STOP_GRACE_TIMEOUT_MS,
+        )?,
+        InteractiveAction::Restart => super::api_restart_session_with_options(
+            &store,
+            &row.id,
+            true,
+            INTERACTIVE_RESTART_GRACE_TIMEOUT_MS,
+        )?,
+        InteractiveAction::Suspend => super::api_suspend_session(&store, &row.id)?,
+        InteractiveAction::Resume => super::api_resume_session(&store, &row.id)?,
+    };
+
+    Ok(format!(
+        "{} ok id={} status={}",
+        interactive_action_label(action),
+        session.id,
+        status_label(&session.status)
+    ))
 }
 
 struct InteractiveTerminalGuard;
@@ -1111,6 +1581,7 @@ fn resolve_cleanup_statuses(args: &CleanupArgs) -> Vec<SessionStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn build_list_args() -> ListArgs {
         ListArgs {
@@ -1172,9 +1643,9 @@ mod tests {
     }
 
     #[test]
-    fn interactive_mode_defaults_to_ps_alias_on_tty() {
+    fn interactive_mode_requires_explicit_flag() {
         let args = build_list_args();
-        assert!(should_enable_interactive_list(&args, true, true));
+        assert!(!should_enable_interactive_list(&args, true, true));
         assert!(!should_enable_interactive_list(&args, false, true));
         assert!(!should_enable_interactive_list(&args, true, false));
     }
@@ -1183,10 +1654,178 @@ mod tests {
     fn interactive_mode_respects_force_on_and_off_flags() {
         let mut interactive_args = build_list_args();
         interactive_args.interactive = true;
-        assert!(should_enable_interactive_list(&interactive_args, true, false));
+        assert!(should_enable_interactive_list(
+            &interactive_args,
+            true,
+            false
+        ));
 
         let mut disabled_args = build_list_args();
         disabled_args.no_interactive = true;
         assert!(!should_enable_interactive_list(&disabled_args, true, true));
+    }
+
+    fn build_row_with_link(link_path: Option<&str>) -> SessionListRow {
+        SessionListRow {
+            id: "session-a".to_string(),
+            status: "running",
+            runtime: "python",
+            mode: "run",
+            updated_at: 1,
+            pid: Some(1234),
+            restart_count: 0,
+            name: "session-a".to_string(),
+            entry: "app.py".to_string(),
+            debug_endpoint: None,
+            parent_session_id: None,
+            child_session_ids: Vec::new(),
+            link_name: link_path.map(|_| "demo".to_string()),
+            link_path: link_path.map(ToString::to_string),
+        }
+    }
+
+    #[test]
+    fn interactive_action_key_bindings_cover_lifecycle_ops() {
+        assert_eq!(
+            interactive_action_from_key(KeyCode::Char('x')),
+            Some(InteractiveAction::Stop)
+        );
+        assert_eq!(
+            interactive_action_from_key(KeyCode::Char('R')),
+            Some(InteractiveAction::Restart)
+        );
+        assert_eq!(
+            interactive_action_from_key(KeyCode::Char('s')),
+            Some(InteractiveAction::Suspend)
+        );
+        assert_eq!(
+            interactive_action_from_key(KeyCode::Char('u')),
+            Some(InteractiveAction::Resume)
+        );
+        assert_eq!(interactive_action_from_key(KeyCode::Char('q')), None);
+    }
+
+    #[test]
+    fn interactive_action_store_prefers_row_link_path() {
+        let local_store = StateStore::new("/tmp/local-project");
+        let row = build_row_with_link(Some("/tmp/global-link-project"));
+
+        let resolved = resolve_interactive_action_store(&row, Some(&local_store))
+            .expect("link path should resolve action store");
+
+        assert_eq!(resolved.root_path(), Path::new("/tmp/global-link-project"));
+    }
+
+    #[test]
+    fn interactive_action_store_uses_local_when_link_path_missing() {
+        let local_store = StateStore::new("/tmp/local-project");
+        let row = build_row_with_link(None);
+
+        let resolved = resolve_interactive_action_store(&row, Some(&local_store))
+            .expect("local store should be used");
+
+        assert_eq!(resolved.root_path(), Path::new("/tmp/local-project"));
+    }
+
+    #[test]
+    fn interactive_row_uses_fixed_width_columns_without_tabs() {
+        let row = build_row_with_link(Some("/tmp/project"));
+        let rendered = format_interactive_row(&row, false, 12);
+
+        assert!(
+            !rendered.contains('\t'),
+            "interactive row should use fixed-width spacing instead of tab-separated output"
+        );
+        assert!(
+            rendered.contains("running"),
+            "interactive row should keep core status information visible"
+        );
+    }
+
+    #[test]
+    fn refresh_interactive_rows_keeps_previous_rows_on_error() {
+        let original = build_row_with_link(None);
+        let mut rows = vec![original.clone()];
+        let mut collector = || -> Result<Vec<SessionListRow>, AppError> {
+            Err(AppError::InvalidStartOptions("refresh failed".to_string()))
+        };
+
+        let status = refresh_interactive_rows(&mut rows, &mut collector, "ok", "auto refresh");
+
+        assert_eq!(rows.len(), 1, "failed refresh should keep previous rows");
+        assert_eq!(rows[0].id, original.id);
+        assert!(
+            status.contains("auto refresh failed"),
+            "status line should explain refresh failure context"
+        );
+        assert!(
+            status.contains("invalid_start_options"),
+            "status line should include stable error code"
+        );
+    }
+
+    #[test]
+    fn refresh_interactive_rows_updates_rows_on_success() {
+        let mut rows = vec![build_row_with_link(None)];
+        let mut collector = || -> Result<Vec<SessionListRow>, AppError> {
+            Ok(vec![build_row_with_link(Some("/tmp/new-link"))])
+        };
+
+        let status = refresh_interactive_rows(&mut rows, &mut collector, "auto refreshed", "auto");
+
+        assert_eq!(status, "auto refreshed");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].link_path.as_deref(), Some("/tmp/new-link"));
+    }
+
+    #[test]
+    fn truncate_interactive_field_respects_display_width_for_wide_chars() {
+        let value = "中文中文中文";
+        let rendered = truncate_to_display_width(value, 6);
+        assert!(
+            display_width(&rendered) <= 6,
+            "rendered value should fit the target display width"
+        );
+    }
+
+    #[test]
+    fn clip_display_width_limits_line_size() {
+        let rendered = clip_display_width("1234567890", 5);
+        assert!(display_width(&rendered) <= 5);
+    }
+
+    #[test]
+    fn interactive_table_uses_narrow_layout_on_small_terminal() {
+        let row = build_row_with_link(Some("/tmp/project"));
+        let table = build_interactive_table(&[row], 0, 1, 0, false, 12, 79);
+
+        assert!(
+            table.contains("RT"),
+            "narrow layout should keep runtime column"
+        );
+        assert!(
+            !table.contains("DEBUG"),
+            "narrow layout should hide debug column"
+        );
+        assert!(
+            !table.contains("LINK"),
+            "narrow layout should hide link column"
+        );
+    }
+
+    #[test]
+    fn interactive_table_uses_full_layout_on_wide_terminal() {
+        let mut row = build_row_with_link(Some("/tmp/project"));
+        row.debug_endpoint = Some("127.0.0.1:3000".to_string());
+        let table = build_interactive_table(&[row], 0, 1, 0, false, 12, 140);
+
+        assert!(
+            table.contains("DEBUG"),
+            "wide layout should include debug column"
+        );
+        assert!(
+            table.contains("LINK"),
+            "wide layout should include link column"
+        );
     }
 }

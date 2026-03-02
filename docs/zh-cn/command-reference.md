@@ -9,6 +9,64 @@
 - `--link <name>` 将命令路由到指定链接工作区。
 - 所有命令都支持 `--json` 输出结构化结果。
 
+## 约束审查与执行流程
+
+### 约束审查结论（操作层）
+
+- 命令入口统一：推荐使用 `lcode`（`launch-code` 为兼容别名）。
+- 作用域约束明确：默认全局；仅在显式传入 `--local` 或 `--link <name>` 时切换路由。
+- 生命周期命令约束：支持 `--id` 与位置参数简写，且在全局模式下可跨链接按 id 回退路由。
+- 批量变更安全约束：全局非 dry-run 批量操作需要显式 `--yes` 确认。
+- 输出契约约束：自动化场景应优先 `--json`，交互排查优先表格/交互模式。
+- 列表可读性约束：`lcode ps` 默认稳定表格输出；`--interactive` 进入键盘交互模式。
+
+### 使用流程图（建议）
+
+```mermaid
+flowchart TD
+    A[开始] --> B{目标类型}
+    B -->|启动/调试| C[使用 lcode start/debug/launch]
+    B -->|查看状态| D[使用 lcode list/running/ps/status/inspect/logs]
+    B -->|生命周期变更| E[使用 lcode stop/restart/suspend/resume]
+    B -->|诊断与排障| F[使用 lcode doctor/dap]
+
+    C --> G{作用域选择}
+    D --> G
+    E --> G
+    F --> G
+
+    G -->|默认| H[全局作用域]
+    G -->|--local| I[当前工作区]
+    G -->|--link <name>| J[指定链接工作区]
+
+    E --> K{是否批量 --all/all}
+    K -->|否| L[单会话执行]
+    K -->|是| M[先执行 --dry-run 预览]
+    M --> N{是否全局且非 dry-run}
+    N -->|是| O[必须追加 --yes]
+    N -->|否| P[按计划执行]
+
+    D --> Q{是否需要交互浏览}
+    Q -->|是| R[lcode ps --interactive]
+    Q -->|否| S[lcode ps 或 lcode list/running]
+```
+
+### 补充强提示（可直接复制）
+
+1. 执行前健康检查（运行时与路由）
+   - `lcode doctor runtime --strict --json`
+   - `lcode link list --json`
+2. 批量变更标准两步（先预览再执行）
+   - `lcode stop --all --status running --dry-run --json`
+   - `lcode stop --all --status running --yes --summary`
+3. 会话故障排查最短链路
+   - `lcode status <session_id> --json`
+   - `lcode inspect <session_id> --tail 100 --json`
+   - `lcode logs <session_id> --tail 200 --since 10m --timestamps`
+4. 交互模式优先用于人工巡检
+   - `lcode ps --interactive`
+   - `lcode list --interactive`
+
 ## 顶级命令一览
 
 | 命令 | 作用 |
@@ -60,6 +118,12 @@ Go 调试模式说明：
 
 1. `--env-file`（按声明顺序，后者覆盖前者）
 2. `--env KEY=VALUE`
+
+`launch` 配置文件查找顺序：
+
+1. 显式 `--launch-file <path>`（若提供则只使用该路径）
+2. `<workspace>/.vscode/launch.json`
+3. `<workspace>/.launch-code/launch.json`（兜底）
 
 ### 构建命令
 
@@ -133,8 +197,8 @@ Go 调试模式说明：
 - `--interactive` / `--no-interactive`
 - `--short-id-len` `--no-trunc` `--no-headers` `-q`
 - 交互终端（TTY）中，`lcode list` / `lcode ps` 默认使用紧凑列；非交互输出默认宽表，便于脚本解析。
-- 交互终端（TTY）中，`lcode ps` 默认进入交互浏览模式；可用 `--no-interactive` 强制使用普通表格输出。
-- 交互模式按键：`q` 退出，`j/k` 或方向键移动，`Enter` 展开/收起详情，`r` 刷新。
+- `lcode ps` 默认输出稳定表格；可用 `--interactive` 进入交互浏览模式。
+- 交互模式按键：`q` 退出，`j/k` 或方向键移动，`Enter` 展开/收起详情，`x` 停止，`R` 重启，`s` 挂起，`u` 恢复，`r` 刷新。
 - 空结果会输出下一步提示（如 `lcode running`、`lcode list --format id`、`lcode link list`）。
 - 排序/限制：`--sort <id|name|runtime|status|updated|restarts>` `--limit <N>`
 - 监控模式：`--watch [INTERVAL] --watch-count <N>`
@@ -156,6 +220,7 @@ Go 调试模式说明：
 `config` 子命令：
 
 - `list` `show` `save` `delete` `run` `validate` `export` `import`
+- `config` 配置（profiles）持久化在 `<workspace>/.launch-code/state.json` 的 `profiles` 字段中。
 
 `project` 子命令：
 

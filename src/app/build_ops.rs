@@ -32,7 +32,9 @@ pub(super) fn handle_build(args: &BuildArgs) -> Result<(), AppError> {
         RuntimeArg::Rust => build_plan_for_rust(args, env_map)?,
         RuntimeArg::Go => build_plan_for_go(args, env_map)?,
         RuntimeArg::Python | RuntimeArg::Node => {
-            return Err(AppError::UnsupportedBuildRuntime(runtime_label(&args.runtime).to_string()))
+            return Err(AppError::UnsupportedBuildRuntime(
+                runtime_label(&args.runtime).to_string(),
+            ));
         }
     };
 
@@ -250,7 +252,9 @@ fn sanitize_optional_flag(raw: Option<&str>, flag_name: &str) -> Result<Option<S
     };
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(invalid_build_options(format!("`--{flag_name}` must not be empty")));
+        return Err(invalid_build_options(format!(
+            "`--{flag_name}` must not be empty"
+        )));
     }
     Ok(Some(trimmed.to_ascii_lowercase()))
 }
@@ -301,7 +305,9 @@ fn print_build_plan(plan: &BuildPlan, exit_code: Option<i32>) {
             "dry_run": plan.dry_run,
             "executed": !plan.dry_run,
         });
-        if let Some(code) = exit_code && let Some(doc) = payload.as_object_mut() {
+        if let Some(code) = exit_code
+            && let Some(doc) = payload.as_object_mut()
+        {
             doc.insert("exit_code".to_string(), json!(code));
         }
         output::print_json_doc(&payload);

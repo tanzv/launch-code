@@ -282,7 +282,10 @@ mod tests {
 
     #[test]
     fn ps_alias_detection_handles_global_flags() {
-        assert!(invoked_via_ps_alias(&["lcode".to_string(), "ps".to_string()]));
+        assert!(invoked_via_ps_alias(&[
+            "lcode".to_string(),
+            "ps".to_string()
+        ]));
         assert!(invoked_via_ps_alias(&[
             "lcode".to_string(),
             "--json".to_string(),

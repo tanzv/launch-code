@@ -223,7 +223,7 @@ fn logs_follow_can_filter_ignore_case() {
     let script_path = tmp.path().join("filter_follow.py");
     fs::write(
         &script_path,
-        "import time\nprint('INFO warmup', flush=True)\ntime.sleep(0.2)\nprint('Error one', flush=True)\ntime.sleep(0.2)\nprint('ERROR two', flush=True)\n",
+        "import time\nprint('INFO warmup', flush=True)\ntime.sleep(2.0)\nprint('Error one', flush=True)\ntime.sleep(0.6)\nprint('ERROR two', flush=True)\n",
     )
     .expect("script should be written");
 

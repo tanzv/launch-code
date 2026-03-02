@@ -46,7 +46,10 @@ fn list_empty_output_includes_next_step_hint() {
 
     let text = String::from_utf8(list_output.stdout).expect("stdout should be utf8");
     assert!(text.contains("no sessions"));
-    assert!(text.contains("hint:"), "empty list should provide actionable hint");
+    assert!(
+        text.contains("hint:"),
+        "empty list should provide actionable hint"
+    );
     assert!(
         text.contains("lcode running"),
         "empty list hint should include running command"
@@ -392,7 +395,7 @@ fn running_command_lists_only_running_sessions() {
     let first_id_token = running_short_id_len_text
         .lines()
         .next()
-        .and_then(|line| line.split('\t').next())
+        .and_then(|line| line.split_whitespace().next())
         .expect("compact row should contain id token");
     assert_eq!(first_id_token.len(), 8);
     let running_prefix_8: String = running_id.chars().take(8).collect();
@@ -728,7 +731,7 @@ fn list_supports_combined_filters_and_rich_columns() {
     let first_id_token = list_short_id_len_text
         .lines()
         .next()
-        .and_then(|line| line.split('\t').next())
+        .and_then(|line| line.split_whitespace().next())
         .expect("compact row should contain id token");
     assert_eq!(first_id_token.len(), 16);
     let api_prefix_16: String = api_id.chars().take(16).collect();

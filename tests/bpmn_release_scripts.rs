@@ -48,8 +48,8 @@ mod bpmn_release_scripts_tests {
         fs::write(&source_file, "<bpmn:definitions id=\"test\" />\n")
             .expect("source bpmn should be written");
 
-        let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("scripts/prepare_bpmn_package.sh");
+        let script_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/prepare_bpmn_package.sh");
         let output = Command::new("bash")
             .arg(script_path)
             .arg("--package-dir")
@@ -70,7 +70,10 @@ mod bpmn_release_scripts_tests {
         assert!(packaged_bpmn.exists(), "packaged bpmn should exist");
 
         let content = fs::read_to_string(packaged_bpmn).expect("packaged bpmn should be readable");
-        assert!(content.contains("id=\"test\""), "packaged bpmn should match source");
+        assert!(
+            content.contains("id=\"test\""),
+            "packaged bpmn should match source"
+        );
     }
 
     #[test]
@@ -79,8 +82,8 @@ mod bpmn_release_scripts_tests {
         let package_dir = create_package_dir(tmp.path());
         let missing_source = tmp.path().join("missing-flow.bpmn");
 
-        let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("scripts/prepare_bpmn_package.sh");
+        let script_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/prepare_bpmn_package.sh");
         let output = Command::new("bash")
             .arg(script_path)
             .arg("--package-dir")
@@ -134,7 +137,10 @@ mod bpmn_release_scripts_tests {
             .arg("--skip-verification")
             .arg("--allow-dirty")
             .env("PATH", format!("{}:{}", bin_dir.display(), path_env))
-            .env("LCODE_NPM_PUBLISH_REGISTRY", "https://registry.local.example")
+            .env(
+                "LCODE_NPM_PUBLISH_REGISTRY",
+                "https://registry.local.example",
+            )
             .output()
             .expect("release script should run");
 
@@ -146,7 +152,10 @@ mod bpmn_release_scripts_tests {
         );
 
         let packaged_bpmn = package_dir.join("bpmn/npm-publish.bpmn");
-        assert!(packaged_bpmn.exists(), "packaged bpmn should exist after release");
+        assert!(
+            packaged_bpmn.exists(),
+            "packaged bpmn should exist after release"
+        );
 
         let log = fs::read_to_string(&npm_log).expect("npm log should be readable");
         assert!(
@@ -162,8 +171,8 @@ mod bpmn_release_scripts_tests {
             "release script should publish with expected registry and tag"
         );
 
-        let package_json =
-            fs::read_to_string(package_dir.join("package.json")).expect("package.json should exist");
+        let package_json = fs::read_to_string(package_dir.join("package.json"))
+            .expect("package.json should exist");
         assert!(
             package_json.contains("\"version\":\"0.1.0\""),
             "dry-run release should restore package.json version"
