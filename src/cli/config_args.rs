@@ -16,13 +16,16 @@ pub enum ConfigCommands {
     List,
     #[command(about = "Show one saved profile.")]
     Show(ConfigNameArgs),
-    #[command(about = "Save or update a profile.")]
+    #[command(
+        about = "Save or update a profile.",
+        after_help = "Examples:\n  lcode config save --name \"Python Debug\" --runtime python --entry app.py --cwd . --mode debug\n  lcode config save --name \"Python Odoo\" --runtime python --entry odoo-bin --cwd . --env-file ./.env.runtime --env PYTHON_BIN=/opt/miniconda3/envs/env38/bin/python"
+    )]
     Save(ConfigSaveArgs),
     #[command(about = "Delete a saved profile.")]
     Delete(ConfigNameArgs),
     #[command(
         about = "Run a saved profile.",
-        long_about = "Run a saved profile with optional one-off overrides. Env merge order: saved profile env, then --env-file values (in declaration order), then --env overrides.",
+        long_about = "Run a saved profile with optional one-off overrides. Env merge order: saved profile env-file values (in declaration order), then saved profile env, then --env-file values (in declaration order), then --env overrides.",
         after_help = "Examples:\n  lcode config run --name \"Python Profile\"\n  lcode config run --name \"Python Profile\" --clear-args --clear-env --env-file ./.env\n  lcode config run --name \"Python Profile\" --env-file ./.env.base --env-file ./.env.local --env API_URL=http://127.0.0.1:9000"
     )]
     Run(ConfigRunArgs),
@@ -75,7 +78,7 @@ pub struct ConfigRunArgs {
     #[arg(
         long,
         default_value_t = false,
-        help = "Ignore saved profile environment variables for this run."
+        help = "Ignore saved profile env-file and environment values for this run."
     )]
     pub clear_env: bool,
     #[arg(
@@ -137,6 +140,11 @@ pub struct ConfigSaveArgs {
         help = "Environment variable pair in KEY=VALUE format. Repeatable."
     )]
     pub env: Vec<String>,
+    #[arg(
+        long,
+        help = "Persist env file path for this profile. Repeatable; later files override earlier ones at run time."
+    )]
+    pub env_file: Vec<PathBuf>,
     #[arg(
         long,
         default_value_t = false,

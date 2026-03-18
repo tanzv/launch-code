@@ -119,6 +119,13 @@ Go 调试模式说明：
 1. `--env-file`（按声明顺序，后者覆盖前者）
 2. `--env KEY=VALUE`
 
+环境变量合并顺序（`config run`）：
+
+1. profile 保存的 `--env-file`（按声明顺序，后者覆盖前者）
+2. profile 保存的 `--env KEY=VALUE`
+3. 本次运行传入的 `--env-file`（按声明顺序，后者覆盖前者）
+4. 本次运行传入的 `--env KEY=VALUE`
+
 `launch` 配置文件查找顺序：
 
 1. 显式 `--launch-file <path>`（若提供则只使用该路径）
@@ -129,6 +136,7 @@ Go 调试模式说明：
 
 - 以 `launch.json` 作为项目级“唯一事实来源”（建议维护在 `.vscode/launch.json`）。
 - `lcode config save/run` 仅用于个人本地临时覆盖，不作为团队共享启动规范。
+- 如需给个人 profile 固化 Python/环境文件，可使用 `lcode config save --env-file ...` 保存本地 env 文件路径。
 
 ### 构建命令
 

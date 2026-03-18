@@ -908,3 +908,29 @@ fn config_run_help_exposes_runtime_override_flags() {
         "config run help should include command examples"
     );
 }
+
+#[test]
+fn config_save_help_exposes_env_file_flag() {
+    let mut cmd = cargo_bin_cmd!("launch-code");
+    let output = cmd
+        .arg("config")
+        .arg("save")
+        .arg("--help")
+        .output()
+        .expect("config save help should run");
+    assert!(output.status.success(), "config save help should succeed");
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(
+        stdout.contains("--env-file"),
+        "config save help should expose --env-file"
+    );
+    assert!(
+        stdout.contains("Persist env file path"),
+        "config save help should describe persisted env files"
+    );
+    assert!(
+        stdout.contains("lcode config save --name"),
+        "config save help should include command examples"
+    );
+}

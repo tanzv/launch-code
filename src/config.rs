@@ -171,6 +171,7 @@ pub fn load_launch_spec(
         args: config.args.unwrap_or_default(),
         cwd,
         env: env_map,
+        env_files: Vec::new(),
         env_remove: env_remove.into_iter().collect(),
         managed,
         mode,

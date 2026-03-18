@@ -27,6 +27,7 @@ Do not use this skill for non-operational planning topics.
 - Prefer `lcode launch --name ...` with `launch.json` as the canonical startup source for team workflows.
 - `lcode launch` config resolution is deterministic: `--launch-file` override first, then `.vscode/launch.json`, then `.launch-code/launch.json`.
 - `lcode config` profiles are persisted in `<workspace>/.launch-code/state.json` (`profiles`) and are intended for local temporary overrides.
+- `lcode config save --env-file ...` persists local env-file paths inside the saved profile; `config run` reapplies saved env files before one-off overrides.
 - Session-id commands should support both forms when available:
   - `--id <session_id>`
   - `<session_id>` positional shorthand

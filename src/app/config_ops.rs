@@ -150,13 +150,14 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
 
     if args.clear_env {
         spec.env.clear();
+        spec.env_files.clear();
         spec.env_remove.clear();
+    } else {
+        materialize_profile_env_files(&mut spec)?;
     }
 
     for env_file in &args.env_file {
-        let env_map = super::spec_ops::parse_env_file_map(env_file)?;
-        remove_env_remove_keys(&mut spec.env_remove, env_map.keys());
-        spec.env.extend(env_map);
+        extend_spec_env_from_file(&mut spec, env_file)?;
     }
 
     if !args.env.is_empty() {
@@ -306,6 +307,7 @@ fn build_profile_spec(args: &ConfigSaveArgs) -> Result<LaunchSpec, AppError> {
         args: args.args.clone(),
         cwd: args.cwd.clone(),
         env: super::spec_ops::parse_env_map(&args.env)?,
+        env_files: normalize_profile_env_files(&args.env_file)?,
         env_remove: Vec::new(),
         managed: args.managed,
         mode,
@@ -316,24 +318,27 @@ fn build_profile_spec(args: &ConfigSaveArgs) -> Result<LaunchSpec, AppError> {
 }
 
 fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
+    let mut effective_spec = spec.clone();
+    materialize_profile_env_files(&mut effective_spec)
+        .map_err(|err| AppError::ProfileValidationFailed(format!("env setup failed: {err}")))?;
     let mut checks = Vec::new();
 
-    let cwd = Path::new(&spec.cwd);
+    let cwd = Path::new(&effective_spec.cwd);
     if !cwd.exists() {
         return Err(AppError::ProfileValidationFailed(format!(
             "cwd not found: {}",
-            spec.cwd
+            effective_spec.cwd
         )));
     }
     if !cwd.is_dir() {
         return Err(AppError::ProfileValidationFailed(format!(
             "cwd is not a directory: {}",
-            spec.cwd
+            effective_spec.cwd
         )));
     }
-    checks.push(format!("cwd_exists={}", spec.cwd));
+    checks.push(format!("cwd_exists={}", effective_spec.cwd));
 
-    match spec.runtime {
+    match effective_spec.runtime {
         RuntimeKind::Rust => {
             let cargo_manifest = cwd.join("Cargo.toml");
             if !cargo_manifest.exists() {
@@ -348,10 +353,10 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
             ));
         }
         RuntimeKind::Python | RuntimeKind::Node | RuntimeKind::Go => {
-            let entry_path = if Path::new(&spec.entry).is_absolute() {
-                PathBuf::from(&spec.entry)
+            let entry_path = if Path::new(&effective_spec.entry).is_absolute() {
+                PathBuf::from(&effective_spec.entry)
             } else {
-                cwd.join(&spec.entry)
+                cwd.join(&effective_spec.entry)
             };
             if !entry_path.exists() {
                 return Err(AppError::ProfileValidationFailed(format!(
@@ -363,19 +368,19 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
         }
     }
 
-    build_command(spec)
+    build_command(&effective_spec)
         .map_err(|err| AppError::ProfileValidationFailed(format!("build command failed: {err}")))?;
     checks.push("command_buildable=true".to_string());
 
-    if matches!(spec.mode, LaunchMode::Debug) {
-        let Some(backend) = DebugBackendKind::for_runtime(&spec.runtime) else {
+    if matches!(effective_spec.mode, LaunchMode::Debug) {
+        let Some(backend) = DebugBackendKind::for_runtime(&effective_spec.runtime) else {
             return Err(AppError::ProfileValidationFailed(format!(
                 "debug mode currently supports python, node, and go runtimes only; found {}",
-                super::spec_ops::runtime_label(&spec.runtime)
+                super::spec_ops::runtime_label(&effective_spec.runtime)
             )));
         };
 
-        if spec.debug.is_none() {
+        if effective_spec.debug.is_none() {
             return Err(AppError::ProfileValidationFailed(
                 "debug mode requires debug config".to_string(),
             ));
@@ -383,14 +388,14 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
         checks.push("debug_config_present=true".to_string());
 
         if backend.requires_python_debugpy() {
-            let interpreter = python_executable(spec);
+            let interpreter = python_executable(&effective_spec);
             let mut cmd = ProcessCommand::new(&interpreter);
             cmd.arg("-c").arg("import debugpy").current_dir(cwd);
-            for key in &spec.env_remove {
+            for key in &effective_spec.env_remove {
                 cmd.env_remove(key);
             }
             let status = cmd
-                .envs(spec.env.iter())
+                .envs(effective_spec.env.iter())
                 .output()
                 .map_err(|err| {
                     AppError::ProfileValidationFailed(format!(
@@ -408,11 +413,11 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
         if matches!(backend, DebugBackendKind::GoDelve) {
             let mut cmd = ProcessCommand::new("dlv");
             cmd.arg("version").current_dir(cwd);
-            for key in &spec.env_remove {
+            for key in &effective_spec.env_remove {
                 cmd.env_remove(key);
             }
             let status = cmd
-                .envs(spec.env.iter())
+                .envs(effective_spec.env.iter())
                 .output()
                 .map_err(|err| {
                     AppError::ProfileValidationFailed(format!("dlv version check failed: {err}"))
@@ -428,6 +433,56 @@ fn validate_profile_spec(spec: &LaunchSpec) -> Result<Vec<String>, AppError> {
     }
 
     Ok(checks)
+}
+
+fn materialize_profile_env_files(spec: &mut LaunchSpec) -> Result<(), AppError> {
+    if spec.env_files.is_empty() {
+        return Ok(());
+    }
+
+    let saved_env = spec.env.clone();
+    let mut effective_env = BTreeMap::new();
+    let mut effective_env_remove = spec.env_remove.clone();
+
+    for env_file in &spec.env_files {
+        let env_map = super::spec_ops::parse_env_file_map(env_file)?;
+        remove_env_remove_keys(&mut effective_env_remove, env_map.keys());
+        effective_env.extend(env_map);
+    }
+
+    remove_env_remove_keys(&mut effective_env_remove, saved_env.keys());
+    effective_env.extend(saved_env);
+
+    spec.env = effective_env;
+    spec.env_remove = effective_env_remove;
+    spec.env_files.clear();
+
+    Ok(())
+}
+
+fn extend_spec_env_from_file(spec: &mut LaunchSpec, env_file: &Path) -> Result<(), AppError> {
+    let env_map = super::spec_ops::parse_env_file_map(env_file)?;
+    remove_env_remove_keys(&mut spec.env_remove, env_map.keys());
+    spec.env.extend(env_map);
+    Ok(())
+}
+
+fn normalize_profile_env_files(env_files: &[PathBuf]) -> Result<Vec<PathBuf>, AppError> {
+    if env_files.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let current_dir = std::env::current_dir()?;
+    Ok(env_files
+        .iter()
+        .map(|path| {
+            if path.is_absolute() {
+                path.clone()
+            } else {
+                current_dir.join(path)
+            }
+        })
+        .collect())
 }
 
 fn remove_env_remove_keys<'a>(

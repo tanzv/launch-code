@@ -248,10 +248,17 @@ Project and profile management:
 lcode project show
 lcode project list
 lcode project set ...
-lcode config save ...
+lcode config save --name "Python Debug" --runtime python --entry app.py --cwd . --env-file ./.env.runtime
 lcode config list
 lcode config run --name <profile>
 ```
+
+Profile env merge order:
+
+1. Saved profile `--env-file` values (in declaration order)
+2. Saved profile `--env KEY=VALUE` values
+3. One-off `config run --env-file` values (in declaration order)
+4. One-off `config run --env KEY=VALUE` overrides
 
 ## Output and Performance Options
 
