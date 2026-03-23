@@ -17,6 +17,14 @@ fn parse_field<'a>(output: &'a str, key: &str) -> Option<&'a str> {
         .find_map(|token| token.strip_prefix(&format!("{key}=")))
 }
 
+fn parse_json_stream(output: &str) -> Vec<Value> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<Value>(line).expect("stdout line should be valid json"))
+        .collect()
+}
+
 fn build_session(id: &str, name: &str) -> Value {
     json!({
         "id": id,
@@ -251,6 +259,161 @@ fn json_logs_rejects_invalid_time_window_with_stable_error_code() {
     let doc: Value = serde_json::from_str(&stderr).expect("stderr should be valid json");
     assert_eq!(doc["ok"], false);
     assert_eq!(doc["error"], "invalid_log_time_window");
+}
+
+#[test]
+fn json_logs_snapshot_uses_stable_document_schema() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("json_logs_snapshot.py");
+    fs::write(
+        &script_path,
+        "import time\nprint('json-line-1', flush=True)\nprint('json-line-2', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("json-logs-snapshot")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let start_stdout = String::from_utf8(start_output.stdout).expect("start stdout should be utf8");
+    let session_id = parse_field(&start_stdout, "session_id")
+        .map(ToString::to_string)
+        .expect("session id should exist");
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    let mut logs_cmd = cargo_bin_cmd!("launch-code");
+    let logs_output = logs_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("logs")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--tail")
+        .arg("2")
+        .output()
+        .expect("logs should run");
+    assert!(logs_output.status.success(), "logs should succeed");
+
+    let stdout = String::from_utf8(logs_output.stdout).expect("stdout should be utf8");
+    let doc: Value = serde_json::from_str(&stdout).expect("stdout should be valid json");
+    assert_eq!(doc["ok"], true);
+    assert_eq!(doc["session_id"], session_id);
+    assert_eq!(doc["event"], "snapshot");
+    assert_eq!(doc["follow"], false);
+    assert_eq!(doc["tail_lines"], 2);
+    assert_eq!(doc["line_count"], 2);
+    assert_eq!(doc["lines"][0], "json-line-1");
+    assert_eq!(doc["lines"][1], "json-line-2");
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(stop_output.status.success(), "stop should succeed");
+}
+
+#[test]
+fn json_logs_follow_uses_stable_event_stream_schema() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("json_logs_follow.py");
+    fs::write(
+        &script_path,
+        "import time\ntime.sleep(0.2)\nprint('json-follow-1', flush=True)\ntime.sleep(0.3)\nprint('json-follow-2', flush=True)\n",
+    )
+    .expect("script should be written");
+
+    let mut start_cmd = cargo_bin_cmd!("launch-code");
+    let start_output = start_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("start")
+        .arg("--name")
+        .arg("json-logs-follow")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .output()
+        .expect("start should run");
+    assert!(start_output.status.success(), "start should succeed");
+    let start_stdout = String::from_utf8(start_output.stdout).expect("start stdout should be utf8");
+    let session_id = parse_field(&start_stdout, "session_id")
+        .map(ToString::to_string)
+        .expect("session id should exist");
+
+    let mut logs_cmd = cargo_bin_cmd!("launch-code");
+    let logs_output = logs_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("--json")
+        .arg("logs")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--tail")
+        .arg("1")
+        .arg("--follow")
+        .arg("--poll-ms")
+        .arg("50")
+        .output()
+        .expect("logs should run");
+    assert!(logs_output.status.success(), "logs should succeed");
+
+    let stdout = String::from_utf8(logs_output.stdout).expect("stdout should be utf8");
+    let docs = parse_json_stream(&stdout);
+    assert!(!docs.is_empty(), "json follow should emit event documents");
+    assert_eq!(docs[0]["ok"], true);
+    assert_eq!(docs[0]["session_id"], session_id);
+    assert_eq!(docs[0]["event"], "snapshot");
+    assert_eq!(docs[0]["follow"], true);
+    assert_eq!(docs[0]["tail_lines"], 1);
+
+    let streamed_lines: Vec<String> = docs
+        .iter()
+        .filter(|doc| {
+            doc["event"] == "snapshot" || doc["event"] == "batch"
+        })
+        .flat_map(|doc| {
+            doc["lines"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|line| line.as_str().map(ToString::to_string))
+        })
+        .collect();
+    assert!(
+        streamed_lines.iter().any(|line| line == "json-follow-1"),
+        "follow stream should include first log line"
+    );
+    assert!(
+        streamed_lines.iter().any(|line| line == "json-follow-2"),
+        "follow stream should include second log line"
+    );
+    assert_eq!(docs.last().expect("last event should exist")["event"], "stream_end");
 }
 
 #[test]

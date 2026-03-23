@@ -6,7 +6,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::envfile::{EnvFileError, parse_env_file_map};
-use crate::model::{DebugConfig, LaunchMode, LaunchSpec, RuntimeKind};
+use crate::model::{DebugConfig, LaunchMode, LaunchSpec, LogRetention, RuntimeKind};
 
 const VSCODE_LAUNCH_FILE: &str = ".vscode/launch.json";
 const LOCAL_LAUNCH_FILE: &str = ".launch-code/launch.json";
@@ -51,6 +51,8 @@ struct LaunchConfiguration {
     #[serde(rename = "pythonPath")]
     python_path: Option<String>,
     managed: Option<bool>,
+    #[serde(rename = "logRetention")]
+    log_retention: Option<LogRetention>,
     #[serde(rename = "debugHost")]
     debug_host: Option<String>,
     #[serde(rename = "debugPort")]
@@ -81,6 +83,7 @@ pub struct LaunchRequest {
     pub name: String,
     pub mode: LaunchMode,
     pub managed_override: Option<bool>,
+    pub log_retention_override: Option<LogRetention>,
     pub launch_file: Option<PathBuf>,
 }
 
@@ -152,6 +155,9 @@ pub fn load_launch_spec(
     let managed = request
         .managed_override
         .unwrap_or_else(|| config.managed.unwrap_or(false));
+    let log_retention = request
+        .log_retention_override
+        .unwrap_or_else(|| config.log_retention.unwrap_or(LogRetention::Temporary));
 
     let debug = if mode == LaunchMode::Debug {
         Some(DebugConfig {
@@ -175,6 +181,7 @@ pub fn load_launch_spec(
         env_remove: env_remove.into_iter().collect(),
         managed,
         mode,
+        log_retention,
         debug,
         prelaunch_task: config.prelaunch_task,
         poststop_task: config.post_stop_task.or(config.post_debug_task),
@@ -323,6 +330,7 @@ mod tests {
             name: "Env Null Config".to_string(),
             mode: LaunchMode::Run,
             managed_override: None,
+            log_retention_override: None,
             launch_file: Some(launch_path),
         };
         let spec = load_launch_spec(workspace, &request).expect("launch spec should load");

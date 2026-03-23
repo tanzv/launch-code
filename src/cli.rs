@@ -207,6 +207,13 @@ pub struct StartArgs {
         help = "Startup log mode. file=background log file only, stdout=foreground terminal only, tee=foreground terminal and file."
     )]
     pub log_mode: StartLogModeArg,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = LogRetentionArg::Temporary,
+        help = "Log retention policy. temporary removes session log files after stop; persistent keeps them until explicit cleanup."
+    )]
+    pub log_retention: LogRetentionArg,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -345,6 +352,12 @@ pub struct LaunchArgs {
     pub launch_file: Option<PathBuf>,
     #[arg(long, help = "Force managed restart behavior for this launch request.")]
     pub managed: bool,
+    #[arg(
+        long,
+        value_enum,
+        help = "Optional log retention override for this launch request."
+    )]
+    pub log_retention: Option<LogRetentionArg>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -774,6 +787,12 @@ pub enum StartLogModeArg {
     File,
     Stdout,
     Tee,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum LogRetentionArg {
+    Temporary,
+    Persistent,
 }
 
 fn default_serve_workers() -> usize {

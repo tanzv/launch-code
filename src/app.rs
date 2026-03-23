@@ -27,8 +27,8 @@ use launch_code::config::{LaunchRequest, load_launch_spec};
 use launch_code::debug::resolve_debug_config;
 use launch_code::debug_backend::DebugBackendKind;
 use launch_code::model::{
-    AppState, DebugConfig, DebugSessionMeta, LaunchMode, LaunchSpec, RuntimeKind, SessionRecord,
-    SessionStatus, unix_timestamp_secs,
+    AppState, DebugConfig, DebugSessionMeta, LaunchMode, LaunchSpec, LogRetention, RuntimeKind,
+    SessionRecord, SessionStatus, unix_timestamp_secs,
 };
 use launch_code::process::{
     ProcessLogMode, is_process_alive, run_process_foreground_with_env_control,
@@ -248,6 +248,7 @@ pub(super) struct StartExecutionOptions {
     foreground: bool,
     tail: bool,
     log_mode: ProcessLogMode,
+    log_retention: LogRetention,
 }
 
 impl Default for StartExecutionOptions {
@@ -256,6 +257,7 @@ impl Default for StartExecutionOptions {
             foreground: false,
             tail: false,
             log_mode: ProcessLogMode::File,
+            log_retention: LogRetention::Temporary,
         }
     }
 }
@@ -270,6 +272,7 @@ fn start_options_from_args(args: &StartArgs) -> Result<StartExecutionOptions, Ap
         foreground: args.foreground,
         tail: args.tail,
         log_mode,
+        log_retention: spec_ops::to_log_retention(&args.log_retention),
     };
     validate_start_options(options)?;
     Ok(options)
@@ -348,6 +351,7 @@ fn handle_launch(store: &StateStore, args: &LaunchArgs) -> Result<(), AppError> 
         name: args.name.clone(),
         mode: spec_ops::to_launch_mode(&args.mode),
         managed_override: args.managed.then_some(true),
+        log_retention_override: args.log_retention.as_ref().map(spec_ops::to_log_retention),
         launch_file: args.launch_file.clone(),
     };
     let spec = load_launch_spec(store.root_path(), &request)?;
@@ -406,6 +410,10 @@ pub(super) fn handle_start_spec(
             &log_path,
             options.log_mode,
         )?;
+        let retained_log_path = finalize_log_retention_path(
+            options.log_retention,
+            Some(log_path.as_path()),
+        );
 
         let record = SessionRecord {
             id: session_id.clone(),
@@ -413,7 +421,7 @@ pub(super) fn handle_start_spec(
             status: SessionStatus::Stopped,
             pid: None,
             supervisor_pid: None,
-            log_path: Some(log_path.to_string_lossy().to_string()),
+            log_path: retained_log_path,
             debug_meta,
             created_at: now,
             updated_at: now,
@@ -478,7 +486,9 @@ pub(super) fn handle_start_spec(
             until: None,
             timestamps: false,
         };
+        let followed_session_id = follow_args.id.clone().unwrap_or_default();
         log_ops::handle_logs(store, &follow_args)?;
+        finalize_temporary_log_after_follow(store, &followed_session_id)?;
     }
 
     Ok(())
@@ -677,6 +687,52 @@ fn default_log_path(store: &StateStore, session_id: &str) -> PathBuf {
         .state_dir_path()
         .join("logs")
         .join(format!("{session_id}.log"))
+}
+
+pub(super) fn should_prune_session_log(session: &SessionRecord) -> bool {
+    matches!(session.spec.log_retention, LogRetention::Temporary)
+}
+
+pub(super) fn prune_session_log_path(path: Option<&str>) -> bool {
+    let Some(path) = path.filter(|value| !value.trim().is_empty()) else {
+        return false;
+    };
+    match fs::remove_file(path) {
+        Ok(()) => true,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => false,
+    }
+}
+
+fn finalize_log_retention_path(retention: LogRetention, log_path: Option<&Path>) -> Option<String> {
+    match retention {
+        LogRetention::Persistent => log_path.map(|value| value.to_string_lossy().to_string()),
+        LogRetention::Temporary => {
+            if let Some(path) = log_path {
+                let owned_path = path.to_string_lossy().to_string();
+                let _ = prune_session_log_path(Some(&owned_path));
+            }
+            None
+        }
+    }
+}
+
+fn finalize_temporary_log_after_follow(store: &StateStore, session_id: &str) -> Result<(), AppError> {
+    if session_id.is_empty() {
+        return Ok(());
+    }
+
+    store.update::<_, _, AppError>(|state| {
+        let now = unix_timestamp_secs();
+        let session = find_session_mut(state, session_id)?;
+        reconcile_session(store, session, now)?;
+        if should_prune_session_log(session) && matches!(session.status, SessionStatus::Stopped) {
+            prune_session_log_path(session.log_path.as_deref());
+            session.log_path = None;
+            session.updated_at = now;
+        }
+        Ok(())
+    })
 }
 
 fn append_debug_meta_output(output: &mut String, meta: Option<&DebugSessionMeta>) {

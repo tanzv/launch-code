@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use fs2::FileExt;
 use launch_code::model::{
-    AppState, LaunchMode, LaunchSpec, RuntimeKind, SessionRecord, SessionStatus,
+    AppState, LaunchMode, LaunchSpec, LogRetention, RuntimeKind, SessionRecord, SessionStatus,
 };
 use launch_code::state::{StateError, StateStore};
 use tempfile::tempdir;
@@ -33,6 +33,7 @@ fn state_store_persists_sessions_to_disk() {
                 env_remove: Vec::new(),
                 managed: false,
                 mode: LaunchMode::Run,
+                log_retention: LogRetention::Temporary,
                 debug: None,
                 prelaunch_task: None,
                 poststop_task: None,
@@ -63,6 +64,7 @@ fn state_store_persists_sessions_to_disk() {
     assert_eq!(restored.spec.entry, "app.py");
     assert_eq!(restored.status, SessionStatus::Running);
     assert_eq!(restored.pid, Some(43210));
+    assert_eq!(restored.spec.log_retention, LogRetention::Temporary);
 
     let tmp_state_path = tmp.path().join(".launch-code").join("state.json.tmp");
     assert!(
@@ -155,6 +157,7 @@ fn state_store_migrates_legacy_debug_meta_fields_from_runtime() {
         .sessions
         .get("session-1")
         .expect("session should be present");
+    assert_eq!(session.spec.log_retention, LogRetention::Temporary);
     let meta = session
         .debug_meta
         .as_ref()
@@ -269,6 +272,7 @@ fn state_store_update_serializes_concurrent_writes() {
                                 env_remove: Vec::new(),
                                 managed: false,
                                 mode: LaunchMode::Run,
+                                log_retention: LogRetention::Temporary,
                                 debug: None,
                                 prelaunch_task: None,
                                 poststop_task: None,

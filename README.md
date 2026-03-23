@@ -176,6 +176,7 @@ lcode stop <session_id>
 - `lcode launch` config discovery order: explicit `--launch-file <path>` first; otherwise `<workspace>/.vscode/launch.json`, then fallback `<workspace>/.launch-code/launch.json`.
 - `lcode config` saved profiles persist in `<workspace>/.launch-code/state.json` under `profiles`.
 - Team recommendation: keep `launch.json` as the canonical startup configuration source; use `lcode config save/run` only for local temporary overrides.
+- `launch.json` supports `managed`, `logRetention`, `envFile`, and `env` for practical team startup definitions. `logRetention` accepts `temporary` or `persistent`, and defaults to `temporary`.
 - `lcode list` and `lcode running` default to global aggregation across links.
 - Interactive `lcode list` / `lcode ps` defaults to compact columns on TTY; non-interactive output keeps wide columns for script readability.
 - `lcode ps` defaults to stable table output; use `--interactive` to open browser mode (navigation keys and detail panel).
@@ -191,6 +192,30 @@ lcode link list
 lcode link prune --dry-run
 lcode link prune
 lcode cleanup
+```
+
+Example `.vscode/launch.json`:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Demo",
+      "type": "python",
+      "request": "launch",
+      "managed": true,
+      "logRetention": "persistent",
+      "program": "${workspaceFolder}/app.py",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "DEBUG": "1",
+        "API_URL": "http://127.0.0.1:9000"
+      }
+    }
+  ]
+}
 ```
 
 ## Command Surface
@@ -230,6 +255,7 @@ lcode status --id <id>
 lcode inspect --id <id>
 lcode logs --id <id> --follow
 lcode logs --id <id> --tail 200 --since 10m --until 1m --timestamps
+lcode start --runtime python --entry app.py --cwd . --log-retention persistent
 ```
 
 Debug and diagnostics:
@@ -269,6 +295,8 @@ Profile env merge order:
 - Session list ordering/paging: `--sort id|name|runtime|status|updated|restarts --limit <N>`
 - Watch mode: `--watch [INTERVAL] --watch-count <N>`
 - Log time window and timestamp prefix: `logs --since <TIME> --until <TIME> --timestamps`
+- Default session logs are temporary. Use `start/debug/launch/config save --log-retention persistent` when logs must survive stop.
+- `logs --json` emits stable log documents: a single `snapshot` event without `--follow`, and compact JSON line events (`snapshot`, `batch`, `stream_end`) with `--follow`
 - Cross-build dry run (no execution): `build --dry-run`
 - Timing diagnostics: `--trace-time`
 - Global cleanup JSON includes `link_errors` and `link_error_count` for unreadable/broken links.

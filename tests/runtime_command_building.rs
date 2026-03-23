@@ -1,4 +1,4 @@
-use launch_code::model::{DebugConfig, LaunchMode, LaunchSpec, RuntimeKind};
+use launch_code::model::{DebugConfig, LaunchMode, LaunchSpec, LogRetention, RuntimeKind};
 use launch_code::runtime::build_command;
 
 #[test]
@@ -14,6 +14,7 @@ fn python_run_command_is_built_from_entry_and_args() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Run,
+        log_retention: LogRetention::Temporary,
         debug: None,
         prelaunch_task: None,
         poststop_task: None,
@@ -36,6 +37,7 @@ fn python_debug_command_uses_debugpy_wait_for_client() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
+        log_retention: LogRetention::Temporary,
         debug: Some(DebugConfig {
             host: "127.0.0.1".to_string(),
             port: 5678,
@@ -78,6 +80,7 @@ fn python_debug_command_can_disable_debugpy_subprocess_injection() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
+        log_retention: LogRetention::Temporary,
         debug: Some(DebugConfig {
             host: "127.0.0.1".to_string(),
             port: 9000,
@@ -117,6 +120,7 @@ fn node_debug_command_uses_host_port_and_wait_flag() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
+        log_retention: LogRetention::Temporary,
         debug: Some(DebugConfig {
             host: "127.0.0.1".to_string(),
             port: 9229,
@@ -153,6 +157,7 @@ fn node_debug_command_can_disable_wait_for_client() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
+        log_retention: LogRetention::Temporary,
         debug: Some(DebugConfig {
             host: "127.0.0.1".to_string(),
             port: 9230,
@@ -180,6 +185,7 @@ fn go_run_command_uses_go_run_with_entry_and_args() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Run,
+        log_retention: LogRetention::Temporary,
         debug: None,
         prelaunch_task: None,
         poststop_task: None,
@@ -202,6 +208,7 @@ fn go_debug_command_uses_delve_headless_multiclient_listener() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
+        log_retention: LogRetention::Temporary,
         debug: Some(DebugConfig {
             host: "127.0.0.1".to_string(),
             port: 43000,
@@ -243,6 +250,7 @@ fn go_debug_command_can_continue_without_waiting_for_client() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
+        log_retention: LogRetention::Temporary,
         debug: Some(DebugConfig {
             host: "127.0.0.1".to_string(),
             port: 43001,
@@ -282,6 +290,7 @@ fn go_debug_command_supports_test_mode_entry_prefix() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
+        log_retention: LogRetention::Temporary,
         debug: Some(DebugConfig {
             host: "127.0.0.1".to_string(),
             port: 43002,
@@ -323,6 +332,7 @@ fn go_debug_command_supports_attach_mode_entry_prefix() {
         env_remove: Vec::new(),
         managed: false,
         mode: LaunchMode::Debug,
+        log_retention: LogRetention::Temporary,
         debug: Some(DebugConfig {
             host: "127.0.0.1".to_string(),
             port: 43003,

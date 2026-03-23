@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 
-use super::{LaunchModeArg, RuntimeArg};
+use super::{LaunchModeArg, LogRetentionArg, RuntimeArg};
 
 #[derive(Debug, Clone, Args)]
 pub struct ConfigArgs {
@@ -67,6 +67,8 @@ pub struct ConfigRunArgs {
     pub name: String,
     #[arg(long, value_enum, help = "Optional mode override for this run.")]
     pub mode: Option<LaunchModeArg>,
+    #[arg(long, value_enum, help = "Optional log retention override for this run.")]
+    pub log_retention: Option<LogRetentionArg>,
     #[arg(long, help = "Force managed restart behavior for this run.")]
     pub managed: bool,
     #[arg(
@@ -169,6 +171,13 @@ pub struct ConfigSaveArgs {
     pub wait_for_client: bool,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set, help = "Enable debugpy subprocess debugging hooks in debug mode.")]
     pub subprocess: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = LogRetentionArg::Temporary,
+        help = "Default log retention policy for this profile."
+    )]
+    pub log_retention: LogRetentionArg,
     #[arg(long, help = "Optional prelaunch shell task.")]
     pub prelaunch_task: Option<String>,
     #[arg(long, help = "Optional poststop shell task.")]

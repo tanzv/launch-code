@@ -136,6 +136,10 @@ fn handle_config_run(store: &StateStore, args: &ConfigRunArgs) -> Result<(), App
         }
     }
 
+    if let Some(log_retention) = &args.log_retention {
+        spec.log_retention = super::spec_ops::to_log_retention(log_retention);
+    }
+
     if args.managed {
         spec.managed = true;
     }
@@ -311,6 +315,7 @@ fn build_profile_spec(args: &ConfigSaveArgs) -> Result<LaunchSpec, AppError> {
         env_remove: Vec::new(),
         managed: args.managed,
         mode,
+        log_retention: super::spec_ops::to_log_retention(&args.log_retention),
         debug,
         prelaunch_task: args.prelaunch_task.clone(),
         poststop_task: args.poststop_task.clone(),

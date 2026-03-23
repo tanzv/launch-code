@@ -139,6 +139,13 @@ pub(crate) fn print_json_doc(value: &serde_json::Value) {
     );
 }
 
+pub(crate) fn print_json_line_doc(value: &serde_json::Value) {
+    println!(
+        "{}",
+        serde_json::to_string(value).expect("json doc should serialize")
+    );
+}
+
 pub(crate) fn print_text_block(text: &str) {
     if is_json_mode() {
         let payload = json!({

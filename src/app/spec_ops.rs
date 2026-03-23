@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use launch_code::envfile::{EnvFileError, parse_env_file_map as parse_shared_env_file_map};
-use launch_code::model::{DebugConfig, LaunchMode, LaunchSpec, RuntimeKind};
+use launch_code::model::{DebugConfig, LaunchMode, LaunchSpec, LogRetention, RuntimeKind};
 
-use crate::cli::{LaunchModeArg, RuntimeArg, StartArgs};
+use crate::cli::{LaunchModeArg, LogRetentionArg, RuntimeArg, StartArgs};
 use crate::error::AppError;
 
 pub(super) fn build_launch_spec(
@@ -34,6 +34,7 @@ pub(super) fn build_launch_spec(
         env_remove: Vec::new(),
         managed: args.managed,
         mode,
+        log_retention: to_log_retention(&args.log_retention),
         debug,
         prelaunch_task: None,
         poststop_task: None,
@@ -71,6 +72,13 @@ pub(super) fn to_launch_mode(mode: &LaunchModeArg) -> LaunchMode {
     match mode {
         LaunchModeArg::Run => LaunchMode::Run,
         LaunchModeArg::Debug => LaunchMode::Debug,
+    }
+}
+
+pub(super) fn to_log_retention(retention: &LogRetentionArg) -> LogRetention {
+    match retention {
+        LogRetentionArg::Temporary => LogRetention::Temporary,
+        LogRetentionArg::Persistent => LogRetention::Persistent,
     }
 }
 

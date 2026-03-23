@@ -171,7 +171,9 @@ pub(crate) fn api_cleanup_sessions_with_options(
             Vec::new()
         } else {
             for id in &matched_session_ids {
-                state.sessions.remove(id);
+                if let Some(session) = state.sessions.remove(id) {
+                    super::prune_session_log_path(session.log_path.as_deref());
+                }
             }
             matched_session_ids.clone()
         };
@@ -351,7 +353,7 @@ fn api_stop_session_once(
         stop_process_with_options(pid, force, grace_timeout)?;
     }
 
-    let (session_clone, post_task) = store.update::<_, _, AppError>(|state| {
+    let (mut session_clone, post_task, log_should_prune) = store.update::<_, _, AppError>(|state| {
         let now = unix_timestamp_secs();
         let session = super::find_session_mut(state, session_id)?;
         if session.pid != expected_pid {
@@ -360,7 +362,8 @@ fn api_stop_session_once(
                     session.status = SessionStatus::Stopped;
                     session.updated_at = now;
                 }
-                return Ok((session.clone(), None));
+                let log_should_prune = super::should_prune_session_log(session);
+                return Ok((session.clone(), None, log_should_prune));
             }
             return Err(AppError::SessionStateChanged(session.id.clone()));
         }
@@ -370,10 +373,11 @@ fn api_stop_session_once(
         } else {
             None
         };
+        let log_should_prune = super::should_prune_session_log(session);
         session.pid = None;
         session.status = SessionStatus::Stopped;
         session.updated_at = now;
-        Ok((session.clone(), post_task))
+        Ok((session.clone(), post_task, log_should_prune))
     })?;
 
     if let Some((task, cwd, env_map, env_remove, log_path)) = post_task {
@@ -384,6 +388,16 @@ fn api_stop_session_once(
             &env_remove,
             Path::new(&log_path),
         )?;
+    }
+
+    if log_should_prune {
+        let pruned = store.update::<_, _, AppError>(|state| {
+            let session = super::find_session_mut(state, session_id)?;
+            let pruned = super::prune_session_log_path(session.log_path.as_deref());
+            session.log_path = None;
+            Ok((session.clone(), pruned))
+        })?;
+        session_clone = pruned.0;
     }
 
     Ok(session_clone)

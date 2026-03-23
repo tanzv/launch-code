@@ -178,7 +178,9 @@ fn index_path() -> Option<PathBuf> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use launch_code::model::{LaunchMode, LaunchSpec, RuntimeKind, SessionRecord, SessionStatus};
+    use launch_code::model::{
+        LaunchMode, LaunchSpec, LogRetention, RuntimeKind, SessionRecord, SessionStatus,
+    };
 
     use super::{GlobalListScanIndex, StateFileSignature};
     use crate::cli::ListStatusArg;
@@ -212,6 +214,7 @@ mod tests {
                 env_remove: Vec::new(),
                 managed: false,
                 mode: LaunchMode::Run,
+                log_retention: LogRetention::Temporary,
                 debug: None,
                 prelaunch_task: None,
                 poststop_task: None,

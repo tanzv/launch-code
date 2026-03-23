@@ -26,6 +26,7 @@ Do not use this skill for non-operational planning topics.
 - Prefer `--json` for automation and contract validation.
 - Prefer `lcode launch --name ...` with `launch.json` as the canonical startup source for team workflows.
 - `lcode launch` config resolution is deterministic: `--launch-file` override first, then `.vscode/launch.json`, then `.launch-code/launch.json`.
+- `launch.json` may declare `managed`, `logRetention`, `envFile`, and `env`. `logRetention` accepts `temporary` or `persistent` and defaults to `temporary`.
 - `lcode config` profiles are persisted in `<workspace>/.launch-code/state.json` (`profiles`) and are intended for local temporary overrides.
 - `lcode config save --env-file ...` persists local env-file paths inside the saved profile; `config run` reapplies saved env files before one-off overrides.
 - Session-id commands should support both forms when available:
@@ -56,6 +57,32 @@ lcode running
 ```bash
 lcode start --runtime python --entry app.py --cwd .
 lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678
+lcode start --runtime python --entry app.py --cwd . --log-retention persistent
+lcode launch --name "Python Demo" --mode run
+```
+
+Canonical `launch.json` example:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Demo",
+      "type": "python",
+      "request": "launch",
+      "managed": true,
+      "logRetention": "persistent",
+      "program": "${workspaceFolder}/app.py",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "DEBUG": "1",
+        "API_URL": "http://127.0.0.1:9000"
+      }
+    }
+  ]
+}
 ```
 
 4. Inspect and troubleshoot.
@@ -64,8 +91,12 @@ lcode debug --runtime python --entry app.py --cwd . --host 127.0.0.1 --port 5678
 lcode status <session_id> --json
 lcode inspect <session_id> --tail 100
 lcode logs <session_id> --tail 200 --since 10m --timestamps
+lcode logs <session_id> --tail 50 --follow --json
 lcode doctor debug --id <session_id> --json
 ```
+
+For `lcode logs --json`, expect a stable `snapshot` document without `--follow`, and compact JSON line events (`snapshot`, `batch`, `stream_end`) when `--follow` is enabled.
+Default session logs are temporary; use `--log-retention persistent` when logs must survive stop.
 
 5. Apply lifecycle changes safely.
 

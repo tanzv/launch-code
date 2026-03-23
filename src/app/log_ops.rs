@@ -8,6 +8,7 @@ use launch_code::model::unix_timestamp_secs;
 use launch_code::process::is_process_alive;
 use launch_code::state::StateStore;
 use regex::{Regex, RegexBuilder};
+use serde_json::json;
 
 use crate::cli::LogsArgs;
 use crate::error::AppError;
@@ -19,6 +20,7 @@ pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), App
     let Some(session_id) = args.resolved_id() else {
         return Ok(());
     };
+    let tail_lines = args.tail.min(MAX_LOG_TAIL_LINES);
     let filter = LogFilter::new(
         args.contains.clone(),
         args.exclude.clone(),
@@ -44,12 +46,12 @@ pub(super) fn handle_logs(store: &StateStore, args: &LogsArgs) -> Result<(), App
         Ok((log_path, session.pid))
     })?;
 
-    let content = render_log_block(
-        &read_log_tail(Some(&log_path), args.tail).unwrap_or_default(),
-        render_options,
-    );
-    if !content.is_empty() {
-        output::print_text_block(&format!("{content}\n"));
+    let tail_content = read_log_tail(Some(&log_path), tail_lines).unwrap_or_default();
+    let initial_lines = render_log_lines(tail_content.lines(), render_options);
+    if output::is_json_mode() {
+        emit_snapshot_event(&session_id, tail_lines, args.follow, &initial_lines);
+    } else if !initial_lines.is_empty() {
+        output::print_text_block(&format!("{}\n", initial_lines.join("\n")));
     }
 
     if !args.follow {
@@ -374,22 +376,17 @@ impl LogRenderOptions<'_> {
     }
 }
 
-fn render_log_block(block: &str, options: LogRenderOptions<'_>) -> String {
-    render_log_lines(block.lines(), options)
-}
-
 fn render_log_lines<'a>(
     lines: impl IntoIterator<Item = &'a str>,
     options: LogRenderOptions<'_>,
-) -> String {
+) -> Vec<String> {
     lines
         .into_iter()
         .filter(|line| !line.is_empty())
         .filter(|line| options.filter.allows_line(line))
         .filter(|line| options.time_window.matches_line(line))
         .map(|line| format_log_line(line, options.timestamps))
-        .collect::<Vec<String>>()
-        .join("\n")
+        .collect()
 }
 
 fn format_log_line(line: &str, timestamps: bool) -> String {
@@ -410,7 +407,8 @@ fn follow_log_until_exit(
     let mut offset = fs::metadata(log_path).map(|meta| meta.len()).unwrap_or(0);
     let mut idle_after_exit = false;
     let mut partial_line = String::new();
-    let process_lines = options.process_lines();
+    let json_mode = output::is_json_mode();
+    let process_lines = json_mode || options.process_lines();
 
     loop {
         if let Ok(mut file) = fs::File::open(log_path) {
@@ -430,8 +428,10 @@ fn follow_log_until_exit(
                         chunks.pop().unwrap_or_default().to_string()
                     };
                     let filtered = render_log_lines(chunks, options);
-                    if !filtered.is_empty() {
-                        output::print_text_block(&format!("{filtered}\n"));
+                    if json_mode {
+                        emit_batch_event(session_id, &filtered);
+                    } else if !filtered.is_empty() {
+                        output::print_text_block(&format!("{}\n", filtered.join("\n")));
                     }
                     partial_line = remainder;
                 } else {
@@ -466,13 +466,53 @@ fn follow_log_until_exit(
         && options.filter.allows_line(&partial_line)
         && options.time_window.matches_line(&partial_line)
     {
-        output::print_text_block(&format!(
-            "{}\n",
-            format_log_line(&partial_line, options.timestamps)
-        ));
+        let line = format_log_line(&partial_line, options.timestamps);
+        if json_mode {
+            emit_batch_event(session_id, &[line]);
+        } else {
+            output::print_text_block(&format!("{line}\n"));
+        }
+    }
+
+    if json_mode {
+        emit_stream_end_event(session_id);
     }
 
     Ok(())
+}
+
+fn emit_snapshot_event(session_id: &str, tail_lines: usize, follow: bool, lines: &[String]) {
+    output::print_json_line_doc(&json!({
+        "ok": true,
+        "session_id": session_id,
+        "event": "snapshot",
+        "follow": follow,
+        "tail_lines": tail_lines,
+        "line_count": lines.len(),
+        "lines": lines,
+    }));
+}
+
+fn emit_batch_event(session_id: &str, lines: &[String]) {
+    if lines.is_empty() {
+        return;
+    }
+
+    output::print_json_line_doc(&json!({
+        "ok": true,
+        "session_id": session_id,
+        "event": "batch",
+        "line_count": lines.len(),
+        "lines": lines,
+    }));
+}
+
+fn emit_stream_end_event(session_id: &str) {
+    output::print_json_line_doc(&json!({
+        "ok": true,
+        "session_id": session_id,
+        "event": "stream_end",
+    }));
 }
 
 #[cfg(test)]

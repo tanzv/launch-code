@@ -138,6 +138,37 @@ Go 调试模式说明：
 - `lcode config save/run` 仅用于个人本地临时覆盖，不作为团队共享启动规范。
 - 如需给个人 profile 固化 Python/环境文件，可使用 `lcode config save --env-file ...` 保存本地 env 文件路径。
 
+`launch.json` 常用字段补充：
+
+- `managed`：是否由 `lcode` 接管会话生命周期。
+- `logRetention`：日志保留策略，支持 `temporary` 和 `persistent`，默认值为 `temporary`。
+- `envFile`：从文件加载环境变量。
+- `env`：内联环境变量，优先级高于 `envFile`。
+
+示例 `launch.json`：
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Demo",
+      "type": "python",
+      "request": "launch",
+      "managed": true,
+      "logRetention": "persistent",
+      "program": "${workspaceFolder}/app.py",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "DEBUG": "1",
+        "API_URL": "http://127.0.0.1:9000"
+      }
+    }
+  ]
+}
+```
+
 ### 构建命令
 
 `build` 面向构建工件，不创建会话；适合在本地或 CI 做跨平台产物构建。
@@ -221,12 +252,15 @@ Go 调试模式说明：
 - `lcode logs --id <session_id> --tail 200 --follow`
 - `lcode logs --id <session_id> --tail 200 --since 10m --until 1m`
 - `lcode logs --id <session_id> --tail 200 --timestamps`
+- `lcode start --runtime python --entry app.py --cwd . --log-retention persistent`
 
 日志过滤补充：
 
 - 时间窗口：`--since` `--until` 支持 Unix 秒级时间戳或回溯时长（如 `30s` `5m` `2h` `1d`）。
 - 时间窗口只对带时间戳前缀的日志行生效（例如以 `1700000000 ...` 或 `[1700000000] ...` 开头）。
 - `--timestamps` 会为输出行附加当前 Unix 秒级时间戳前缀。
+- 默认日志保留策略是 `temporary`：会话停止后会清理日志文件；如需保留，请显式传入 `--log-retention persistent`，适用于 `start`、`debug`、`launch` 以及 `config save`/`config run`。
+- `logs --json` 在非 `--follow` 模式下输出单个 `snapshot` 文档；在 `--follow` 模式下输出紧凑 JSON 行事件流，事件类型包括 `snapshot`、`batch`、`stream_end`。
 
 ### 配置与元数据命令
 

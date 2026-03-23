@@ -57,6 +57,8 @@ Do not use this skill for non-operational project governance topics (roadmaps, s
 - Interactive browser controls: `q` quit, `j/k` or arrow keys to move, `Enter` toggle details, `x` stop, `R` restart, `s` suspend, `u` resume, `r` refresh.
 - Empty list/running text output includes next-step hints (`lcode running`, `lcode list --format id`, `lcode link list`).
 - `lcode logs` supports time-window filtering via `--since <TIME>` and `--until <TIME>` (unix seconds or lookback durations `30s/5m/2h/1d`) and output timestamp prefix via `--timestamps`.
+- Session logs are temporary by default and are removed after stop. Use `--log-retention persistent` on `start`, `debug`, `launch`, or profile workflows when logs must be retained.
+- `lcode logs --json` emits stable documents: a single `snapshot` payload without `--follow`, and compact JSON line events (`snapshot`, `batch`, `stream_end`) with `--follow`.
 - `start` / `debug` merge environment values in this order: `--env-file` values in declaration order, then `--env KEY=VALUE` overrides.
 - `config run` merges environment values in this order: saved profile env-file values (if any), then saved profile env, then one-off `--env-file` values in declaration order, then `--env KEY=VALUE` overrides.
 - `lcode launch` supports `envFile` and `env` fields from `launch.json`; `env` overrides keys loaded from `envFile`, and `env` keys set to `null` are removed from inherited process environment.
@@ -161,7 +163,7 @@ lcode launch --name "Python Demo" --mode run
 lcode launch --name "Python Demo" --mode debug
 ```
 
-`lcode launch` resolves config files in this order: explicit `--launch-file <path>`, then `.vscode/launch.json`, then fallback `.launch-code/launch.json`. It also supports `${workspaceFolder}`, `${workspaceFolderBasename}`, and `${env:VAR_NAME}` variable expansion in path-like fields.
+`lcode launch` resolves config files in this order: explicit `--launch-file <path>`, then `.vscode/launch.json`, then fallback `.launch-code/launch.json`. It also supports `${workspaceFolder}`, `${workspaceFolderBasename}`, and `${env:VAR_NAME}` variable expansion in path-like fields. `logRetention` accepts `temporary` or `persistent` and defaults to `temporary`.
 
 Example `launch.json` snippet:
 
@@ -173,6 +175,8 @@ Example `launch.json` snippet:
       "name": "Python Env Demo",
       "type": "python",
       "request": "launch",
+      "managed": true,
+      "logRetention": "persistent",
       "program": "${workspaceFolder}/app.py",
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",

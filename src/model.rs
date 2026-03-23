@@ -10,6 +10,10 @@ fn default_app_state_schema_version() -> u32 {
     APP_STATE_SCHEMA_VERSION
 }
 
+fn default_log_retention() -> LogRetention {
+    LogRetention::Temporary
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeKind {
@@ -24,6 +28,13 @@ pub enum RuntimeKind {
 pub enum LaunchMode {
     Run,
     Debug,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogRetention {
+    Temporary,
+    Persistent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +84,8 @@ pub struct LaunchSpec {
     pub env_remove: Vec<String>,
     pub managed: bool,
     pub mode: LaunchMode,
+    #[serde(default = "default_log_retention")]
+    pub log_retention: LogRetention,
     pub debug: Option<DebugConfig>,
     #[serde(default)]
     pub prelaunch_task: Option<String>,

@@ -160,6 +160,76 @@ fn config_profile_roundtrip_save_list_show_run_delete() {
 }
 
 #[test]
+fn config_profile_can_persist_log_retention_policy() {
+    if !python_available() {
+        return;
+    }
+
+    let tmp = tempdir().expect("temp dir should exist");
+    let script_path = tmp.path().join("profile_persistent_logs.py");
+    fs::write(
+        &script_path,
+        "import time\nprint('profile-persistent', flush=True)\ntime.sleep(30)\n",
+    )
+    .expect("script should be written");
+
+    let mut save_cmd = cargo_bin_cmd!("launch-code");
+    let save_output = save_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("save")
+        .arg("--name")
+        .arg("persistent-profile")
+        .arg("--runtime")
+        .arg("python")
+        .arg("--entry")
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--cwd")
+        .arg(tmp.path().to_string_lossy().to_string())
+        .arg("--log-retention")
+        .arg("persistent")
+        .output()
+        .expect("config save should run");
+    assert!(save_output.status.success(), "config save should succeed");
+
+    let mut run_cmd = cargo_bin_cmd!("launch-code");
+    let run_output = run_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("config")
+        .arg("run")
+        .arg("--name")
+        .arg("persistent-profile")
+        .output()
+        .expect("config run should execute");
+    assert!(run_output.status.success(), "config run should succeed");
+    let run_stdout = String::from_utf8(run_output.stdout).expect("run stdout should be utf8");
+    let session_id = parse_session_id(&run_stdout).expect("session id should be present");
+
+    let log_path = tmp
+        .path()
+        .join(".launch-code")
+        .join("logs")
+        .join(format!("{session_id}.log"));
+
+    thread::sleep(Duration::from_millis(250));
+
+    let mut stop_cmd = cargo_bin_cmd!("launch-code");
+    let stop_output = stop_cmd
+        .env("LAUNCH_CODE_HOME", tmp.path())
+        .arg("stop")
+        .arg("--id")
+        .arg(&session_id)
+        .arg("--force")
+        .output()
+        .expect("stop should run");
+    assert!(stop_output.status.success(), "stop should succeed");
+    assert!(
+        log_path.exists(),
+        "persistent profile run should keep log file after stop"
+    );
+}
+
+#[test]
 fn config_run_can_override_mode_to_debug() {
     if !python_debug_ready() {
         return;

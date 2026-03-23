@@ -232,6 +232,10 @@ fn start_help_exposes_env_file_flag() {
         "start help should expose --log-mode"
     );
     assert!(
+        stdout.contains("--log-retention"),
+        "start help should expose --log-retention"
+    );
+    assert!(
         stdout.contains("possible values: python, node, rust, go"),
         "start help should include go runtime option"
     );
